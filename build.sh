@@ -30,7 +30,7 @@ fi
 # Prepare build directory with clean structure
 echo "Setting up build directory structure..."
 mkdir -p build/data
-mkdir -p build/lineairdb_proxy
+mkdir -p build/proxy
 mkdir -p build/server
 
 # Build server
@@ -42,19 +42,19 @@ cmake ../../server \
 make -j `nproc`
 cd ../..
 
-# Create lineairdb_proxy copy with necessary dependencies in build directory
-echo "Creating lineairdb_proxy build structure..."
-cp -r lineairdb_proxy build/
+# Create proxy copy with necessary dependencies in build directory
+echo "Creating proxy build structure..."
+cp -r proxy build/
 # Create symbolic links in build directory only
-mkdir -p build/lineairdb_proxy/third_party
-ln -sf $(pwd)/third_party/LineairDB build/lineairdb_proxy/third_party/LineairDB
-ln -sf $(pwd)/proto build/lineairdb_proxy/proto
+mkdir -p build/proxy/third_party
+ln -sf $(pwd)/third_party/LineairDB build/proxy/third_party/LineairDB
+ln -sf $(pwd)/proto build/proxy/proto
 
 # Create MySQL storage engine link to build directory version
-ln -sf $(pwd)/build/lineairdb_proxy third_party/mysql-server/storage/lineairdb
+ln -sf $(pwd)/build/proxy third_party/mysql-server/storage/lineairdb
 
-# Build MySQL with lineairdb_proxy storage engine  
-echo "Building MySQL with lineairdb_proxy..."
+# Build MySQL with proxy storage engine  
+echo "Building MySQL with proxy..."
 cd build
 
 cmake ../third_party/mysql-server \

@@ -38,7 +38,7 @@ bool LineairDBServer::key_prefix_is_matching(const std::string& key_prefix, cons
 }
 
 void LineairDBServer::run() {
-    std::cout << "Starting LineairDB service on port 9999" << std::endl;
+    std::cout << "Starting Ordo server on port 9999" << std::endl;
     
     // Create socket
     int server_socket = socket(AF_INET, SOCK_STREAM, 0);
@@ -74,7 +74,7 @@ void LineairDBServer::run() {
         return;
     }
 
-    std::cout << "LineairDB service listening on port 9999" << std::endl;
+    std::cout << "Ordo server listening on port 9999" << std::endl;
 
     while (true) {
         struct sockaddr_in client_addr;
@@ -421,7 +421,7 @@ void LineairDBServer::handleDbEndTransaction(const std::string& message, std::st
 }
 
 int main(int argc, char** argv) {
-    std::cout << "Starting LineairDB server..." << std::endl;
+    std::cout << "Starting Ordo server..." << std::endl;
     LineairDBServer server;
     server.run();  // Start listening
     return 0;

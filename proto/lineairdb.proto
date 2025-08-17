@@ -1,0 +1,111 @@
+syntax = "proto3";
+
+package LineairDB.Protocol;
+
+// identifies which RPC is being invoked
+enum OpCode {
+    UNKNOWN = 0;
+    TX_BEGIN_TRANSACTION = 1;
+    TX_ABORT = 2;
+    TX_IS_ABORTED = 3;
+    TX_READ = 4;
+    TX_WRITE = 5;
+    TX_SCAN = 6;
+    DB_FENCE = 7;
+    DB_END_TRANSACTION = 8;
+}
+
+// Tx Begin Transaction RPC
+message TxBeginTransaction {
+    message Request {
+        // empty request - create new transaction
+    }
+    message Response {
+        int64 transaction_id = 1;  // generated transaction ID
+    }
+}
+
+// Tx Abort RPC
+message TxAbort {
+    message Request {
+        int64 transaction_id = 1;
+    }
+    
+    message Response {
+        // empty response
+    }
+}
+
+// Tx Is Aborted RPC
+message TxIsAborted {
+    message Request {
+        int64 transaction_id = 1;
+    }
+    
+    message Response {
+        bool is_aborted = 1;
+    }
+}
+
+// Tx Read RPC
+message TxRead {
+    message Request {
+        int64 transaction_id = 1;
+        string key = 2;
+    }
+    
+    message Response {
+        bool found = 1;
+        bytes value = 2;
+    }
+}
+
+// Tx Write RPC
+message TxWrite {
+    message Request {
+        int64 transaction_id = 1;
+        string key = 2;
+        string value = 3;
+    }
+    
+    message Response {
+        bool success = 1;
+    }
+}
+
+// Tx Scan RPC
+message TxScan {
+    message Request {
+        int64 transaction_id = 1;
+        string db_table_key = 2;
+        string first_key_part = 3;
+    }
+
+    message Response {
+        repeated string keys = 1;
+    }
+}
+
+// DB Fence RPC
+message DbFence {
+    message Request {
+        // empty request
+    }
+
+    message Response {
+        // empty response
+    }
+}
+
+// DB End Transaction RPC
+message DbEndTransaction {
+    message Request {
+        int64 transaction_id = 1;
+        bool fence = 2;
+    }
+
+    message Response {
+        // empty response
+        // NOTE: db->EndTransaction() returns bool, but it's unused in this implementation so response is empty.
+    }
+}

@@ -72,7 +72,7 @@ bool LineairDBClient::is_connected() const {
 std::string LineairDBClient::tx_read(int64_t tx_id, const std::string& key) {
     std::cout << "CLIENT: tx_read called with tx_id=" << tx_id << ", key=" << key << std::endl;
     if (!connected_) {
-        std::cout << "RPC failed[-]: " << "Not connected to lineairdb_service" << std::endl;
+        std::cout << "RPC failed[-]: " << "Not connected to server" << std::endl;
         return "";
     }
 
@@ -84,7 +84,7 @@ std::string LineairDBClient::tx_read(int64_t tx_id, const std::string& key) {
     std::cout << "CLIENT: Created read request" << std::endl;
 
     if (!send_protobuf_message(request, response, MessageType::TX_READ)) {
-        std::cout << "RPC failed[-]: " << "Failed to send message to lineairdb_service" << std::endl;
+        std::cout << "RPC failed[-]: " << "Failed to send message to server" << std::endl;
         return "";
     }
 
@@ -95,7 +95,7 @@ std::string LineairDBClient::tx_read(int64_t tx_id, const std::string& key) {
 bool LineairDBClient::tx_write(int64_t tx_id, const std::string& key, const std::string& value) {
     std::cout << "CLIENT: tx_write called with tx_id=" << tx_id << ", key=" << key << ", value=" << value << std::endl;
     if (!connected_) {
-        std::cout << "RPC failed[-]: " << "Not connected to lineairdb_service" << std::endl;
+        std::cout << "RPC failed[-]: " << "Not connected to server" << std::endl;
         return false;
     }
 
@@ -108,7 +108,7 @@ bool LineairDBClient::tx_write(int64_t tx_id, const std::string& key, const std:
     std::cout << "CLIENT: Created write request" << std::endl;
 
     if (!send_protobuf_message(request, response, MessageType::TX_WRITE)) {
-        std::cout << "RPC failed[-]: " << "Failed to send message to lineairdb_service" << std::endl;
+        std::cout << "RPC failed[-]: " << "Failed to send message to server" << std::endl;
         return false;
     }
 
@@ -119,7 +119,7 @@ bool LineairDBClient::tx_write(int64_t tx_id, const std::string& key, const std:
 std::vector<std::string> LineairDBClient::tx_scan(int64_t tx_id, const std::string& db_table_key, const std::string& first_key_part) {
     std::cout << "CLIENT: tx_scan called with tx_id=" << tx_id << ", table=" << db_table_key << ", prefix=" << first_key_part << std::endl;
     if (!connected_) {
-        std::cout << "RPC failed[-]: " << "Not connected to lineairdb_service" << std::endl;
+        std::cout << "RPC failed[-]: " << "Not connected to server" << std::endl;
         return {};
     }
 
@@ -132,7 +132,7 @@ std::vector<std::string> LineairDBClient::tx_scan(int64_t tx_id, const std::stri
     std::cout << "CLIENT: Created scan request" << std::endl;
 
     if (!send_protobuf_message(request, response, MessageType::TX_SCAN)) {
-        std::cout << "RPC failed[-]: " << "Failed to send message to lineairdb_service" << std::endl;
+        std::cout << "RPC failed[-]: " << "Failed to send message to server" << std::endl;
         return {};
     }
 
@@ -148,7 +148,7 @@ std::vector<std::string> LineairDBClient::tx_scan(int64_t tx_id, const std::stri
 int64_t LineairDBClient::tx_begin_transaction() {
     std::cout << "CLIENT: tx_begin_transaction called" << std::endl;
     if (!connected_) {
-        std::cout << "RPC failed[-]: " << "Not connected to lineairdb_service" << std::endl;
+        std::cout << "RPC failed[-]: " << "Not connected to server" << std::endl;
         return -1;
     }
 
@@ -157,7 +157,7 @@ int64_t LineairDBClient::tx_begin_transaction() {
     std::cout << "CLIENT: Created begin transaction request" << std::endl;
 
     if (!send_protobuf_message(request, response, MessageType::TX_BEGIN_TRANSACTION)) {
-        std::cout << "RPC failed[-]: " << "Failed to send message to lineairdb_service" << std::endl;
+        std::cout << "RPC failed[-]: " << "Failed to send message to server" << std::endl;
         return -1;
     }
 
@@ -168,7 +168,7 @@ int64_t LineairDBClient::tx_begin_transaction() {
 void LineairDBClient::tx_abort(int64_t tx_id) {
     std::cout << "CLIENT: tx_abort called with tx_id=" << tx_id << std::endl;
     if (!connected_) {
-        std::cout << "RPC failed[-]: " << "Not connected to lineairdb_service" << std::endl;
+        std::cout << "RPC failed[-]: " << "Not connected to server" << std::endl;
         return;
     }
 
@@ -179,7 +179,7 @@ void LineairDBClient::tx_abort(int64_t tx_id) {
     std::cout << "CLIENT: Created abort request" << std::endl;
 
     if (!send_protobuf_message(request, response, MessageType::TX_ABORT)) {
-        std::cout << "RPC failed[-]: " << "Failed to send message to lineairdb_service" << std::endl;
+        std::cout << "RPC failed[-]: " << "Failed to send message to server" << std::endl;
         return;
     }
 
@@ -189,7 +189,7 @@ void LineairDBClient::tx_abort(int64_t tx_id) {
 void LineairDBClient::db_end_transaction(int64_t tx_id, bool isFence) {
     std::cout << "CLIENT: db_end_transaction called with tx_id=" << tx_id << ", fence=" << isFence << std::endl;
     if (!connected_) {
-        std::cout << "RPC failed[-]: " << "Not connected to lineairdb_service" << std::endl;
+        std::cout << "RPC failed[-]: " << "Not connected to server" << std::endl;
         return;
     }
 
@@ -201,7 +201,7 @@ void LineairDBClient::db_end_transaction(int64_t tx_id, bool isFence) {
     std::cout << "CLIENT: Created end_transaction request" << std::endl;
 
     if (!send_protobuf_message(request, response, MessageType::DB_END_TRANSACTION)) {
-        std::cout << "RPC failed[-]: " << "Failed to send message to lineairdb_service" << std::endl;
+        std::cout << "RPC failed[-]: " << "Failed to send message to server" << std::endl;
         return;
     }
 
@@ -211,7 +211,7 @@ void LineairDBClient::db_end_transaction(int64_t tx_id, bool isFence) {
 bool LineairDBClient::tx_is_aborted(int64_t tx_id) {
     std::cout << "CLIENT: tx_is_aborted called with tx_id=" << tx_id << std::endl;
     if (!connected_) {
-        std::cout << "RPC failed[-]: " << "Not connected to lineairdb_service" << std::endl;
+        std::cout << "RPC failed[-]: " << "Not connected to server" << std::endl;
         return true;  // assume aborted if not connected
     }
 
@@ -222,7 +222,7 @@ bool LineairDBClient::tx_is_aborted(int64_t tx_id) {
     std::cout << "CLIENT: Created is_aborted request" << std::endl;
 
     if (!send_protobuf_message(request, response, MessageType::TX_IS_ABORTED)) {
-        std::cout << "RPC failed[-]: " << "Failed to send message to lineairdb_service" << std::endl;
+        std::cout << "RPC failed[-]: " << "Failed to send message to server" << std::endl;
         return true;  // assume aborted on failure
     }
 
@@ -233,7 +233,7 @@ bool LineairDBClient::tx_is_aborted(int64_t tx_id) {
 void LineairDBClient::db_fence() {
     std::cout << "CLIENT: db_fence called" << std::endl;
     if (!connected_) {
-        std::cout << "RPC failed[-]: " << "Not connected to lineairdb_service" << std::endl;
+        std::cout << "RPC failed[-]: " << "Not connected to server" << std::endl;
         return;
     }
 
@@ -242,7 +242,7 @@ void LineairDBClient::db_fence() {
     std::cout << "CLIENT: Created fence request" << std::endl;
 
     if (!send_protobuf_message(request, response, MessageType::DB_FENCE)) {
-        std::cout << "RPC failed[-]: " << "Failed to send message to lineairdb_service" << std::endl;
+        std::cout << "RPC failed[-]: " << "Failed to send message to server" << std::endl;
         return;
     }
 

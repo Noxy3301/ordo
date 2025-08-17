@@ -31,12 +31,12 @@ fi
 echo "Setting up build directory structure..."
 mkdir -p build/data
 mkdir -p build/lineairdb_proxy
-mkdir -p build/lineairdb_service
+mkdir -p build/server
 
-# Build lineairdb_service
-echo "Building lineairdb_service..."
-cd build/lineairdb_service
-cmake ../../lineairdb_service \
+# Build server
+echo "Building server..."
+cd build/server
+cmake ../../server \
     -DCMAKE_BUILD_TYPE=Debug \
     -DCMAKE_EXPORT_COMPILE_COMMANDS=1
 make -j `nproc`

@@ -36,8 +36,31 @@ add_subdirectory(${LINEAIRDB_ROOT} ${CMAKE_CURRENT_BINARY_DIR}/LineairDB)
 
 # Source files
 set(SOURCES
-    lineairdb_server.cc
-    lineairdb_server.hh
+    # Core
+    main.cc
+    ordo_server.cc
+    ordo_server.hh
+    
+    # Network layer
+    network/tcp_server.cc
+    network/tcp_server.hh
+    network/message_handler.cc
+    network/message_handler.hh
+    
+    # RPC layer
+    rpc/lineairdb_rpc.cc
+    rpc/lineairdb_rpc.hh
+    
+    # Storage layer
+    storage/database_manager.cc
+    storage/database_manager.hh
+    storage/transaction_manager.cc
+    storage/transaction_manager.hh
+    
+    # Protocol
+    protocol/message.hh
+    
+    # Protobuf generated files
     ${PROTO_SRCS}
 )
 

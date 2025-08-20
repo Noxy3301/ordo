@@ -3,3 +3,5 @@ build
 boost
 
 lineairdb_logs
+
+bench/benchbase

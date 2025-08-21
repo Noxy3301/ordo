@@ -1,9 +1,10 @@
 #include <iostream>
 
 #include "ordo_server.hh"
+#include "../common/log.h"
 
 int main(int argc, char** argv) {
-    std::cout << "Starting Ordo server..." << std::endl;
+    LOG_INFO("Starting Ordo server...");
     
     OrdoServer server;
     server.init();

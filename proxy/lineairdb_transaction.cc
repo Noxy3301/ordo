@@ -1,4 +1,5 @@
 #include "lineairdb_transaction.hh"
+#include "../common/log.h"
 
 LineairDBTransaction::LineairDBTransaction(THD* thd, 
                                             LineairDBClient* lineairdb_client,
@@ -19,7 +20,7 @@ void LineairDBTransaction::choose_table(std::string db_table_name) {
 
 bool LineairDBTransaction::table_is_not_chosen() {
   if (db_table_key.size() == 0) {
-    std::cout << "Database and Table is not chosen in LineairDBTransaction" << std::endl;
+    LOG_WARNING("Database and Table is not chosen in LineairDBTransaction");
     return true;
   }
   return false;

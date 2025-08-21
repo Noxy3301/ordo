@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "lineairdb_client.hh"
+#include "../common/log.h"
 #include "lineairdb.pb.h"
 
 LineairDBClient::LineairDBClient() 
@@ -70,9 +71,9 @@ bool LineairDBClient::is_connected() const {
 }
 
 std::string LineairDBClient::tx_read(int64_t tx_id, const std::string& key) {
-    std::cout << "CLIENT: tx_read called with tx_id=" << tx_id << ", key=" << key << std::endl;
+    LOG_DEBUG("CLIENT: tx_read called with tx_id=%ld, key=%s", tx_id, key.c_str());
     if (!connected_) {
-        std::cout << "RPC failed[-]: " << "Not connected to server" << std::endl;
+        LOG_ERROR("RPC failed: Not connected to server");
         return "";
     }
 
@@ -81,21 +82,21 @@ std::string LineairDBClient::tx_read(int64_t tx_id, const std::string& key) {
     
     request.set_transaction_id(tx_id);
     request.set_key(key);
-    std::cout << "CLIENT: Created read request" << std::endl;
+    LOG_DEBUG("CLIENT: Created read request");
 
     if (!send_protobuf_message(request, response, MessageType::TX_READ)) {
-        std::cout << "RPC failed[-]: " << "Failed to send message to server" << std::endl;
+        LOG_ERROR("RPC failed: Failed to send message to server");
         return "";
     }
 
-    std::cout << "CLIENT: tx_read completed, found: " << response.found() << std::endl;
+    LOG_DEBUG("CLIENT: tx_read completed, found: %s", response.found() ? "true" : "false");
     return response.found() ? response.value() : "";
 }
 
 bool LineairDBClient::tx_write(int64_t tx_id, const std::string& key, const std::string& value) {
-    std::cout << "CLIENT: tx_write called with tx_id=" << tx_id << ", key=" << key << ", value=" << value << std::endl;
+    LOG_DEBUG("CLIENT: tx_write called with tx_id=%ld, key=%s, value=%s", tx_id, key.c_str(), value.c_str());
     if (!connected_) {
-        std::cout << "RPC failed[-]: " << "Not connected to server" << std::endl;
+        LOG_ERROR("RPC failed: Not connected to server");
         return false;
     }
 
@@ -105,21 +106,21 @@ bool LineairDBClient::tx_write(int64_t tx_id, const std::string& key, const std:
     request.set_transaction_id(tx_id);
     request.set_key(key);
     request.set_value(value);
-    std::cout << "CLIENT: Created write request" << std::endl;
+    LOG_DEBUG("CLIENT: Created write request");
 
     if (!send_protobuf_message(request, response, MessageType::TX_WRITE)) {
-        std::cout << "RPC failed[-]: " << "Failed to send message to server" << std::endl;
+        LOG_ERROR("RPC failed: Failed to send message to server");
         return false;
     }
 
-    std::cout << "CLIENT: tx_write completed, success: " << response.success() << std::endl;
+    LOG_DEBUG("CLIENT: tx_write completed, success: %s", response.success() ? "true" : "false");
     return response.success();
 }
 
 std::vector<std::string> LineairDBClient::tx_scan(int64_t tx_id, const std::string& db_table_key, const std::string& first_key_part) {
-    std::cout << "CLIENT: tx_scan called with tx_id=" << tx_id << ", table=" << db_table_key << ", prefix=" << first_key_part << std::endl;
+    LOG_DEBUG("CLIENT: tx_scan called with tx_id=%ld, table=%s, prefix=%s", tx_id, db_table_key.c_str(), first_key_part.c_str());
     if (!connected_) {
-        std::cout << "RPC failed[-]: " << "Not connected to server" << std::endl;
+        LOG_ERROR("RPC failed: Not connected to server");
         return {};
     }
 
@@ -129,10 +130,10 @@ std::vector<std::string> LineairDBClient::tx_scan(int64_t tx_id, const std::stri
     request.set_transaction_id(tx_id);
     request.set_db_table_key(db_table_key);
     request.set_first_key_part(first_key_part);
-    std::cout << "CLIENT: Created scan request" << std::endl;
+    LOG_DEBUG("CLIENT: Created scan request");
 
     if (!send_protobuf_message(request, response, MessageType::TX_SCAN)) {
-        std::cout << "RPC failed[-]: " << "Failed to send message to server" << std::endl;
+        LOG_ERROR("RPC failed: Failed to send message to server");
         return {};
     }
 
@@ -141,34 +142,34 @@ std::vector<std::string> LineairDBClient::tx_scan(int64_t tx_id, const std::stri
         keys.push_back(key);
     }
     
-    std::cout << "CLIENT: tx_scan completed, found " << keys.size() << " keys" << std::endl;
+    LOG_DEBUG("CLIENT: tx_scan completed, found %zu keys", keys.size());
     return keys;
 }
 
 int64_t LineairDBClient::tx_begin_transaction() {
-    std::cout << "CLIENT: tx_begin_transaction called" << std::endl;
+    LOG_DEBUG("CLIENT: tx_begin_transaction called");
     if (!connected_) {
-        std::cout << "RPC failed[-]: " << "Not connected to server" << std::endl;
+        LOG_ERROR("RPC failed: Not connected to server");
         return -1;
     }
 
     LineairDB::Protocol::TxBeginTransaction::Request request;
     LineairDB::Protocol::TxBeginTransaction::Response response;
-    std::cout << "CLIENT: Created begin transaction request" << std::endl;
+    LOG_DEBUG("CLIENT: Created begin transaction request");
 
     if (!send_protobuf_message(request, response, MessageType::TX_BEGIN_TRANSACTION)) {
-        std::cout << "RPC failed[-]: " << "Failed to send message to server" << std::endl;
+        LOG_ERROR("RPC failed: Failed to send message to server");
         return -1;
     }
 
-    std::cout << "CLIENT: tx_begin_transaction completed, tx_id: " << response.transaction_id() << std::endl;
+    LOG_DEBUG("CLIENT: tx_begin_transaction completed, tx_id: %ld", response.transaction_id());
     return response.transaction_id();
 }
 
 void LineairDBClient::tx_abort(int64_t tx_id) {
-    std::cout << "CLIENT: tx_abort called with tx_id=" << tx_id << std::endl;
+    LOG_DEBUG("CLIENT: tx_abort called with tx_id=%ld", tx_id);
     if (!connected_) {
-        std::cout << "RPC failed[-]: " << "Not connected to server" << std::endl;
+        LOG_ERROR("RPC failed: Not connected to server");
         return;
     }
 
@@ -176,20 +177,20 @@ void LineairDBClient::tx_abort(int64_t tx_id) {
     LineairDB::Protocol::TxAbort::Response response;
     
     request.set_transaction_id(tx_id);
-    std::cout << "CLIENT: Created abort request" << std::endl;
+    LOG_DEBUG("CLIENT: Created abort request");
 
     if (!send_protobuf_message(request, response, MessageType::TX_ABORT)) {
-        std::cout << "RPC failed[-]: " << "Failed to send message to server" << std::endl;
+        LOG_ERROR("RPC failed: Failed to send message to server");
         return;
     }
 
-    std::cout << "CLIENT: tx_abort completed" << std::endl;
+    LOG_DEBUG("CLIENT: tx_abort completed");
 }
 
 void LineairDBClient::db_end_transaction(int64_t tx_id, bool isFence) {
-    std::cout << "CLIENT: db_end_transaction called with tx_id=" << tx_id << ", fence=" << isFence << std::endl;
+    LOG_DEBUG("CLIENT: db_end_transaction called with tx_id=%ld, fence=%s", tx_id, isFence ? "true" : "false");
     if (!connected_) {
-        std::cout << "RPC failed[-]: " << "Not connected to server" << std::endl;
+        LOG_ERROR("RPC failed: Not connected to server");
         return;
     }
 
@@ -198,20 +199,20 @@ void LineairDBClient::db_end_transaction(int64_t tx_id, bool isFence) {
     
     request.set_transaction_id(tx_id);
     request.set_fence(isFence);
-    std::cout << "CLIENT: Created end_transaction request" << std::endl;
+    LOG_DEBUG("CLIENT: Created end_transaction request");
 
     if (!send_protobuf_message(request, response, MessageType::DB_END_TRANSACTION)) {
-        std::cout << "RPC failed[-]: " << "Failed to send message to server" << std::endl;
+        LOG_ERROR("RPC failed: Failed to send message to server");
         return;
     }
 
-    std::cout << "CLIENT: db_end_transaction completed" << std::endl;
+    LOG_DEBUG("CLIENT: db_end_transaction completed");
 }
 
 bool LineairDBClient::tx_is_aborted(int64_t tx_id) {
-    std::cout << "CLIENT: tx_is_aborted called with tx_id=" << tx_id << std::endl;
+    LOG_DEBUG("CLIENT: tx_is_aborted called with tx_id=%ld", tx_id);
     if (!connected_) {
-        std::cout << "RPC failed[-]: " << "Not connected to server" << std::endl;
+        LOG_ERROR("RPC failed: Not connected to server");
         return true;  // assume aborted if not connected
     }
 
@@ -219,120 +220,120 @@ bool LineairDBClient::tx_is_aborted(int64_t tx_id) {
     LineairDB::Protocol::TxIsAborted::Response response;
     
     request.set_transaction_id(tx_id);
-    std::cout << "CLIENT: Created is_aborted request" << std::endl;
+    LOG_DEBUG("CLIENT: Created is_aborted request");
 
     if (!send_protobuf_message(request, response, MessageType::TX_IS_ABORTED)) {
-        std::cout << "RPC failed[-]: " << "Failed to send message to server" << std::endl;
+        LOG_ERROR("RPC failed: Failed to send message to server");
         return true;  // assume aborted on failure
     }
 
-    std::cout << "CLIENT: tx_is_aborted completed, result: " << response.is_aborted() << std::endl;
+    LOG_DEBUG("CLIENT: tx_is_aborted completed, result: %s", response.is_aborted() ? "true" : "false");
     return response.is_aborted();
 }
 
 void LineairDBClient::db_fence() {
-    std::cout << "CLIENT: db_fence called" << std::endl;
+    LOG_DEBUG("CLIENT: db_fence called");
     if (!connected_) {
-        std::cout << "RPC failed[-]: " << "Not connected to server" << std::endl;
+        LOG_ERROR("RPC failed: Not connected to server");
         return;
     }
 
     LineairDB::Protocol::DbFence::Request request;
     LineairDB::Protocol::DbFence::Response response;
-    std::cout << "CLIENT: Created fence request" << std::endl;
+    LOG_DEBUG("CLIENT: Created fence request");
 
     if (!send_protobuf_message(request, response, MessageType::DB_FENCE)) {
-        std::cout << "RPC failed[-]: " << "Failed to send message to server" << std::endl;
+        LOG_ERROR("RPC failed: Failed to send message to server");
         return;
     }
 
-    std::cout << "CLIENT: db_fence completed" << std::endl;
+    LOG_DEBUG("CLIENT: db_fence completed");
 }
 
 bool LineairDBClient::send_message(const std::string& serialized_request, std::string& serialized_response) {
     if (!connected_) {
-        std::cout << "SEND_MESSAGE: Not connected!" << std::endl;
+        LOG_ERROR("SEND_MESSAGE: Not connected to server");
         return false;
     }
     
-    std::cout << "SEND_MESSAGE: Sending message of size " << serialized_request.size() << " bytes" << std::endl;
+    LOG_DEBUG("SEND_MESSAGE: Sending message of size %zu bytes", serialized_request.size());
     
     // send message size first (4 bytes)
     uint32_t message_size = htonl(serialized_request.size());
-    std::cout << "SEND_MESSAGE: Sending size header: " << serialized_request.size() << " (network order: " << message_size << ")" << std::endl;
+    LOG_DEBUG("SEND_MESSAGE: Sending size header: %zu (network order: %u)", serialized_request.size(), message_size);
     
     ssize_t size_sent = send(socket_fd_, &message_size, sizeof(message_size), 0);
     if (size_sent != sizeof(message_size)) {
-        std::cout << "SEND_MESSAGE: Failed to send size header, sent " << size_sent << " bytes instead of " << sizeof(message_size) << std::endl;
+        LOG_ERROR("SEND_MESSAGE: Failed to send size header, sent %zd bytes instead of %zu", size_sent, sizeof(message_size));
         return false;
     }
-    std::cout << "SEND_MESSAGE: Size header sent successfully" << std::endl;
+    LOG_DEBUG("SEND_MESSAGE: Size header sent successfully");
 
     // send message body
-    std::cout << "SEND_MESSAGE: Sending message body..." << std::endl;
+    LOG_DEBUG("SEND_MESSAGE: Sending message body...");
     ssize_t body_sent = send(socket_fd_, serialized_request.data(), serialized_request.size(), 0);
     if (body_sent != static_cast<ssize_t>(serialized_request.size())) {
-        std::cout << "SEND_MESSAGE: Failed to send message body, sent " << body_sent << " bytes instead of " << serialized_request.size() << std::endl;
+        LOG_ERROR("SEND_MESSAGE: Failed to send message body, sent %zd bytes instead of %zu", body_sent, serialized_request.size());
         return false;
     }
-    std::cout << "SEND_MESSAGE: Message body sent successfully" << std::endl;
+    LOG_DEBUG("SEND_MESSAGE: Message body sent successfully");
 
     // receive response size
-    std::cout << "SEND_MESSAGE: Waiting for response size..." << std::endl;
+    LOG_DEBUG("SEND_MESSAGE: Waiting for response size...");
     uint32_t response_size;
     ssize_t size_received = recv(socket_fd_, &response_size, sizeof(response_size), MSG_WAITALL);
     if (size_received != sizeof(response_size)) {
-        std::cout << "SEND_MESSAGE: Failed to receive response size, got " << size_received << " bytes" << std::endl;
+        LOG_ERROR("SEND_MESSAGE: Failed to receive response size, got %zd bytes", size_received);
         return false;
     }
     response_size = ntohl(response_size);
-    std::cout << "SEND_MESSAGE: Received response size: " << response_size << " bytes" << std::endl;
+    LOG_DEBUG("SEND_MESSAGE: Received response size: %u bytes", response_size);
 
     // receive response body
-    std::cout << "SEND_MESSAGE: Waiting for response body..." << std::endl;
+    LOG_DEBUG("SEND_MESSAGE: Waiting for response body...");
     serialized_response.resize(response_size);
     ssize_t body_received = recv(socket_fd_, &serialized_response[0], response_size, MSG_WAITALL);
     if (body_received != static_cast<ssize_t>(response_size)) {
-        std::cout << "SEND_MESSAGE: Failed to receive response body, got " << body_received << " bytes instead of " << response_size << std::endl;
+        LOG_ERROR("SEND_MESSAGE: Failed to receive response body, got %zd bytes instead of %u", body_received, response_size);
         return false;
     }
-    std::cout << "SEND_MESSAGE: Response body received successfully" << std::endl;
+    LOG_DEBUG("SEND_MESSAGE: Response body received successfully");
     
     return true;
 }
 
 template<typename RequestType, typename ResponseType>
 bool LineairDBClient::send_protobuf_message(const RequestType& request, ResponseType& response, MessageType message_type) {
-    std::cout << "PROTOBUF_MESSAGE: Starting protobuf message send" << std::endl;
+    LOG_DEBUG("PROTOBUF_MESSAGE: Starting protobuf message send");
     
     // serialize request
     std::string serialized_request = request.SerializeAsString();
-    std::cout << "PROTOBUF_MESSAGE: Request serialized successfully, size: " << serialized_request.size() << " bytes" << std::endl;
+    LOG_DEBUG("PROTOBUF_MESSAGE: Request serialized successfully, size: %zu bytes", serialized_request.size());
 
     // send message with header
     std::string serialized_response;
     if (!send_message_with_header(serialized_request, serialized_response, message_type)) {
-        std::cout << "PROTOBUF_MESSAGE: Failed to send message with header" << std::endl;
+        LOG_ERROR("PROTOBUF_MESSAGE: Failed to send message with header");
         return false;
     }
 
     // deserialize response
     if (!response.ParseFromString(serialized_response)) {
-        std::cout << "PROTOBUF_MESSAGE: Failed to parse response" << std::endl;
+        LOG_ERROR("PROTOBUF_MESSAGE: Failed to parse response");
         return false;
     }
     
-    std::cout << "PROTOBUF_MESSAGE: Successfully completed protobuf message exchange" << std::endl;
+    LOG_DEBUG("PROTOBUF_MESSAGE: Successfully completed protobuf message exchange");
     return true;
 }
 
 bool LineairDBClient::send_message_with_header(const std::string& serialized_request, std::string& serialized_response, MessageType message_type) {
     if (!connected_) {
-        std::cout << "SEND_MESSAGE: Not connected!" << std::endl;
+        LOG_ERROR("SEND_MESSAGE: Not connected!");
         return false;
     }
     
-    std::cout << "SEND_MESSAGE: Sending message of size " << serialized_request.size() << " bytes with message_type " << static_cast<uint32_t>(message_type) << std::endl;
+    LOG_DEBUG("SEND_MESSAGE: Sending message of size %zu bytes with message_type %u", serialized_request.size(), static_cast<uint32_t>(message_type));
 
     // prepare message header
     MessageHeader header;
@@ -340,8 +341,7 @@ bool LineairDBClient::send_message_with_header(const std::string& serialized_req
     header.message_type = htonl(static_cast<uint32_t>(message_type));
     header.payload_size = htonl(static_cast<uint32_t>(serialized_request.size()));
     
-    std::cout << "SEND_MESSAGE: Prepared header: sender_id=1, message_type=" << static_cast<uint32_t>(message_type) 
-              << ", payload_size=" << serialized_request.size() << std::endl;
+    LOG_DEBUG("SEND_MESSAGE: Prepared header: sender_id=1, message_type=%u, payload_size=%zu", static_cast<uint32_t>(message_type), serialized_request.size());
     
     // combine header and payload
     size_t total_size = sizeof(header) + serialized_request.size();
@@ -352,17 +352,17 @@ bool LineairDBClient::send_message_with_header(const std::string& serialized_req
     // send
     ssize_t bytes_sent = send(socket_fd_, buffer.data(), total_size, 0);
     if (bytes_sent != static_cast<ssize_t>(total_size)) {
-        std::cout << "SEND_MESSAGE: Failed to send complete message, sent " << bytes_sent << " bytes instead of " << total_size << std::endl;
+        LOG_ERROR("SEND_MESSAGE: Failed to send complete message, sent %zd bytes instead of %zu", bytes_sent, total_size);
         return false;
     }
     
-    std::cout << "SEND_MESSAGE: Successfully sent " << bytes_sent << " bytes" << std::endl;
+    LOG_DEBUG("SEND_MESSAGE: Successfully sent %zd bytes", bytes_sent);
 
     // receive response header
     MessageHeader response_header;
     ssize_t header_received = recv(socket_fd_, &response_header, sizeof(response_header), MSG_WAITALL);
     if (header_received != sizeof(response_header)) {
-        std::cout << "SEND_MESSAGE: Failed to receive response header, received " << header_received << " bytes" << std::endl;
+        LOG_ERROR("SEND_MESSAGE: Failed to receive response header, received %zd bytes", header_received);
         return false;
     }
 
@@ -371,24 +371,22 @@ bool LineairDBClient::send_message_with_header(const std::string& serialized_req
     uint32_t response_message_type = ntohl(response_header.message_type);
     uint32_t response_payload_size = ntohl(response_header.payload_size);
     
-    std::cout << "SEND_MESSAGE: Received response header: sender_id=" << response_sender_id 
-              << ", message_type=" << response_message_type 
-              << ", payload_size=" << response_payload_size << std::endl;
+    LOG_DEBUG("SEND_MESSAGE: Received response header: sender_id=%lu, message_type=%u, payload_size=%u", response_sender_id, response_message_type, response_payload_size);
 
     // receive response payload
     if (response_payload_size > 0) {
         serialized_response.resize(response_payload_size);
         ssize_t payload_received = recv(socket_fd_, &serialized_response[0], response_payload_size, MSG_WAITALL);
         if (payload_received != static_cast<ssize_t>(response_payload_size)) {
-            std::cout << "SEND_MESSAGE: Failed to receive response payload, received " << payload_received << " bytes instead of " << response_payload_size << std::endl;
+            LOG_ERROR("SEND_MESSAGE: Failed to receive response payload, received %zd bytes instead of %u", payload_received, response_payload_size);
             return false;
         }
-        std::cout << "SEND_MESSAGE: Successfully received response payload (" << payload_received << " bytes)" << std::endl;
+        LOG_DEBUG("SEND_MESSAGE: Successfully received response payload (%zd bytes)", payload_received);
     } else {
-        std::cout << "SEND_MESSAGE: No response payload (empty response)" << std::endl;
+        LOG_DEBUG("SEND_MESSAGE: No response payload (empty response)");
         serialized_response.clear();
     }
     
-    std::cout << "SEND_MESSAGE: Message exchange completed successfully" << std::endl;
+    LOG_DEBUG("SEND_MESSAGE: Message exchange completed successfully");
     return true;
 }

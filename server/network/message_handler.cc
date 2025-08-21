@@ -1,4 +1,5 @@
 #include "message_handler.hh"
+#include "../../common/log.h"
 
 #include <iostream>
 #include <vector>
@@ -14,16 +15,16 @@ bool MessageHandler::receive_message(int socket, uint64_t& sender_id,
     ssize_t header_read = recv(socket, &header, sizeof(header), MSG_PEEK);
     if (header_read <= 0) {
         if (header_read < 0) {
-            std::cout << "Failed to peek message header" << std::endl;
+            LOG_ERROR("Failed to peek message header");
         } else {
-            std::cout << "Client disconnected" << std::endl;
+            LOG_DEBUG("Client disconnected");
         }
         return false;
     }
 
     // If message header is not complete, wait for more data
     if (header_read < static_cast<ssize_t>(sizeof(header))) {
-        std::cout << "Incomplete message header (" << header_read << "/" << sizeof(header) << " bytes)" << std::endl;
+        LOG_WARNING("Incomplete message header (%zd/%zu bytes)", header_read, sizeof(header));
         return false;
     }
 
@@ -32,9 +33,7 @@ bool MessageHandler::receive_message(int socket, uint64_t& sender_id,
     message_type = static_cast<MessageType>(ntohl(header.message_type));
     uint32_t payload_size = ntohl(header.payload_size);
 
-    std::cout << "Received header: sender_id=" << sender_id 
-              << ", message_type=" << static_cast<uint32_t>(message_type)
-              << ", payload_size=" << payload_size << std::endl;
+    LOG_DEBUG("Received header: sender_id=%lu, message_type=%u, payload_size=%u", sender_id, static_cast<uint32_t>(message_type), payload_size);
 
     // Prepare buffer
     size_t total_size = sizeof(header) + payload_size;
@@ -47,20 +46,20 @@ bool MessageHandler::receive_message(int socket, uint64_t& sender_id,
 
         if (bytes_read <= 0) {
             if (bytes_read < 0) {
-                std::cout << "Failed to receive data" << std::endl;
+                LOG_ERROR("Failed to receive data");
             } else {
-                std::cout << "Client disconnected during message read" << std::endl;
+                LOG_DEBUG("Client disconnected during message read");
             }
             return false;
         }
 
         total_read += bytes_read;
         if (total_read < total_size) {
-            std::cout << "Partial message received (" << total_read << "/" << total_size << " bytes)" << std::endl;
+            LOG_WARNING("Partial message received (%zu/%zu bytes)", total_read, total_size);
         }
     }
 
-    std::cout << "Received complete message (" << total_size << " bytes)" << std::endl;
+    LOG_DEBUG("Received complete message (%zu bytes)", total_size);
     
     // Extract payload
     payload = std::string(buffer.data() + sizeof(header), payload_size);
@@ -69,7 +68,7 @@ bool MessageHandler::receive_message(int socket, uint64_t& sender_id,
 
 bool MessageHandler::send_response(int socket, uint64_t sender_id, 
                                   MessageType message_type, const std::string& payload) {
-    std::cout << "Sending response (" << payload.size() << " bytes)" << std::endl;
+    LOG_DEBUG("Sending response (%zu bytes)", payload.size());
     
     // Prepare response header
     MessageHeader response_header;
@@ -86,10 +85,10 @@ bool MessageHandler::send_response(int socket, uint64_t sender_id,
     // Send response
     ssize_t bytes_sent = send(socket, response_buffer.data(), response_total_size, 0);
     if (bytes_sent != static_cast<ssize_t>(response_total_size)) {
-        std::cout << "Failed to send response" << std::endl;
+        LOG_ERROR("Failed to send response");
         return false;
     }
     
-    std::cout << "Response sent successfully" << std::endl;
+    LOG_DEBUG("Response sent successfully");
     return true;
 }

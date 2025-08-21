@@ -1,4 +1,5 @@
 #include "tcp_server.hh"
+#include "../../common/log.h"
 
 #include <iostream>
 #include <sys/socket.h>
@@ -9,14 +10,14 @@
 TcpServer::TcpServer(uint16_t port) : port_(port) {}
 
 void TcpServer::run() {
-    std::cout << "Starting server on port " << port_ << std::endl;
+    LOG_INFO("Starting server on port %d", port_);
     
     int server_socket;
     if (!setup_and_listen(server_socket)) {
         return;
     }
     
-    std::cout << "Server listening on port " << port_ << std::endl;
+    LOG_INFO("Server listening on port %d", port_);
     accept_clients(server_socket);
     close(server_socket);
 }
@@ -70,9 +71,9 @@ void TcpServer::accept_clients(int server_socket) {
             continue;
         }
 
-        std::cout << "Client connected from " << inet_ntoa(client_addr.sin_addr) << std::endl;
+        LOG_DEBUG("Client connected from %s", inet_ntoa(client_addr.sin_addr));
         handle_client(client_socket);
         close(client_socket);
-        std::cout << "Client disconnected" << std::endl;
+        LOG_DEBUG("Client disconnected");
     }
 }

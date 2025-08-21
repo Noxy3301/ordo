@@ -1,4 +1,5 @@
 #include "lineairdb_rpc.hh"
+#include "../../common/log.h"
 
 #include <iostream>
 #include <vector>
@@ -12,7 +13,7 @@ LineairDBRpc::LineairDBRpc(std::shared_ptr<DatabaseManager> db_manager,
 
 void LineairDBRpc::handle_rpc(uint64_t sender_id, MessageType message_type, 
                              const std::string& message, std::string& result) {
-    std::cout << "Handling RPC: message_type=" << static_cast<uint32_t>(message_type) << std::endl;
+    LOG_DEBUG("Handling RPC: message_type=%u", static_cast<uint32_t>(message_type));
     
     switch(message_type) {
         case MessageType::TX_BEGIN_TRANSACTION:
@@ -40,7 +41,7 @@ void LineairDBRpc::handle_rpc(uint64_t sender_id, MessageType message_type,
             handleDbEndTransaction(message, result);
             return;
         default:
-            std::cout << "Unknown message type: " << static_cast<uint32_t>(message_type) << std::endl;
+            LOG_ERROR("Unknown message type: %u", static_cast<uint32_t>(message_type));
             return;
     }
 }
@@ -51,7 +52,7 @@ bool LineairDBRpc::key_prefix_is_matching(const std::string& key_prefix, const s
 }
 
 void LineairDBRpc::handleTxBeginTransaction(const std::string& message, std::string& result) {
-    std::cout << "Handling TxBeginTransaction" << std::endl;
+    LOG_DEBUG("Handling TxBeginTransaction");
     
     LineairDB::Protocol::TxBeginTransaction::Request request;
     LineairDB::Protocol::TxBeginTransaction::Response response;
@@ -66,11 +67,11 @@ void LineairDBRpc::handleTxBeginTransaction(const std::string& message, std::str
     response.set_transaction_id(tx_id);
     result = response.SerializeAsString();
     
-    std::cout << "Created transaction: " << tx_id << std::endl;
+    LOG_DEBUG("Created transaction: %ld", tx_id);
 }
 
 void LineairDBRpc::handleTxAbort(const std::string& message, std::string& result) {
-    std::cout << "Handling TxAbort" << std::endl;
+    LOG_DEBUG("Handling TxAbort");
     
     LineairDB::Protocol::TxAbort::Request request;
     LineairDB::Protocol::TxAbort::Response response;
@@ -81,43 +82,43 @@ void LineairDBRpc::handleTxAbort(const std::string& message, std::string& result
     auto* tx = tx_manager_->get_transaction(tx_id);
     if (tx) {
         tx->Abort();
-        std::cout << "Aborted transaction: " << tx_id << std::endl;
+        LOG_DEBUG("Aborted transaction: %ld", tx_id);
     } else {
-        std::cout << "Transaction not found for abort: " << tx_id << std::endl;
+        LOG_WARNING("Transaction not found for abort: %ld", tx_id);
     }
     
     result = response.SerializeAsString();
 }
 
 void LineairDBRpc::handleTxIsAborted(const std::string& message, std::string& result) {
-    std::cout << "Handling TxIsAborted" << std::endl;
+    LOG_DEBUG("Handling TxIsAborted");
     
     LineairDB::Protocol::TxIsAborted::Request request;
     LineairDB::Protocol::TxIsAborted::Response response;
     
-    std::cout << "DEBUG: Parsing request from string of size: " << message.size() << std::endl;
+    LOG_DEBUG("Parsing request from string of size: %zu", message.size());
     request.ParseFromString(message);
     
     int64_t tx_id = request.transaction_id();
-    std::cout << "DEBUG: Extracted transaction_id: " << tx_id << std::endl;
+    LOG_DEBUG("Extracted transaction_id: %ld", tx_id);
     
     auto* tx = tx_manager_->get_transaction(tx_id);
     if (tx) {
         bool is_aborted = tx->IsAborted();
         response.set_is_aborted(is_aborted);
-        std::cout << "Transaction " << tx_id << " aborted status: " << is_aborted << std::endl;
+        LOG_DEBUG("Transaction %ld aborted status: %s", tx_id, is_aborted ? "true" : "false");
     } else {
         response.set_is_aborted(true);  // not found = aborted
-        std::cout << "Transaction not found, considering as aborted: " << tx_id << std::endl;
+        LOG_WARNING("Transaction not found, considering as aborted: %ld", tx_id);
     }
     
     result = response.SerializeAsString();
-    std::cout << "DEBUG: Serialized response, size: " << result.size() << std::endl;
-    std::cout << "DEBUG: Response is_aborted value: " << response.is_aborted() << std::endl;
+    LOG_DEBUG("Serialized response, size: %zu", result.size());
+    LOG_DEBUG("Response is_aborted value: %s", response.is_aborted() ? "true" : "false");
 }
 
 void LineairDBRpc::handleTxRead(const std::string& message, std::string& result) {
-    std::cout << "Handling TxRead" << std::endl;
+    LOG_DEBUG("Handling TxRead");
     
     LineairDB::Protocol::TxRead::Request request;
     LineairDB::Protocol::TxRead::Response response;
@@ -135,17 +136,17 @@ void LineairDBRpc::handleTxRead(const std::string& message, std::string& result)
         } else {
             response.set_found(false);
         }
-        std::cout << "Read key '" << request.key() << "' from transaction " << tx_id << ": " << (read_result.first != nullptr ? "found" : "not found") << std::endl;
+        LOG_DEBUG("Read key '%s' from transaction %ld: %s", request.key().c_str(), tx_id, (read_result.first != nullptr ? "found" : "not found"));
     } else {
         response.set_found(false);
-        std::cout << "Transaction not found for read: " << tx_id << std::endl;
+        LOG_WARNING("Transaction not found for read: %ld", tx_id);
     }
     
     result = response.SerializeAsString();
 }
 
 void LineairDBRpc::handleTxWrite(const std::string& message, std::string& result) {
-    std::cout << "Handling TxWrite" << std::endl;
+    LOG_DEBUG("Handling TxWrite");
     
     LineairDB::Protocol::TxWrite::Request request;
     LineairDB::Protocol::TxWrite::Response response;
@@ -158,17 +159,17 @@ void LineairDBRpc::handleTxWrite(const std::string& message, std::string& result
         const std::string& value_str = request.value();
         tx->Write(request.key(), reinterpret_cast<const std::byte*>(value_str.c_str()), value_str.size());
         response.set_success(true);
-        std::cout << "Wrote key '" << request.key() << "' to transaction " << tx_id << std::endl;
+        LOG_DEBUG("Wrote key '%s' to transaction %ld", request.key().c_str(), tx_id);
     } else {
         response.set_success(false);
-        std::cout << "Transaction not found for write: " << tx_id << std::endl;
+        LOG_WARNING("Transaction not found for write: %ld", tx_id);
     }
     
     result = response.SerializeAsString();
 }
 
 void LineairDBRpc::handleTxScan(const std::string& message, std::string& result) {
-    std::cout << "Handling TxScan" << std::endl;
+    LOG_DEBUG("Handling TxScan");
     
     LineairDB::Protocol::TxScan::Request request;
     LineairDB::Protocol::TxScan::Response response;
@@ -182,41 +183,40 @@ void LineairDBRpc::handleTxScan(const std::string& message, std::string& result)
         std::string table_prefix = request.db_table_key();
         std::string key_prefix = table_prefix + request.first_key_part();
         
-        std::cout << "DEBUG SCAN: tx_id=" << tx_id << ", table_prefix='" << table_prefix 
-                  << "', first_key_part='" << request.first_key_part() << "', key_prefix='" << key_prefix << "'" << std::endl;
+        LOG_DEBUG("SCAN: tx_id=%ld, table_prefix='%s', first_key_part='%s', key_prefix='%s'", tx_id, table_prefix.c_str(), request.first_key_part().c_str(), key_prefix.c_str());
 
         tx->Scan("", std::nullopt, [&keys, &key_prefix, &table_prefix, this](const std::string_view key, const std::pair<const void*, const size_t>& value) {
             std::string key_str(key);
-            std::cout << "DEBUG SCAN CALLBACK: checking key='" << key_str << "' against prefix='" << key_prefix << "'" << std::endl;
+            LOG_DEBUG("SCAN CALLBACK: checking key='%s' against prefix='%s'", key_str.c_str(), key_prefix.c_str());
 
             if (key_prefix_is_matching(key_prefix, key_str)) {
                 std::string relative_key = key_str.substr(table_prefix.size());
-                std::cout << "DEBUG SCAN CALLBACK: key matches, adding relative_key='" << relative_key << "'" << std::endl;
+                LOG_DEBUG("SCAN CALLBACK: key matches, adding relative_key='%s'", relative_key.c_str());
                 keys.push_back(relative_key);
             } else {
-                std::cout << "DEBUG SCAN CALLBACK: key does not match prefix, skipping" << std::endl;
+                LOG_DEBUG("SCAN CALLBACK: key does not match prefix, skipping");
             }
             return false;
         });
         
-        std::cout << "DEBUG SCAN: completed scan, found " << keys.size() << " keys:" << std::endl;
+        LOG_DEBUG("SCAN: completed scan, found %zu keys", keys.size());
         for (size_t i = 0; i < keys.size(); i++) {
-            std::cout << "  [" << i << "] " << keys[i] << std::endl;
+            LOG_DEBUG("  [%zu] %s", i, keys[i].c_str());
         }
         
         for (const auto& key : keys) {
             response.add_keys(key);
         }
-        std::cout << "Scanned transaction " << tx_id << ", found " << keys.size() << " keys" << std::endl;
+        LOG_DEBUG("Scanned transaction %ld, found %zu keys", tx_id, keys.size());
     } else {
-        std::cout << "Transaction not found for scan: " << tx_id << std::endl;
+        LOG_WARNING("Transaction not found for scan: %ld", tx_id);
     }
     
     result = response.SerializeAsString();
 }
 
 void LineairDBRpc::handleDbFence(const std::string& message, std::string& result) {
-    std::cout << "Handling DbFence" << std::endl;
+    LOG_DEBUG("Handling DbFence");
     
     LineairDB::Protocol::DbFence::Request request;
     LineairDB::Protocol::DbFence::Response response;
@@ -224,13 +224,13 @@ void LineairDBRpc::handleDbFence(const std::string& message, std::string& result
     request.ParseFromString(message);
     
     db_manager_->get_database()->Fence();
-    std::cout << "Database fence completed" << std::endl;
+    LOG_DEBUG("Database fence completed");
     
     result = response.SerializeAsString();
 }
 
 void LineairDBRpc::handleDbEndTransaction(const std::string& message, std::string& result) {
-    std::cout << "Handling DbEndTransaction" << std::endl;
+    LOG_DEBUG("Handling DbEndTransaction");
     
     LineairDB::Protocol::DbEndTransaction::Request request;
     LineairDB::Protocol::DbEndTransaction::Response response;
@@ -242,12 +242,12 @@ void LineairDBRpc::handleDbEndTransaction(const std::string& message, std::strin
     if (tx) {
         bool fence = request.fence();
         db_manager_->get_database()->EndTransaction(*tx, [fence, tx_id](LineairDB::TxStatus status) {
-            std::cout << "Transaction " << tx_id << " ended with status: " << static_cast<int>(status) << ", fence=" << fence << std::endl;
+            LOG_DEBUG("Transaction %ld ended with status: %d, fence=%s", tx_id, static_cast<int>(status), fence ? "true" : "false");
         });
         tx_manager_->remove_transaction(tx_id);
-        std::cout << "Ended transaction " << tx_id << " with fence=" << fence << std::endl;
+        LOG_DEBUG("Ended transaction %ld with fence=%s", tx_id, fence ? "true" : "false");
     } else {
-        std::cout << "Transaction not found for end: " << tx_id << std::endl;
+        LOG_WARNING("Transaction not found for end: %ld", tx_id);
     }
     
     result = response.SerializeAsString();

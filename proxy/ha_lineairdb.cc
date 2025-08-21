@@ -93,6 +93,7 @@
 */
 
 #include "storage/lineairdb/ha_lineairdb.hh"
+#include "../common/log.h"
 
 #include <iostream>
 
@@ -909,7 +910,7 @@ std::string ha_lineairdb::autogenerate_key() {
    * `auto_generated_keys_` is not recovered when the handler is constructed.
    * It has to be a recoverable data.
    */
-  std::cout << "ha_lineairdb::autogenerate_key NEEDS FIX" << std::endl;
+  LOG_WARNING("ha_lineairdb::autogenerate_key NEEDS FIX");
   std::string generated_key;
   auto inserted_count = auto_generated_keys_[db_table_name]++;
   std::string&& s = std::to_string(inserted_count);

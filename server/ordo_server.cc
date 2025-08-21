@@ -1,4 +1,5 @@
 #include "ordo_server.hh"
+#include "../common/log.h"
 
 #include <iostream>
 
@@ -18,11 +19,11 @@ void OrdoServer::init() {
         rpc_handler_ = std::make_shared<LineairDBRpc>(db_manager_, tx_manager_);
     }
     
-    std::cout << "Ordo server initialized successfully" << std::endl;
+    LOG_INFO("Ordo server initialized successfully");
 }
 
 void OrdoServer::handle_client(int client_socket) {
-    std::cout << "Handling client connection..." << std::endl;
+    LOG_DEBUG("Handling client connection...");
     
     while (true) {
         uint64_t sender_id;

@@ -9,6 +9,9 @@
 #include <sstream>
 #include <cstring>
 
+// Debug print flag (comment out to disable debug logs)
+#define PRINT_DEBUG
+
 namespace Log {
 
 enum class LogLevel {
@@ -102,5 +105,9 @@ inline void write(LogLevel level, const char* file, int line, const char* format
 #define LOG_INFO(format, ...) \
     Log::write(Log::LogLevel::INFO, __FILE__, __LINE__, format, ##__VA_ARGS__)
 
+#ifdef PRINT_DEBUG
 #define LOG_DEBUG(format, ...) \
     Log::write(Log::LogLevel::DEBUG, __FILE__, __LINE__, format, ##__VA_ARGS__)
+#else
+#define LOG_DEBUG(format, ...) do {} while (0)
+#endif

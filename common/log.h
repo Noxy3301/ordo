@@ -74,12 +74,11 @@ inline void write(LogLevel level, const char* file, int line, const char* format
     char buffer[1024];
     snprintf(buffer, sizeof(buffer), format, args...);
 
-    std::cerr << getColorForLevel(level)
-              << "[" << getTimestamp() << "] "
-              << "[" << logLevelToString(level) << "] "
+    std::cerr << "[" << getTimestamp() << "] "
+              << "[" << getColorForLevel(level) << logLevelToString(level) << ANSI_RESET << "] "
               << "[" << basename(file) << ":" << line << "] "
               << buffer
-              << ANSI_RESET << std::endl;
+              << std::endl;
 }
 
 } // namespace Log

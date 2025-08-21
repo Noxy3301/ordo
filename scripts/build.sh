@@ -1,6 +1,6 @@
 #! /bin/bash
 
-cd $(dirname $0)
+cd $(dirname $0)/..
 
 # Ensure boost directory exists and download if needed
 echo "Checking boost dependency..."

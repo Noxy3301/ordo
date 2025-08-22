@@ -5,3 +5,4 @@ boost
 lineairdb_logs
 
 bench/benchbase
+bench/results

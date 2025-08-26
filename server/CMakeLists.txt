@@ -78,4 +78,4 @@ target_link_libraries(ordo-server
 target_include_directories(ordo-server PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
 
 # Compiler flags to suppress warnings
-target_compile_options(ordo-server PRIVATE -Wno-error -Wno-unused-parameter)
+target_compile_options(ordo-server PRIVATE -O3 -Wno-error -Wno-unused-parameter)

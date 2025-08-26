@@ -179,35 +179,33 @@ void LineairDBRpc::handleTxScan(const std::string& message, std::string& result)
     int64_t tx_id = request.transaction_id();
     auto* tx = tx_manager_->get_transaction(tx_id);
     if (tx) {
-        std::vector<std::string> keys;
         std::string table_prefix = request.db_table_key();
         std::string key_prefix = table_prefix + request.first_key_part();
+        std::string scan_end_key = key_prefix + "\xFF";  // End of prefix range
         
         LOG_DEBUG("SCAN: tx_id=%ld, table_prefix='%s', first_key_part='%s', key_prefix='%s'", tx_id, table_prefix.c_str(), request.first_key_part().c_str(), key_prefix.c_str());
 
-        tx->Scan("", std::nullopt, [&keys, &key_prefix, &table_prefix, this](const std::string_view key, const std::pair<const void*, const size_t>& value) {
+        tx->Scan(key_prefix, scan_end_key, [&response, &key_prefix, &table_prefix, this](const std::string_view key, const std::pair<const void*, const size_t>& value) {
             std::string key_str(key);
-            LOG_DEBUG("SCAN CALLBACK: checking key='%s' against prefix='%s'", key_str.c_str(), key_prefix.c_str());
+            LOG_DEBUG("SCAN CALLBACK: processing key='%s' with prefix='%s'", key_str.c_str(), key_prefix.c_str());
 
             if (key_prefix_is_matching(key_prefix, key_str)) {
-                std::string relative_key = key_str.substr(table_prefix.size());
-                LOG_DEBUG("SCAN CALLBACK: key matches, adding relative_key='%s'", relative_key.c_str());
-                keys.push_back(relative_key);
+                if (value.first != nullptr) {
+                    std::string relative_key = key_str.substr(table_prefix.size());
+                    LOG_DEBUG("SCAN CALLBACK: key matches, adding relative_key='%s'", relative_key.c_str());
+                    
+                    // Create key-value pair
+                    auto* kv = response.add_key_values();
+                    kv->set_key(relative_key);
+                    kv->set_value(reinterpret_cast<const char*>(value.first), value.second);
+                }
             } else {
-                LOG_DEBUG("SCAN CALLBACK: key does not match prefix, skipping");
+                LOG_DEBUG("SCAN CALLBACK: unexpected key outside prefix range, skipping");
             }
             return false;
         });
         
-        LOG_DEBUG("SCAN: completed scan, found %zu keys", keys.size());
-        for (size_t i = 0; i < keys.size(); i++) {
-            LOG_DEBUG("  [%zu] %s", i, keys[i].c_str());
-        }
-        
-        for (const auto& key : keys) {
-            response.add_keys(key);
-        }
-        LOG_DEBUG("Scanned transaction %ld, found %zu keys", tx_id, keys.size());
+        LOG_DEBUG("SCAN: completed scan, found %d key-value pairs", response.key_values_size());
     } else {
         LOG_WARNING("Transaction not found for scan: %ld", tx_id);
     }

@@ -29,6 +29,17 @@ bool LineairDBTransaction::table_is_not_chosen() {
 const std::pair<const std::byte *const, const size_t> 
 LineairDBTransaction::read(std::string key) {
   if (table_is_not_chosen()) return std::pair<const std::byte *const, const size_t>{nullptr, 0};
+
+  // Check cache first
+  auto cache_it = read_cache_.find(key);
+  if (cache_it != read_cache_.end()) {
+    LOG_DEBUG("CACHE HIT: key='%s', value_size=%zu", key.c_str(), cache_it->second.size());
+    const std::string& cached_data = cache_it->second;
+    return {reinterpret_cast<const std::byte*>(cached_data.data()), cached_data.size()};
+  }
+
+  // Cache miss - fetch from server via RPC
+  LOG_DEBUG("CACHE MISS: key='%s', fetching via RPC", key.c_str());
   std::string value = lineairdb_client->tx_read(tx_id, db_table_key + key);
   if (value.empty()) return std::pair<const std::byte *const, const size_t>{nullptr, 0};
 
@@ -42,7 +53,20 @@ std::vector<std::string>
 LineairDBTransaction::get_all_keys() {
   if (table_is_not_chosen()) return {};
 
-  std::vector<std::string> keyList = lineairdb_client->tx_scan(tx_id, db_table_key, "");
+  auto key_value_pairs = lineairdb_client->tx_scan(tx_id, db_table_key, "");
+  
+  std::vector<std::string> keyList;
+  for (const auto& kv : key_value_pairs) {
+    keyList.push_back(kv.first);
+    
+    // Cache the value to avoid future RPC calls
+    if (!kv.second.empty()) {
+      read_cache_[kv.first] = kv.second;
+      LOG_DEBUG("CACHE: stored key='%s', value_size=%zu", kv.first.c_str(), kv.second.size());
+    }
+  }
+  
+  LOG_DEBUG("CACHE: stored %zu key-value pairs from full scan, returning %zu keys", key_value_pairs.size(), keyList.size());
   return keyList;
 }
 
@@ -50,7 +74,20 @@ std::vector<std::string>
 LineairDBTransaction::get_matching_keys(std::string first_key_part) {
   if (table_is_not_chosen()) return {};
 
-  std::vector<std::string> keyList = lineairdb_client->tx_scan(tx_id, db_table_key, first_key_part);
+  auto key_value_pairs = lineairdb_client->tx_scan(tx_id, db_table_key, first_key_part);
+  
+  std::vector<std::string> keyList;
+  for (const auto& kv : key_value_pairs) {
+    keyList.push_back(kv.first);
+    
+    // Cache the value to avoid future RPC calls
+    if (!kv.second.empty()) {
+      read_cache_[kv.first] = kv.second;
+      LOG_DEBUG("CACHE: stored key='%s', value_size=%zu", kv.first.c_str(), kv.second.size());
+    }
+  }
+  
+  LOG_DEBUG("CACHE: stored %zu key-value pairs, returning %zu keys", key_value_pairs.size(), keyList.size());
   return keyList;
 }
 

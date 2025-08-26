@@ -81,8 +81,13 @@ message TxScan {
         string first_key_part = 3;
     }
 
+    message KeyValue {
+        string key = 1;
+        bytes value = 2;
+    }
+
     message Response {
-        repeated string keys = 1;
+        repeated KeyValue key_values = 1;
     }
 }
 

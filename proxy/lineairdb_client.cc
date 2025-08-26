@@ -117,7 +117,7 @@ bool LineairDBClient::tx_write(int64_t tx_id, const std::string& key, const std:
     return response.success();
 }
 
-std::vector<std::string> LineairDBClient::tx_scan(int64_t tx_id, const std::string& db_table_key, const std::string& first_key_part) {
+std::vector<std::pair<std::string, std::string>> LineairDBClient::tx_scan(int64_t tx_id, const std::string& db_table_key, const std::string& first_key_part) {
     LOG_DEBUG("CLIENT: tx_scan called with tx_id=%ld, table=%s, prefix=%s", tx_id, db_table_key.c_str(), first_key_part.c_str());
     if (!connected_) {
         LOG_ERROR("RPC failed: Not connected to server");
@@ -137,13 +137,14 @@ std::vector<std::string> LineairDBClient::tx_scan(int64_t tx_id, const std::stri
         return {};
     }
 
-    std::vector<std::string> keys;
-    for (const auto& key : response.keys()) {
-        keys.push_back(key);
+    std::vector<std::pair<std::string, std::string>> key_values;
+    for (const auto& kv : response.key_values()) {
+        key_values.emplace_back(kv.key(), kv.value());
+        LOG_DEBUG("CLIENT: received key='%s', value_size=%zu", kv.key().c_str(), kv.value().size());
     }
     
-    LOG_DEBUG("CLIENT: tx_scan completed, found %zu keys", keys.size());
-    return keys;
+    LOG_DEBUG("CLIENT: tx_scan completed, found %zu key-value pairs", key_values.size());
+    return key_values;
 }
 
 int64_t LineairDBClient::tx_begin_transaction() {

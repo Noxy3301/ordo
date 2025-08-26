@@ -47,7 +47,7 @@ public:
     // transaction operations
     std::string tx_read(int64_t tx_id, const std::string& key);
     bool tx_write(int64_t tx_id, const std::string& key, const std::string& value);
-    std::vector<std::string> tx_scan(int64_t tx_id, const std::string& db_table_key, const std::string& first_key_part);
+    std::vector<std::pair<std::string, std::string>> tx_scan(int64_t tx_id, const std::string& db_table_key, const std::string& first_key_part);
 
     // database operations
     void db_end_transaction(int64_t tx_id, bool isFence);

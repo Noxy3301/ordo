@@ -125,7 +125,7 @@ bool LineairDBClient::tx_write(LineairDBTransaction* tx, const std::string& key,
     return response.success();
 }
 
-std::vector<std::pair<std::string, std::string>> LineairDBClient::tx_scan(LineairDBTransaction* tx, const std::string& db_table_key, const std::string& first_key_part) {
+std::vector<KeyValue> LineairDBClient::tx_scan(LineairDBTransaction* tx, const std::string& db_table_key, const std::string& first_key_part) {
     int64_t tx_id = tx->get_tx_id();
     LOG_DEBUG("CLIENT: tx_scan called with tx_id=%ld, table=%s, prefix=%s", tx_id, db_table_key.c_str(), first_key_part.c_str());
     if (!connected_) {
@@ -149,9 +149,9 @@ std::vector<std::pair<std::string, std::string>> LineairDBClient::tx_scan(Lineai
     // Update transaction abort status
     tx->set_aborted(response.is_aborted());
 
-    std::vector<std::pair<std::string, std::string>> key_values;
+    std::vector<KeyValue> key_values;
     for (const auto& kv : response.key_values()) {
-        key_values.emplace_back(kv.key(), kv.value());
+        key_values.emplace_back(KeyValue{kv.key(), kv.value()});
         LOG_DEBUG("CLIENT: received key='%s', value_size=%zu", kv.key().c_str(), kv.value().size());
     }
     

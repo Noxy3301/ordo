@@ -11,6 +11,11 @@
 
 class LineairDBTransaction;
 
+struct KeyValue {
+    std::string key;
+    std::string value;
+};
+
 // Message header for RPC communication (matching server implementation)
 struct MessageHeader {
     uint64_t sender_id;      // client ID
@@ -49,7 +54,7 @@ public:
     // transaction operations
     std::string tx_read(LineairDBTransaction* tx, const std::string& key);
     bool tx_write(LineairDBTransaction* tx, const std::string& key, const std::string& value);
-    std::vector<std::pair<std::string, std::string>> tx_scan(LineairDBTransaction* tx, const std::string& db_table_key, const std::string& first_key_part);
+    std::vector<KeyValue> tx_scan(LineairDBTransaction* tx, const std::string& db_table_key, const std::string& first_key_part);
 
     // database operations
     void db_end_transaction(int64_t tx_id, bool isFence);

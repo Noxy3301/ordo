@@ -59,12 +59,12 @@ LineairDBTransaction::get_all_keys() {
   
   std::vector<std::string> keyList;
   for (const auto& kv : key_value_pairs) {
-    keyList.push_back(kv.first);
+    keyList.push_back(kv.key);
     
     // Cache the value to avoid future RPC calls
-    if (!kv.second.empty()) {
-      read_cache_[kv.first] = kv.second;
-      LOG_DEBUG("CACHE: stored key='%s', value_size=%zu", kv.first.c_str(), kv.second.size());
+    if (!kv.value.empty()) {
+      read_cache_[kv.key] = kv.value;
+      LOG_DEBUG("CACHE: stored key='%s', value_size=%zu", kv.key.c_str(), kv.value.size());
     }
   }
   
@@ -80,12 +80,12 @@ LineairDBTransaction::get_matching_keys(std::string first_key_part) {
   
   std::vector<std::string> keyList;
   for (const auto& kv : key_value_pairs) {
-    keyList.push_back(kv.first);
+    keyList.push_back(kv.key);
     
     // Cache the value to avoid future RPC calls
-    if (!kv.second.empty()) {
-      read_cache_[kv.first] = kv.second;
-      LOG_DEBUG("CACHE: stored key='%s', value_size=%zu", kv.first.c_str(), kv.second.size());
+    if (!kv.value.empty()) {
+      read_cache_[kv.key] = kv.value;
+      LOG_DEBUG("CACHE: stored key='%s', value_size=%zu", kv.key.c_str(), kv.value.size());
     }
   }
   

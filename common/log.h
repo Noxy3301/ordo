@@ -10,7 +10,7 @@
 #include <cstring>
 
 // Debug print flag (comment out to disable debug logs)
-#define PRINT_DEBUG
+// #define PRINT_DEBUG
 
 namespace Log {
 

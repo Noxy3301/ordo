@@ -8,8 +8,8 @@
 #include <vector>
 
 #include "lineairdb_client.hh"
+#include "lineairdb_transaction.hh"
 #include "../common/log.h"
-#include "lineairdb.pb.h"
 
 LineairDBClient::LineairDBClient() 
     : socket_fd_(-1), connected_(false), host_("127.0.0.1"), port_(9999) {
@@ -70,7 +70,8 @@ bool LineairDBClient::is_connected() const {
     return connected_;
 }
 
-std::string LineairDBClient::tx_read(int64_t tx_id, const std::string& key) {
+std::string LineairDBClient::tx_read(LineairDBTransaction* tx, const std::string& key) {
+    int64_t tx_id = tx->get_tx_id();
     LOG_DEBUG("CLIENT: tx_read called with tx_id=%ld, key=%s", tx_id, key.c_str());
     if (!connected_) {
         LOG_ERROR("RPC failed: Not connected to server");
@@ -89,11 +90,15 @@ std::string LineairDBClient::tx_read(int64_t tx_id, const std::string& key) {
         return "";
     }
 
+    // Update transaction abort status
+    tx->set_aborted(response.is_aborted());
+
     LOG_DEBUG("CLIENT: tx_read completed, found: %s", response.found() ? "true" : "false");
     return response.found() ? response.value() : "";
 }
 
-bool LineairDBClient::tx_write(int64_t tx_id, const std::string& key, const std::string& value) {
+bool LineairDBClient::tx_write(LineairDBTransaction* tx, const std::string& key, const std::string& value) {
+    int64_t tx_id = tx->get_tx_id();
     LOG_DEBUG("CLIENT: tx_write called with tx_id=%ld, key=%s, value=%s", tx_id, key.c_str(), value.c_str());
     if (!connected_) {
         LOG_ERROR("RPC failed: Not connected to server");
@@ -113,11 +118,15 @@ bool LineairDBClient::tx_write(int64_t tx_id, const std::string& key, const std:
         return false;
     }
 
+    // Update transaction abort status
+    tx->set_aborted(response.is_aborted());
+
     LOG_DEBUG("CLIENT: tx_write completed, success: %s", response.success() ? "true" : "false");
     return response.success();
 }
 
-std::vector<std::pair<std::string, std::string>> LineairDBClient::tx_scan(int64_t tx_id, const std::string& db_table_key, const std::string& first_key_part) {
+std::vector<std::pair<std::string, std::string>> LineairDBClient::tx_scan(LineairDBTransaction* tx, const std::string& db_table_key, const std::string& first_key_part) {
+    int64_t tx_id = tx->get_tx_id();
     LOG_DEBUG("CLIENT: tx_scan called with tx_id=%ld, table=%s, prefix=%s", tx_id, db_table_key.c_str(), first_key_part.c_str());
     if (!connected_) {
         LOG_ERROR("RPC failed: Not connected to server");
@@ -136,6 +145,9 @@ std::vector<std::pair<std::string, std::string>> LineairDBClient::tx_scan(int64_
         LOG_ERROR("RPC failed: Failed to send message to server");
         return {};
     }
+
+    // Update transaction abort status
+    tx->set_aborted(response.is_aborted());
 
     std::vector<std::pair<std::string, std::string>> key_values;
     for (const auto& kv : response.key_values()) {

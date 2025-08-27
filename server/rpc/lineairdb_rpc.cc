@@ -128,6 +128,8 @@ void LineairDBRpc::handleTxRead(const std::string& message, std::string& result)
     int64_t tx_id = request.transaction_id();
     auto* tx = tx_manager_->get_transaction(tx_id);
     if (tx) {
+        response.set_is_aborted(tx->IsAborted());
+
         auto read_result = tx->Read(request.key());
         if (read_result.first != nullptr) {
             response.set_found(true);
@@ -139,6 +141,7 @@ void LineairDBRpc::handleTxRead(const std::string& message, std::string& result)
         LOG_DEBUG("Read key '%s' from transaction %ld: %s", request.key().c_str(), tx_id, (read_result.first != nullptr ? "found" : "not found"));
     } else {
         response.set_found(false);
+        response.set_is_aborted(true);  // not found assumes aborted
         LOG_WARNING("Transaction not found for read: %ld", tx_id);
     }
     
@@ -156,12 +159,15 @@ void LineairDBRpc::handleTxWrite(const std::string& message, std::string& result
     int64_t tx_id = request.transaction_id();
     auto* tx = tx_manager_->get_transaction(tx_id);
     if (tx) {
+        response.set_is_aborted(tx->IsAborted());
+
         const std::string& value_str = request.value();
         tx->Write(request.key(), reinterpret_cast<const std::byte*>(value_str.c_str()), value_str.size());
         response.set_success(true);
         LOG_DEBUG("Wrote key '%s' to transaction %ld", request.key().c_str(), tx_id);
     } else {
         response.set_success(false);
+        response.set_is_aborted(true);  // not found assumes aborted
         LOG_WARNING("Transaction not found for write: %ld", tx_id);
     }
     
@@ -179,6 +185,8 @@ void LineairDBRpc::handleTxScan(const std::string& message, std::string& result)
     int64_t tx_id = request.transaction_id();
     auto* tx = tx_manager_->get_transaction(tx_id);
     if (tx) {
+        response.set_is_aborted(tx->IsAborted());
+
         std::string table_prefix = request.db_table_key();
         std::string key_prefix = table_prefix + request.first_key_part();
         std::string scan_end_key = key_prefix + "\xFF";  // End of prefix range
@@ -204,9 +212,10 @@ void LineairDBRpc::handleTxScan(const std::string& message, std::string& result)
             }
             return false;
         });
-        
+
         LOG_DEBUG("SCAN: completed scan, found %d key-value pairs", response.key_values_size());
     } else {
+        response.set_is_aborted(true);  // not found assumes aborted
         LOG_WARNING("Transaction not found for scan: %ld", tx_id);
     }
     
@@ -239,12 +248,14 @@ void LineairDBRpc::handleDbEndTransaction(const std::string& message, std::strin
     auto* tx = tx_manager_->get_transaction(tx_id);
     if (tx) {
         bool fence = request.fence();
+        response.set_is_aborted(tx->IsAborted());
         db_manager_->get_database()->EndTransaction(*tx, [fence, tx_id](LineairDB::TxStatus status) {
             LOG_DEBUG("Transaction %ld ended with status: %d, fence=%s", tx_id, static_cast<int>(status), fence ? "true" : "false");
         });
         tx_manager_->remove_transaction(tx_id);
         LOG_DEBUG("Ended transaction %ld with fence=%s", tx_id, fence ? "true" : "false");
     } else {
+        response.set_is_aborted(true);  // not found assumes aborted
         LOG_WARNING("Transaction not found for end: %ld", tx_id);
     }
     

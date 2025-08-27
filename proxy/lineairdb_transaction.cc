@@ -10,7 +10,9 @@ LineairDBTransaction::LineairDBTransaction(THD* thd,
       thread(thd), 
       isTransaction(false), 
       hton(lineairdb_hton),
-      isFence(isFence) {}
+      isFence(isFence),
+      is_aborted_(false)
+    {}
 
 std::string LineairDBTransaction::get_selected_table_name() { return db_table_key; }
 
@@ -40,7 +42,7 @@ LineairDBTransaction::read(std::string key) {
 
   // Cache miss - fetch from server via RPC
   LOG_DEBUG("CACHE MISS: key='%s', fetching via RPC", key.c_str());
-  std::string value = lineairdb_client->tx_read(tx_id, db_table_key + key);
+  std::string value = lineairdb_client->tx_read(this, db_table_key + key);
   if (value.empty()) return std::pair<const std::byte *const, const size_t>{nullptr, 0};
 
   // cache data to maintain pointer validity until transaction ends
@@ -53,7 +55,7 @@ std::vector<std::string>
 LineairDBTransaction::get_all_keys() {
   if (table_is_not_chosen()) return {};
 
-  auto key_value_pairs = lineairdb_client->tx_scan(tx_id, db_table_key, "");
+  auto key_value_pairs = lineairdb_client->tx_scan(this, db_table_key, "");
   
   std::vector<std::string> keyList;
   for (const auto& kv : key_value_pairs) {
@@ -74,7 +76,7 @@ std::vector<std::string>
 LineairDBTransaction::get_matching_keys(std::string first_key_part) {
   if (table_is_not_chosen()) return {};
 
-  auto key_value_pairs = lineairdb_client->tx_scan(tx_id, db_table_key, first_key_part);
+  auto key_value_pairs = lineairdb_client->tx_scan(this, db_table_key, first_key_part);
   
   std::vector<std::string> keyList;
   for (const auto& kv : key_value_pairs) {
@@ -93,7 +95,7 @@ LineairDBTransaction::get_matching_keys(std::string first_key_part) {
 
 bool LineairDBTransaction::write(std::string key, const std::string value) {
   if (table_is_not_chosen()) return false;
-  return lineairdb_client->tx_write(tx_id, db_table_key + key, value);
+  return lineairdb_client->tx_write(this, db_table_key + key, value);
 }
 
 bool LineairDBTransaction::delete_value(std::string key) {
@@ -107,7 +109,7 @@ bool LineairDBTransaction::delete_value(std::string key) {
     full_key = db_table_key + key;  // key needs db_table_key prefix
   }
   
-  return lineairdb_client->tx_write(tx_id, full_key, "");
+  return lineairdb_client->tx_write(this, full_key, "");
 }
 
 

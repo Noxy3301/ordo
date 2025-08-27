@@ -57,6 +57,7 @@ message TxRead {
     message Response {
         bool found = 1;
         bytes value = 2;
+        bool is_aborted = 3;
     }
 }
 
@@ -70,6 +71,7 @@ message TxWrite {
     
     message Response {
         bool success = 1;
+        bool is_aborted = 2;
     }
 }
 
@@ -88,6 +90,7 @@ message TxScan {
 
     message Response {
         repeated KeyValue key_values = 1;
+        bool is_aborted = 2;
     }
 }
 
@@ -110,7 +113,6 @@ message DbEndTransaction {
     }
 
     message Response {
-        // empty response
-        // NOTE: db->EndTransaction() returns bool, but it's unused in this implementation so response is empty.
+        bool is_aborted = 1;
     }
 }

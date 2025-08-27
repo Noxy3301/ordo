@@ -9,6 +9,8 @@
 
 #include "lineairdb.pb.h"
 
+class LineairDBTransaction;
+
 // Message header for RPC communication (matching server implementation)
 struct MessageHeader {
     uint64_t sender_id;      // client ID
@@ -45,9 +47,9 @@ public:
     bool tx_is_aborted(int64_t tx_id);
 
     // transaction operations
-    std::string tx_read(int64_t tx_id, const std::string& key);
-    bool tx_write(int64_t tx_id, const std::string& key, const std::string& value);
-    std::vector<std::pair<std::string, std::string>> tx_scan(int64_t tx_id, const std::string& db_table_key, const std::string& first_key_part);
+    std::string tx_read(LineairDBTransaction* tx, const std::string& key);
+    bool tx_write(LineairDBTransaction* tx, const std::string& key, const std::string& value);
+    std::vector<std::pair<std::string, std::string>> tx_scan(LineairDBTransaction* tx, const std::string& db_table_key, const std::string& first_key_part);
 
     // database operations
     void db_end_transaction(int64_t tx_id, bool isFence);

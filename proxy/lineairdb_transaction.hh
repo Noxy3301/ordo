@@ -39,10 +39,20 @@ public:
     if (tx_id == -1) return true;
     return false;
   }
+
+  inline int64_t get_tx_id() const {
+    return tx_id;
+  }
+
   inline bool is_aborted() const {
     assert(tx_id != -1);
     return lineairdb_client->tx_is_aborted(tx_id);
   }
+
+  inline void set_aborted(bool aborted) {
+    is_aborted_ = aborted;
+  }
+
   inline bool is_a_single_statement() const { return !isTransaction; }
 
 
@@ -63,6 +73,9 @@ private:
 
   // stores RPC read results to maintain data pointer validity until transaction ends
   std::unordered_map<std::string, std::string> read_cache_;
+
+  // transaction abort status (updated by RPC responses)
+  bool is_aborted_;
 
   bool thd_is_transaction() const;
   void register_transaction_to_mysql();

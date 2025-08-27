@@ -106,7 +106,7 @@
 #include "typelib.h"
 
 #define BLOB_MEMROOT_ALLOC_SIZE (8192)
-#define FENCE true
+#define FENCE false
 
 static std::shared_ptr<LineairDBClient> get_or_allocate_database();
 

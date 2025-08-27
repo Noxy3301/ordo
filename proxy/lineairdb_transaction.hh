@@ -64,7 +64,6 @@ private:
   // stores RPC read results to maintain data pointer validity until transaction ends
   std::unordered_map<std::string, std::string> read_cache_;
 
-  bool key_prefix_is_matching(std::string target_key, std::string key);
   bool thd_is_transaction() const;
   void register_transaction_to_mysql();
   void register_single_statement_to_mysql();

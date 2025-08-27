@@ -61,7 +61,7 @@ private:
   handlerton* hton;
   bool isFence;
 
-  // temporary buffer to maintain pointer validity for RPC read results until transaction ends
+  // stores RPC read results to maintain data pointer validity until transaction ends
   std::unordered_map<std::string, std::string> read_cache_;
 
   bool key_prefix_is_matching(std::string target_key, std::string key);

@@ -21,6 +21,4 @@ protected:
 private:
     // Core components
     std::shared_ptr<DatabaseManager> db_manager_;
-    std::shared_ptr<TransactionManager> tx_manager_;
-    std::shared_ptr<LineairDBRpc> rpc_handler_;
 };

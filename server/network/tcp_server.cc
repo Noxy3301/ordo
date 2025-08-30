@@ -6,6 +6,7 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <unistd.h>
+#include <thread>
 
 TcpServer::TcpServer(uint16_t port) : port_(port) {}
 
@@ -51,7 +52,7 @@ bool TcpServer::setup_and_listen(int& server_socket) {
     }
 
     // Listen for connections
-    if (listen(server_socket, 5) < 0) {
+    if (listen(server_socket, 128) < 0) {
         std::cerr << "Failed to listen on socket" << std::endl;
         close(server_socket);
         return false;
@@ -64,16 +65,23 @@ void TcpServer::accept_clients(int server_socket) {
     while (true) {
         struct sockaddr_in client_addr;
         socklen_t client_addr_len = sizeof(client_addr);
-        
+
         int client_socket = accept(server_socket, (struct sockaddr*)&client_addr, &client_addr_len);
         if (client_socket < 0) {
             std::cerr << "Failed to accept client connection" << std::endl;
             continue;
         }
 
-        LOG_DEBUG("Client connected from %s", inet_ntoa(client_addr.sin_addr));
-        handle_client(client_socket);
-        close(client_socket);
-        LOG_DEBUG("Client disconnected");
+        // Hand off each client to a dedicated thread
+        auto client_ip = std::string(inet_ntoa(client_addr.sin_addr));
+        LOG_DEBUG("Client connected from %s", client_ip.c_str());
+
+        std::thread([this, client_socket, client_ip]() {
+            // Process the client in this thread
+            handle_client(client_socket);
+            // Ensure socket is closed when done
+            close(client_socket);
+            LOG_DEBUG("Client disconnected (%s)", client_ip.c_str());
+        }).detach();
     }
 }

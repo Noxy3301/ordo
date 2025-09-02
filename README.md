@@ -54,3 +54,27 @@ SELECT * FROM test;
 
 SELECT * FROM test WHERE id = 1;
 ```
+
+## Benchmark
+
+```bash
+./scripts/build.sh
+
+or
+
+./scripts/build_partial.sh
+```
+
+```bash
+build/server/ordo-server
+```
+
+```bash
+scripts/experimental/start_mysql_multi.sh 4 3307
+```
+
+```bash
+scripts/experimental/phase_setup.sh 4 3307
+scripts/experimental/phase_load.sh 4 3307
+scripts/experimental/phase_execute.sh 4 3307
+```

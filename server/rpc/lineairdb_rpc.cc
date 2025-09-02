@@ -246,12 +246,14 @@ void LineairDBRpc::handleDbEndTransaction(const std::string& message, std::strin
     auto* tx = tx_manager_->get_transaction(tx_id);
     if (tx) {
         bool fence = request.fence();
-        response.set_is_aborted(tx->IsAborted());
-        db_manager_->get_database()->EndTransaction(*tx, [fence, tx_id](LineairDB::TxStatus status) {
-            LOG_DEBUG("Transaction %ld ended with status: %d, fence=%s", tx_id, static_cast<int>(status), fence ? "true" : "false");
-        });
+        bool committed = db_manager_->get_database()->EndTransaction(
+            *tx, [fence, tx_id](LineairDB::TxStatus status) {
+                LOG_DEBUG("Transaction %ld ended with status: %d, fence=%s", tx_id, static_cast<int>(status), fence ? "true" : "false");
+            });
+        bool aborted = !committed;
+        response.set_is_aborted(aborted);
         tx_manager_->remove_transaction(tx_id);
-        LOG_DEBUG("Ended transaction %ld with fence=%s", tx_id, fence ? "true" : "false");
+        LOG_DEBUG("Ended transaction %ld with fence=%s (committed=%s)", tx_id, fence ? "true" : "false", committed ? "true" : "false");
     } else {
         response.set_is_aborted(true);  // not found assumes aborted
         LOG_WARNING("Transaction not found for end: %ld", tx_id);

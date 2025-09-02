@@ -82,7 +82,6 @@ void LineairDBRpc::handleTxAbort(const std::string& message, std::string& result
     auto* tx = tx_manager_->get_transaction(tx_id);
     if (tx) {
         tx->Abort();
-        LOG_DEBUG("Aborted transaction: %ld", tx_id);
     } else {
         LOG_WARNING("Transaction not found for abort: %ld", tx_id);
     }
@@ -106,7 +105,6 @@ void LineairDBRpc::handleTxIsAborted(const std::string& message, std::string& re
     if (tx) {
         bool is_aborted = tx->IsAborted();
         response.set_is_aborted(is_aborted);
-        LOG_DEBUG("Transaction %ld aborted status: %s", tx_id, is_aborted ? "true" : "false");
     } else {
         response.set_is_aborted(true);  // not found = aborted
         LOG_WARNING("Transaction not found, considering as aborted: %ld", tx_id);

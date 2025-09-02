@@ -31,7 +31,7 @@ public:
 
   void begin_transaction();
   void set_status_to_abort();
-  void end_transaction();
+  bool end_transaction();
   void fence() const;
   
 

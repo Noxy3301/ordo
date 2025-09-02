@@ -132,11 +132,15 @@ void LineairDBTransaction::set_status_to_abort() {
   lineairdb_client->tx_abort(tx_id);
 }
 
-void LineairDBTransaction::end_transaction() {
+bool LineairDBTransaction::end_transaction() {
   assert(tx_id != -1);
-  lineairdb_client->db_end_transaction(tx_id, isFence);
+  bool committed = lineairdb_client->db_end_transaction(tx_id, isFence);
+  if (!committed) {
+    thd_mark_transaction_to_rollback(thread, 1);
+  }
   if (isFence) lineairdb_client->db_fence();
   delete this;
+  return committed;
 }
 
 void LineairDBTransaction::fence() const { lineairdb_client->db_fence(); }

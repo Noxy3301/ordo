@@ -56,8 +56,8 @@ public:
     bool tx_write(LineairDBTransaction* tx, const std::string& key, const std::string& value);
     std::vector<KeyValue> tx_scan(LineairDBTransaction* tx, const std::string& db_table_key, const std::string& first_key_part);
 
-    // database operations
-    void db_end_transaction(int64_t tx_id, bool isFence);
+    // database operations: returns true if committed, false if aborted
+    bool db_end_transaction(int64_t tx_id, bool isFence);
     void db_fence();
 
 private:

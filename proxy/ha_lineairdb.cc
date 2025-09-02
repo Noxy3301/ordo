@@ -728,11 +728,21 @@ LineairDBTransaction*& ha_lineairdb::get_transaction(THD* thd) {
 */
 static int lineairdb_commit(handlerton *hton, THD *thd, bool shouldTerminate) {
   if (shouldTerminate == false) return 0;
-  LineairDBTransaction *&tx = *reinterpret_cast<LineairDBTransaction**>(thd_ha_data(thd, hton));
+  LineairDBThdCtx*& ctx = *reinterpret_cast<LineairDBThdCtx**>(thd_ha_data(thd, hton));
 
-  assert(tx != nullptr);
-  
-  terminate_tx(tx);
+  // 参加していない（このエンジンのトランザクションが無い）場合は noop
+  if (ctx == nullptr || ctx->tx == nullptr) return 0;
+
+  // Terminate and propagate abort as commit error to MySQL
+  bool committed = false;
+  if (ctx->tx != nullptr) {
+    committed = ctx->tx->end_transaction();
+    ctx->tx = nullptr;
+  }
+  if (!committed) {
+    thd_mark_transaction_to_rollback(thd, 1);
+    return HA_ERR_LOCK_DEADLOCK;
+  }
   return 0;
 }
 
@@ -740,12 +750,16 @@ static int lineairdb_commit(handlerton *hton, THD *thd, bool shouldTerminate) {
  * implementation of rollback for lineairdb_hton
 */
 static int lineairdb_abort(handlerton *hton, THD *thd, bool) {
-  LineairDBTransaction *&tx = *reinterpret_cast<LineairDBTransaction**>(thd_ha_data(thd, hton));
+  LineairDBThdCtx*& ctx = *reinterpret_cast<LineairDBThdCtx**>(thd_ha_data(thd, hton));
 
-  assert(tx != nullptr);
+  // 参加していない場合は noop
+  if (ctx == nullptr || ctx->tx == nullptr) return 0;
 
-  tx->set_status_to_abort();
-  terminate_tx(tx);
+  ctx->tx->set_status_to_abort();
+  if (ctx->tx != nullptr) {
+    (void)ctx->tx->end_transaction();
+    ctx->tx = nullptr;
+  }
   return 0;
 }
 

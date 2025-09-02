@@ -56,6 +56,12 @@ set(SOURCES
     storage/database_manager.hh
     storage/transaction_manager.cc
     storage/transaction_manager.hh
+
+    # Worker layer
+    worker/transaction_worker.cc
+    worker/transaction_worker.hh
+    worker/worker_manager.cc
+    worker/worker_manager.hh
     
     # Protocol
     protocol/message.hh

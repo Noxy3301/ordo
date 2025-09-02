@@ -108,9 +108,12 @@
 #define BLOB_MEMROOT_ALLOC_SIZE (8192)
 #define FENCE false
 
-static std::shared_ptr<LineairDBClient> get_or_allocate_database();
+// THD-scoped context
+struct LineairDBThdCtx {
+  std::shared_ptr<LineairDBClient> client;
+  LineairDBTransaction* tx{nullptr};
+};
 
-void terminate_tx(LineairDBTransaction*& tx);
 static int lineairdb_commit(handlerton *hton, THD *thd, bool shouldCommit);
 static int lineairdb_abort(handlerton *hton, THD *thd, bool);
 
@@ -202,19 +205,7 @@ static int lineairdb_init_func(void* p) {
   return 0;
 }
 
-static std::shared_ptr<LineairDBClient> get_or_allocate_database() {
-  static std::shared_ptr<LineairDBClient> db;
-  static std::once_flag flag;
-  std::call_once(flag, [&](){ db = std::make_shared<LineairDBClient>(); });
-  return db;
-}
-
-LineairDB_share::LineairDB_share() {
-  thr_lock_init(&lock);
-  if (lineairdb_client_ == nullptr) {
-    lineairdb_client_ = get_or_allocate_database();
-  }
-}
+LineairDB_share::LineairDB_share() { thr_lock_init(&lock); }
 
 /**
   @brief
@@ -242,7 +233,11 @@ err:
 }
 
 LineairDBClient* ha_lineairdb::get_db_client() {
-  return get_share()->lineairdb_client_.get();
+  // Use THD-scoped client
+  LineairDBThdCtx*& ctx = *reinterpret_cast<LineairDBThdCtx**>(thd_ha_data(userThread, lineairdb_hton));
+  if (ctx == nullptr) ctx = new LineairDBThdCtx();
+  if (!ctx->client) ctx->client = std::make_shared<LineairDBClient>();
+  return ctx->client.get();
 }
 
 static PSI_memory_key csv_key_memory_blobroot;
@@ -719,11 +714,13 @@ int ha_lineairdb::start_stmt(THD *thd, thr_lock_type lock_type) {
  * @brief Gets transaction from MySQL allocated memory
  */
 LineairDBTransaction*& ha_lineairdb::get_transaction(THD* thd) {
-  LineairDBTransaction *&tx = *reinterpret_cast<LineairDBTransaction**>(thd_ha_data(thd, lineairdb_hton));
-  if (tx == nullptr) {
-    tx = new LineairDBTransaction(thd, get_db_client(), lineairdb_hton, FENCE);
+  LineairDBThdCtx*& ctx = *reinterpret_cast<LineairDBThdCtx**>(thd_ha_data(thd, lineairdb_hton));
+  if (ctx == nullptr) ctx = new LineairDBThdCtx();
+  if (!ctx->client) ctx->client = std::make_shared<LineairDBClient>();
+  if (ctx->tx == nullptr) {
+    ctx->tx = new LineairDBTransaction(thd, ctx->client.get(), lineairdb_hton, FENCE);
   }
-  return tx;
+  return ctx->tx;
 }
 
 /**
@@ -752,10 +749,6 @@ static int lineairdb_abort(handlerton *hton, THD *thd, bool) {
   return 0;
 }
 
-void terminate_tx(LineairDBTransaction*& tx) {
-  tx->end_transaction();
-  tx = nullptr;
-}
 
 /**
   @brief

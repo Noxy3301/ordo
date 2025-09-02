@@ -320,7 +320,7 @@ int ha_lineairdb::write_row(uchar* buf) {
 
   auto tx = get_transaction(userThread);
 
-  if (tx->is_aborted()) {
+  if (tx->is_not_started() || tx->is_aborted()) {
     thd_mark_transaction_to_rollback(userThread, 1);
     return HA_ERR_LOCK_DEADLOCK;
   }
@@ -340,7 +340,7 @@ int ha_lineairdb::update_row(const uchar*, uchar* buf) {
 
   auto tx = get_transaction(userThread);
 
-  if (tx->is_aborted()) {
+  if (tx->is_not_started() || tx->is_aborted()) {
     thd_mark_transaction_to_rollback(userThread, 1);
     return HA_ERR_LOCK_DEADLOCK;
   }
@@ -359,7 +359,7 @@ int ha_lineairdb::delete_row(const uchar*) {
 
   auto tx = get_transaction(userThread);
 
-  if (tx->is_aborted()) {
+  if (tx->is_not_started() || tx->is_aborted()) {
     thd_mark_transaction_to_rollback(userThread, 1);
     return HA_ERR_LOCK_DEADLOCK;
   }
@@ -381,7 +381,7 @@ int ha_lineairdb::index_read_map(uchar* buf, const uchar* key, key_part_map,
 
   auto tx = get_transaction(userThread);
 
-  if (tx->is_aborted()) {
+  if (tx->is_not_started() || tx->is_aborted()) {
     thd_mark_transaction_to_rollback(userThread, 1);
     DBUG_RETURN(HA_ERR_LOCK_DEADLOCK);
   }
@@ -471,7 +471,7 @@ int ha_lineairdb::rnd_init(bool) {
 
   auto tx = get_transaction(userThread);
 
-  if (tx->is_aborted()) {
+  if (tx->is_not_started() || tx->is_aborted()) {
     thd_mark_transaction_to_rollback(userThread, 1);
     DBUG_RETURN(HA_ERR_LOCK_DEADLOCK);
   }
@@ -519,7 +519,7 @@ read_from_lineairdb:
 
   auto tx = get_transaction(userThread);
 
-  if (tx->is_aborted()) {
+  if (tx->is_not_started() || tx->is_aborted()) {
     thd_mark_transaction_to_rollback(userThread, 1);
     DBUG_RETURN(HA_ERR_LOCK_DEADLOCK);
   }

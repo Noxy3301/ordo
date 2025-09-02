@@ -378,7 +378,7 @@ int ha_lineairdb::delete_row(const uchar*) {
 
 int ha_lineairdb::index_read_map(uchar* buf, const uchar* key, key_part_map,
                                  enum ha_rkey_function) {
-  DBUG_TRACE;
+  DBUG_ENTER("ha_lineairdb::index_read_map");
 
   auto key_prefix = convert_key_to_ldbformat(key);
 
@@ -388,14 +388,14 @@ int ha_lineairdb::index_read_map(uchar* buf, const uchar* key, key_part_map,
 
   if (tx->is_aborted()) {
     thd_mark_transaction_to_rollback(userThread, 1);
-    return HA_ERR_LOCK_DEADLOCK;
+    DBUG_RETURN(HA_ERR_LOCK_DEADLOCK);
   }
 
   tx->choose_table(db_table_name);
   scanned_keys_ = tx->get_matching_keys(key_prefix);
   current_position_ = 0;
 
-  return index_next(buf);
+  DBUG_RETURN(index_next(buf));
 }
 
 /**
@@ -478,7 +478,7 @@ int ha_lineairdb::rnd_init(bool) {
 
   if (tx->is_aborted()) {
     thd_mark_transaction_to_rollback(userThread, 1);
-    return HA_ERR_LOCK_DEADLOCK;
+    DBUG_RETURN(HA_ERR_LOCK_DEADLOCK);
   }
 
   tx->choose_table(db_table_name);
@@ -526,7 +526,7 @@ read_from_lineairdb:
 
   if (tx->is_aborted()) {
     thd_mark_transaction_to_rollback(userThread, 1);
-    return HA_ERR_LOCK_DEADLOCK;
+    DBUG_RETURN(HA_ERR_LOCK_DEADLOCK);
   }
 
   assert(tx->get_selected_table_name() == db_table_name);
@@ -538,7 +538,7 @@ read_from_lineairdb:
   }
   if (set_fields_from_lineairdb(buf, read_buffer.first, read_buffer.second)) {
     tx->set_status_to_abort();
-    return HA_ERR_OUT_OF_MEM;
+    DBUG_RETURN(HA_ERR_OUT_OF_MEM);
   }
   current_position_++;
   DBUG_RETURN(0);

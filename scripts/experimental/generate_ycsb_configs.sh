@@ -8,12 +8,14 @@ STARTING_PORT=${2:-3307}
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONFIG_DIR="$SCRIPT_DIR/../../bench/config"
-TEMPLATE_FILE="$CONFIG_DIR/ycsb.xml"
+# Allow caller to override the template file via env var TEMPLATE_FILE
+TEMPLATE_FILE=${TEMPLATE_FILE:-"$CONFIG_DIR/ycsb.xml"}
+# Allow caller to override the output multi-config directory via OUTPUT_MULTI_DIR
+MULTI_CONFIG_DIR=${OUTPUT_MULTI_DIR:-"$CONFIG_DIR/multi"}
 
 echo "Generating $NUM_INSTANCES YCSB config files starting from port $STARTING_PORT..."
 
 # Create multi-config directory if it doesn't exist
-MULTI_CONFIG_DIR="$CONFIG_DIR/multi"
 mkdir -p "$MULTI_CONFIG_DIR"
 
 for i in $(seq 0 $((NUM_INSTANCES - 1))); do
@@ -32,5 +34,5 @@ echo ""
 echo "Generated $NUM_INSTANCES configuration files:"
 for i in $(seq 0 $((NUM_INSTANCES - 1))); do
     PORT=$((STARTING_PORT + i))
-    echo "  - bench/config/multi/ycsb_port_${PORT}.xml"
+    echo "  - $MULTI_CONFIG_DIR/ycsb_port_${PORT}.xml"
 done

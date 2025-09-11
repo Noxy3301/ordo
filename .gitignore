@@ -7,3 +7,4 @@ lineairdb_logs
 bench/benchbase
 bench/results
 bench/config/multi
+bench/config/generated

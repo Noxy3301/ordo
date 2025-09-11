@@ -693,10 +693,11 @@ int ha_lineairdb::external_lock(THD* thd, int lock_type) {
   const bool tx_is_ready_to_commit = lock_type == F_UNLCK;
   if (tx_is_ready_to_commit) {
     if (tx->is_a_single_statement()) {
-      // Commit and propagate failure code (e.g., 1213) to the caller.
       int result = lineairdb_commit(lineairdb_hton, thd, true);
       if (result != 0) {
-        return result;
+        // Mark rollback; server will surface the failure via THD,
+        // but we still return 0 so that PSI/unlock bookkeeping completes.
+        thd_mark_transaction_to_rollback(thd, 1);
       }
     }
     return 0;

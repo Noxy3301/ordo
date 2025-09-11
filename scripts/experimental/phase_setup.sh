@@ -21,7 +21,7 @@ ROOT_DIR="$SCRIPT_DIR/../.."
 BENCH_DIR="$ROOT_DIR/bench"
 BENCHBASE_SRC="$BENCH_DIR/benchbase/benchbase-mysql"
 JAR="$BENCHBASE_SRC/benchbase.jar"
-CONFIG_MULTI_DIR="$BENCH_DIR/config/multi"
+CONFIG_MULTI_DIR=${CONFIG_MULTI_DIR:-"$BENCH_DIR/config/multi"}
 MYSQL_BIN="$ROOT_DIR/build/runtime_output_directory/mysql"
 
 TS=$(date +%Y%m%d_%H%M%S)
@@ -78,4 +78,3 @@ done
 
 echo "=== Setup Done ==="
 echo "Logs: $RESULTS_DIR"
-

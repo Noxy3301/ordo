@@ -16,7 +16,7 @@ MAX_PARALLEL=${MAX_PARALLEL:-$CLIENTS}
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$SCRIPT_DIR/../.."
 BENCH_DIR="$ROOT_DIR/bench"
-CONFIG_MULTI_DIR="$BENCH_DIR/config/multi"
+CONFIG_MULTI_DIR=${CONFIG_MULTI_DIR:-"$BENCH_DIR/config/multi"}
 
 TS=$(date +%Y%m%d_%H%M%S)
 # Prefer sorting by date_time, then port, then phase suffix
@@ -59,4 +59,3 @@ wait || true
 
 echo "=== Load Done ==="
 echo "Logs: $RESULTS_DIR"
-

@@ -16,7 +16,7 @@ PRESERVE_WORKDIRS=${PRESERVE_WORKDIRS:-false}
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$SCRIPT_DIR/../.."
 BENCH_DIR="$ROOT_DIR/bench"
-CONFIG_MULTI_DIR="$BENCH_DIR/config/multi"
+CONFIG_MULTI_DIR=${CONFIG_MULTI_DIR:-"$BENCH_DIR/config/multi"}
 
 TS=$(date +%Y%m%d_%H%M%S)
 # Prefer sorting by date_time, then port, then phase suffix
@@ -112,10 +112,10 @@ if [ "$PRESERVE_WORKDIRS" != "true" ]; then
   done
 fi
 
-echo "Aggregating throughput ..."
-total_tps=0; clients_ok=0
+echo "Aggregating throughput/goodput ..."
+total_tps=0; total_gps=0; clients_ok=0
 {
-  echo "Port,Throughput(req/s)"
+  echo "Port,Throughput(req/s),Goodput(req/s)"
   for i in $(seq 0 $((CLIENTS - 1))); do
     PORT=$((START_PORT + i))
     PORT_DIR="$RESULTS_DIR/port_${PORT}"
@@ -127,9 +127,10 @@ total_tps=0; clients_ok=0
     if [ -n "$latest_run" ] && [ -d "$PORT_DIR/$latest_run" ]; then
       summary=$(ls -1 "$PORT_DIR/$latest_run"/ycsb_*summary*.json 2>/dev/null | sort | tail -n1 || true)
     fi
-    tps=""
+    tps=""; gps=""
     if [ -f "$summary" ]; then
       tps=$(grep -o '"Throughput (requests/second)": [0-9.]*' "$summary" | awk '{print $3}')
+      gps=$(grep -o '"Goodput (requests/second)": [0-9.]*' "$summary" | awk '{print $3}')
     fi
     if [ -z "$tps" ]; then
       exelog="$RESULTS_DIR/execute_${PORT}.log"
@@ -137,18 +138,21 @@ total_tps=0; clients_ok=0
         tps=$(grep -m1 'Rate limited reqs/s: Results' "$exelog" | sed -E 's/.*= ([0-9.]+) requests\/sec.*/\1/')
       fi
     fi
+    print_line=""
     if [[ "$tps" =~ ^[0-9.]+$ ]]; then
       total_tps=$(awk -v a="$total_tps" -v b="$tps" 'BEGIN{printf "%.3f", a+b}')
+    fi
+    if [[ "$gps" =~ ^[0-9.]+$ ]]; then
+      total_gps=$(awk -v a="$total_gps" -v b="$gps" 'BEGIN{printf "%.3f", a+b}')
       clients_ok=$((clients_ok+1))
-      echo "$PORT,$tps"
+      echo "$PORT,$tps,${gps:-N/A}"
     else
-      echo "$PORT,N/A"
+      echo "$PORT,${tps:-N/A},N/A"
     fi
   done
-  echo "Total,$total_tps"
+  echo "Total,$total_tps,$total_gps"
   echo "Clients_OK,$clients_ok/$CLIENTS"
 } | tee "$RESULTS_DIR/aggregate.csv"
 
 echo "=== Execute Done ==="
 echo "Results: $RESULTS_DIR"
-

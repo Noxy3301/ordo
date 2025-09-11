@@ -711,8 +711,12 @@ int ha_lineairdb::external_lock(THD* thd, int lock_type) {
 }
 
 int ha_lineairdb::start_stmt(THD *thd, thr_lock_type lock_type) {
+  // Do not call external_lock() here; the server will invoke
+  // ha_external_lock() with the appropriate lock type.
+  // Just record the thread for later use.
   assert(lock_type > 0);
-  return external_lock(thd, lock_type);
+  userThread = thd;
+  return 0;
 }
 
 /**

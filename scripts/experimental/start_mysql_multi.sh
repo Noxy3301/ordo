@@ -5,6 +5,8 @@
 
 NUM_INSTANCES=${1:-2}  # Default: 2 instances
 STARTING_PORT=${2:-3307}  # Default: starting from port 3307
+# If DETACH=true, start instances and return immediately
+DETACH=${DETACH:-false}
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BUILD_DIR="$SCRIPT_DIR/../../build"
@@ -26,8 +28,10 @@ cleanup() {
     exit 0
 }
 
-# Trap signals for cleanup
-trap cleanup SIGINT SIGTERM
+# Trap signals for cleanup (only in attached mode)
+if [ "$DETACH" != "true" ]; then
+  trap cleanup SIGINT SIGTERM
+fi
 
 cd "$BUILD_DIR"
 
@@ -192,8 +196,9 @@ for i in $(seq 0 $((NUM_INSTANCES - 1))); do
 done
 
 echo ""
-echo "Press Ctrl+C to stop all instances"
 echo "PIDs: ${MYSQL_PIDS[*]}"
-
-# Wait for all background processes
-wait
+if [ "$DETACH" != "true" ]; then
+  echo "Press Ctrl+C to stop all instances"
+  # Wait for all background processes
+  wait
+fi

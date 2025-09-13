@@ -1,8 +1,26 @@
 #!/bin/bash
 
 # Multi-port MySQL Server Startup Script
-# Usage: ./start_mysql_multi.sh [num_instances] [starting_port]
+# Usage: ./start_mysql_multi.sh [--ordo-host HOST] [--ordo-port PORT] [num_instances] [starting_port]
 
+# Defaults
+ORDO_HOST="127.0.0.1"
+ORDO_PORT=9999
+
+# Parse optional flags first (supports --key value and --key=value)
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --ordo-host) ORDO_HOST="$2"; shift 2;;
+    --ordo-host=*) ORDO_HOST="${1#*=}"; shift;;
+    --ordo-port) ORDO_PORT="$2"; shift 2;;
+    --ordo-port=*) ORDO_PORT="${1#*=}"; shift;;
+    --) shift; break;;
+    -*) echo "Unknown option: $1" >&2; exit 2;;
+    *) break;;
+  esac
+done
+
+# Positionals
 NUM_INSTANCES=${1:-2}  # Default: 2 instances
 STARTING_PORT=${2:-3307}  # Default: starting from port 3307
 # If DETACH=true, start instances and return immediately
@@ -12,6 +30,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BUILD_DIR="$SCRIPT_DIR/../../build"
 
 echo "Starting $NUM_INSTANCES MySQL instances from port $STARTING_PORT..."
+echo "LineairDB target: $ORDO_HOST:$ORDO_PORT"
 
 # Array to store MySQL PIDs
 declare -a MYSQL_PIDS=()
@@ -188,6 +207,24 @@ for pid in "${RESTART_PIDS[@]}"; do
 done
 
 echo "=== All instances ready with LineairDB! ==="
+
+# Phase 7: Configure LineairDB client target on all instances
+echo "=== Phase 7: Configuring LineairDB target on all instances ==="
+declare -a CFG_PIDS=()
+for i in $(seq 0 $((NUM_INSTANCES - 1))); do
+    PORT=$((STARTING_PORT + i))
+    SOCKET="/tmp/mysql_${PORT}.sock"
+    (
+      ./runtime_output_directory/mysql -u root --socket="$SOCKET" --port="$PORT" \
+        -e "SET GLOBAL lineairdb_ordo_host='${ORDO_HOST}'; SET GLOBAL lineairdb_ordo_port=${ORDO_PORT};" >/dev/null
+      echo "Configured LineairDB target for port $PORT -> ${ORDO_HOST}:${ORDO_PORT}"
+    ) &
+    CFG_PIDS+=($!)
+done
+for pid in "${CFG_PIDS[@]}"; do
+  wait $pid || cleanup
+done
+echo "All instances configured to use Ordo at ${ORDO_HOST}:${ORDO_PORT}"
 
 echo "All $NUM_INSTANCES MySQL instances are running:"
 for i in $(seq 0 $((NUM_INSTANCES - 1))); do

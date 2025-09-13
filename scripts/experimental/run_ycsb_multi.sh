@@ -19,7 +19,7 @@ set -euo pipefail
 usage() {
   cat <<USAGE
 Usage:
-  $0 --instances N --start-port P --profile a --terminals T --time SEC --rate R --scalefactor S [--skip-start] [--preserve-workdirs]
+  $0 --instances N --start-port P --profile a --terminals T --time SEC --rate R --scalefactor S [--skip-start] [--preserve-workdirs] [--ordo-host HOST] [--ordo-port PORT]
 
 Flags (both --key value and --key=value are supported):
   --instances,    -n     Number of MySQL instances (default 4)
@@ -31,6 +31,8 @@ Flags (both --key value and --key=value are supported):
   --scalefactor,  -s     YCSB scalefactor (default 100)
   --skip-start           Skip MySQL start (assume already running)
   --preserve-workdirs    Do not delete BenchBase workdirs after execute
+  --ordo-host            Ordo server host/IP (default 127.0.0.1)
+  --ordo-port            Ordo server port (default 9999)
   --help, -h             Show this help
 USAGE
 }
@@ -42,6 +44,8 @@ TERMINALS=4
 TIME_SEC=120
 RATE=0
 SCALEFACTOR=100
+ORDO_HOST=127.0.0.1
+ORDO_PORT=9999
 
 # Parse flags (flags only)
 while [[ $# -gt 0 ]]; do
@@ -62,6 +66,10 @@ while [[ $# -gt 0 ]]; do
     --scalefactor=*)        SCALEFACTOR="${1#*=}"; shift;;
     --skip-start)           SKIP_START=true; shift;;
     --preserve-workdirs)    PRESERVE_WORKDIRS=true; shift;;
+    --ordo-host)            ORDO_HOST="$2"; shift 2;;
+    --ordo-host=*)          ORDO_HOST="${1#*=}"; shift;;
+    --ordo-port)            ORDO_PORT="$2"; shift 2;;
+    --ordo-port=*)          ORDO_PORT="${1#*=}"; shift;;
     --help|-h)              usage; exit 0;;
     --)                     shift; break;;
     -*)                     echo "Unknown option: $1" >&2; usage; exit 2;;
@@ -116,11 +124,11 @@ else
 fi
 sed -i "s#<weights>.*</weights>#<weights>$WEIGHTS</weights>#" "$GEN_TEMPLATE"
 
-echo "Config: instances=$INSTANCES start_port=$START_PORT profile=$PROFILE terminals=$TERMINALS time=$TIME_SEC rate=$RATE scalefactor=$SCALEFACTOR"
+echo "Config: instances=$INSTANCES start_port=$START_PORT profile=$PROFILE terminals=$TERMINALS time=$TIME_SEC rate=$RATE scalefactor=$SCALEFACTOR ordo=${ORDO_HOST}:${ORDO_PORT}"
 
 if [ "${SKIP_START:-false}" != "true" ]; then
-  banner "Starting $INSTANCES MySQL instances from port $START_PORT"
-  DETACH=true bash "$ROOT_DIR/scripts/experimental/start_mysql_multi.sh" "$INSTANCES" "$START_PORT"
+  banner "Starting $INSTANCES MySQL instances from port $START_PORT (Ordo: $ORDO_HOST:$ORDO_PORT)"
+  DETACH=true bash "$ROOT_DIR/scripts/experimental/start_mysql_multi.sh" --ordo-host "$ORDO_HOST" --ordo-port "$ORDO_PORT" "$INSTANCES" "$START_PORT"
 else
   banner "Skipping MySQL start (SKIP_START=true)"
 fi

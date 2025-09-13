@@ -96,6 +96,7 @@
 #include "../common/log.h"
 
 #include <iostream>
+#include <string>
 
 #include "my_dbug.h"
 #include "mysql/plugin.h"
@@ -107,6 +108,10 @@
 
 #define BLOB_MEMROOT_ALLOC_SIZE (8192)
 #define FENCE false
+
+// Ordo server connection target (GLOBAL sysvars backing storage)
+static char* srv_ordo_host = const_cast<char*>("127.0.0.1");
+static ulong srv_ordo_port = 9999;
 
 // THD-scoped context
 struct LineairDBThdCtx {
@@ -236,7 +241,12 @@ LineairDBClient* ha_lineairdb::get_db_client() {
   // Use THD-scoped client
   LineairDBThdCtx*& ctx = *reinterpret_cast<LineairDBThdCtx**>(thd_ha_data(userThread, lineairdb_hton));
   if (ctx == nullptr) ctx = new LineairDBThdCtx();
-  if (!ctx->client) ctx->client = std::make_shared<LineairDBClient>();
+  if (!ctx->client) {
+    // Construct client using GLOBAL sysvars for target host/port
+    std::string host = srv_ordo_host ? srv_ordo_host : std::string("127.0.0.1");
+    int port = static_cast<int>(srv_ordo_port);
+    ctx->client = std::make_shared<LineairDBClient>(host, port);
+  }
   return ctx->client.get();
 }
 
@@ -1103,7 +1113,17 @@ static MYSQL_THDVAR_LONGLONG(signed_longlong_thdvar, PLUGIN_VAR_RQCMDARG,
                              "LLONG_MIN..LLONG_MAX", nullptr, nullptr, -10,
                              LLONG_MIN, LLONG_MAX, 0);
 
+// Ordo connection target sysvars
+static MYSQL_SYSVAR_STR(ordo_host, srv_ordo_host, PLUGIN_VAR_RQCMDARG,
+                        "Ordo server hostname/IP for LineairDB client.",
+                        nullptr, nullptr, "127.0.0.1");
+static MYSQL_SYSVAR_ULONG(ordo_port, srv_ordo_port, PLUGIN_VAR_RQCMDARG,
+                          "Ordo server TCP port for LineairDB client.",
+                          nullptr, nullptr, 9999, 1, 65535, 0);
+
 static SYS_VAR* lineairdb_system_variables[] = {
+    MYSQL_SYSVAR(ordo_host),
+    MYSQL_SYSVAR(ordo_port),
     MYSQL_SYSVAR(enum_var),
     MYSQL_SYSVAR(ulong_var),
     MYSQL_SYSVAR(double_var),

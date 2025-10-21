@@ -11,13 +11,6 @@
 #include "lineairdb_transaction.hh"
 #include "../common/log.h"
 
-LineairDBClient::LineairDBClient() 
-    : socket_fd_(-1), connected_(false), host_("127.0.0.1"), port_(9999) {
-    if (!connect(host_, port_)) {
-        std::cerr << "Failed to connect to LineairDB service" << std::endl;
-    }
-}
-
 LineairDBClient::LineairDBClient(const std::string& host, int port)
     : socket_fd_(-1), connected_(false), host_(host), port_(port) {
     LOG_INFO("LineairDBClient: connecting to %s:%d", host_.c_str(), port_);

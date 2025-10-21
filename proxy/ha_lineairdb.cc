@@ -735,7 +735,11 @@ int ha_lineairdb::start_stmt(THD *thd, thr_lock_type lock_type) {
 LineairDBTransaction*& ha_lineairdb::get_transaction(THD* thd) {
   LineairDBThdCtx*& ctx = *reinterpret_cast<LineairDBThdCtx**>(thd_ha_data(thd, lineairdb_hton));
   if (ctx == nullptr) ctx = new LineairDBThdCtx();
-  if (!ctx->client) ctx->client = std::make_shared<LineairDBClient>();
+  if (!ctx->client) {
+    std::string host = srv_ordo_host ? srv_ordo_host : std::string("127.0.0.1");
+    int port = static_cast<int>(srv_ordo_port);
+    ctx->client = std::make_shared<LineairDBClient>(host, port);
+  }
   if (ctx->tx == nullptr) {
     ctx->tx = new LineairDBTransaction(thd, ctx->client.get(), lineairdb_hton, FENCE);
   }

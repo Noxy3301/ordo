@@ -110,7 +110,7 @@
 #define FENCE false
 
 // Ordo server connection target (GLOBAL sysvars backing storage)
-static char* srv_ordo_host = const_cast<char*>("127.0.0.1");
+static char* srv_ordo_host = nullptr;
 static ulong srv_ordo_port = 9999;
 
 // THD-scoped context
@@ -1118,7 +1118,8 @@ static MYSQL_THDVAR_LONGLONG(signed_longlong_thdvar, PLUGIN_VAR_RQCMDARG,
                              LLONG_MIN, LLONG_MAX, 0);
 
 // Ordo connection target sysvars
-static MYSQL_SYSVAR_STR(ordo_host, srv_ordo_host, PLUGIN_VAR_RQCMDARG,
+static MYSQL_SYSVAR_STR(ordo_host, srv_ordo_host,
+                        PLUGIN_VAR_RQCMDARG | PLUGIN_VAR_MEMALLOC,
                         "Ordo server hostname/IP for LineairDB client.",
                         nullptr, nullptr, "127.0.0.1");
 static MYSQL_SYSVAR_ULONG(ordo_port, srv_ordo_port, PLUGIN_VAR_RQCMDARG,

@@ -9,6 +9,7 @@ DatabaseManager::DatabaseManager() {
     LineairDB::Config conf;
     conf.enable_checkpointing = false;
     conf.enable_recovery      = false;
+    conf.enable_logging       = false;  // avoid per-thread LineairDB logs
     conf.max_thread           = 4;  // TODO: multi threading?
     conf.concurrency_control_protocol = LineairDB::Config::ConcurrencyControl::Silo;
     database_ = std::make_shared<LineairDB::Database>(conf);

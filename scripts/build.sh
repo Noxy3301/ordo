@@ -48,7 +48,9 @@ cp -r proxy build/
 # Create symbolic links in build directory only
 mkdir -p build/proxy/third_party
 ln -sf $(pwd)/third_party/LineairDB build/proxy/third_party/LineairDB
-ln -sf $(pwd)/proto build/proxy/proto
+rm -rf build/proxy/proto
+mkdir -p build/proxy/proto
+cp -a proto/. build/proxy/proto/
 
 # Create MySQL storage engine link to build directory version
 ln -sf $(pwd)/build/proxy third_party/mysql-server/storage/lineairdb

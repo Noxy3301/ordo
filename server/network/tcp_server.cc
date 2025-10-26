@@ -7,6 +7,9 @@
 #include <arpa/inet.h>
 #include <unistd.h>
 #include <thread>
+#include <chrono>
+#include <cerrno>
+#include <cstring>
 
 TcpServer::TcpServer(uint16_t port) : port_(port) {}
 
@@ -27,7 +30,8 @@ bool TcpServer::setup_and_listen(int& server_socket) {
     // Create socket
     server_socket = socket(AF_INET, SOCK_STREAM, 0);
     if (server_socket < 0) {
-        std::cerr << "Failed to create socket" << std::endl;
+        int err = errno;
+        LOG_ERROR("Failed to create socket: %s (errno=%d)", std::strerror(err), err);
         return false;
     }
     
@@ -68,7 +72,14 @@ void TcpServer::accept_clients(int server_socket) {
 
         int client_socket = accept(server_socket, (struct sockaddr*)&client_addr, &client_addr_len);
         if (client_socket < 0) {
-            std::cerr << "Failed to accept client connection" << std::endl;
+            int err = errno;
+            LOG_ERROR("Failed to accept client connection: %s (errno=%d)",
+                      std::strerror(err), err);
+            if (err == EINTR) {
+                continue;  // retry on interrupt
+            }
+            // Sleep briefly to avoid busy loop on persistent failure conditions
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
             continue;
         }
 

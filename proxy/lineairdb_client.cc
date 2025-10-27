@@ -11,22 +11,18 @@
 #include "lineairdb_transaction.hh"
 #include "../common/log.h"
 
-LineairDBClient::LineairDBClient() 
-    : socket_fd_(-1), connected_(false), host_("127.0.0.1"), port_(9999) {
-    if (!connect(host_, port_)) {
-        std::cerr << "Failed to connect to LineairDB service" << std::endl;
-    }
-}
-
 LineairDBClient::LineairDBClient(const std::string& host, int port)
     : socket_fd_(-1), connected_(false), host_(host), port_(port) {
-    LOG_INFO("LineairDBClient: connecting to %s:%d", host_.c_str(), port_);
+    LOG_INFO("LineairDBClient(%p): connecting to %s:%d",
+             static_cast<const void*>(this), host_.c_str(), port_);
     if (!connect(host_, port_)) {
         std::cerr << "Failed to connect to LineairDB service at " << host_ << ":" << port_ << std::endl;
     }
 }
 
 LineairDBClient::~LineairDBClient() {
+    LOG_INFO("LineairDBClient(%p): destructor, connected=%s",
+             static_cast<const void*>(this), connected_ ? "true" : "false");
     disconnect();
 }
 
@@ -68,6 +64,8 @@ bool LineairDBClient::connect(const std::string& host, int port) {
 
 void LineairDBClient::disconnect() {
     if (socket_fd_ >= 0) {
+        LOG_INFO("LineairDBClient(%p): disconnecting socket_fd=%d",
+                 static_cast<const void*>(this), socket_fd_);
         close(socket_fd_);
         socket_fd_ = -1;
     }

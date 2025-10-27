@@ -16,7 +16,7 @@ void OrdoServer::init() {
 }
 
 void OrdoServer::handle_client(int client_socket) {
-    LOG_DEBUG("Handling client connection...");
+    LOG_INFO("Handling client connection fd=%d", client_socket);
     // Per-connection managers
     auto tx_manager = std::make_shared<TransactionManager>();
     WorkerManager worker_manager(db_manager_, tx_manager);

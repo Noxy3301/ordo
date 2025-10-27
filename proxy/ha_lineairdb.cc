@@ -110,7 +110,7 @@
 #define FENCE false
 
 // Ordo server connection target (GLOBAL sysvars backing storage)
-static char* srv_ordo_host = const_cast<char*>("127.0.0.1");
+static char* srv_ordo_host = nullptr;
 static ulong srv_ordo_port = 9999;
 
 // THD-scoped context
@@ -127,6 +127,8 @@ static MYSQL_THDVAR_STR(last_create_thdvar, PLUGIN_VAR_MEMALLOC, nullptr,
 
 static MYSQL_THDVAR_UINT(create_count_thdvar, 0, nullptr, nullptr, nullptr, 0,
                          0, 1000, 0);
+
+static int lineairdb_close_connection(handlerton *hton, THD *thd);
 
 /*
   List of all system tables specific to the SE.
@@ -206,6 +208,7 @@ static int lineairdb_init_func(void* p) {
   lineairdb_hton->db_type = DB_TYPE_UNKNOWN;
   lineairdb_hton->commit = lineairdb_commit;
   lineairdb_hton->rollback = lineairdb_abort;
+  lineairdb_hton->close_connection = lineairdb_close_connection;
 
   return 0;
 }
@@ -735,7 +738,11 @@ int ha_lineairdb::start_stmt(THD *thd, thr_lock_type lock_type) {
 LineairDBTransaction*& ha_lineairdb::get_transaction(THD* thd) {
   LineairDBThdCtx*& ctx = *reinterpret_cast<LineairDBThdCtx**>(thd_ha_data(thd, lineairdb_hton));
   if (ctx == nullptr) ctx = new LineairDBThdCtx();
-  if (!ctx->client) ctx->client = std::make_shared<LineairDBClient>();
+  if (!ctx->client) {
+    std::string host = srv_ordo_host ? srv_ordo_host : std::string("127.0.0.1");
+    int port = static_cast<int>(srv_ordo_port);
+    ctx->client = std::make_shared<LineairDBClient>(host, port);
+  }
   if (ctx->tx == nullptr) {
     ctx->tx = new LineairDBTransaction(thd, ctx->client.get(), lineairdb_hton, FENCE);
   }
@@ -779,6 +786,35 @@ static int lineairdb_abort(handlerton *hton, THD *thd, bool) {
     (void)ctx->tx->end_transaction();
     ctx->tx = nullptr;
   }
+  return 0;
+}
+
+static int lineairdb_close_connection(handlerton *hton, THD *thd) {
+  LineairDBThdCtx** ctx_slot =
+      reinterpret_cast<LineairDBThdCtx**>(thd_ha_data(thd, hton));
+  if (ctx_slot == nullptr) return 0;
+
+  LineairDBThdCtx* ctx = *ctx_slot;
+  if (ctx == nullptr) return 0;
+
+  LOG_INFO("lineairdb_close_connection: thd=%p ctx=%p client=%p",
+           static_cast<void*>(thd),
+           static_cast<void*>(ctx),
+           ctx->client.get());
+
+  if (ctx->tx != nullptr) {
+    LOG_INFO("lineairdb_close_connection: aborting pending tx=%p", ctx->tx);
+    ctx->tx->set_status_to_abort();
+    (void)ctx->tx->end_transaction();
+    ctx->tx = nullptr;
+  }
+
+  if (ctx->client) {
+    LOG_INFO("lineairdb_close_connection: releasing client=%p", ctx->client.get());
+  }
+  ctx->client.reset();
+  delete ctx;
+  *ctx_slot = nullptr;
   return 0;
 }
 
@@ -1114,7 +1150,8 @@ static MYSQL_THDVAR_LONGLONG(signed_longlong_thdvar, PLUGIN_VAR_RQCMDARG,
                              LLONG_MIN, LLONG_MAX, 0);
 
 // Ordo connection target sysvars
-static MYSQL_SYSVAR_STR(ordo_host, srv_ordo_host, PLUGIN_VAR_RQCMDARG,
+static MYSQL_SYSVAR_STR(ordo_host, srv_ordo_host,
+                        PLUGIN_VAR_RQCMDARG | PLUGIN_VAR_MEMALLOC,
                         "Ordo server hostname/IP for LineairDB client.",
                         nullptr, nullptr, "127.0.0.1");
 static MYSQL_SYSVAR_ULONG(ordo_port, srv_ordo_port, PLUGIN_VAR_RQCMDARG,

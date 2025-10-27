@@ -38,7 +38,6 @@ enum class MessageType : uint32_t {
 
 class LineairDBClient {
 public:
-    LineairDBClient();
     LineairDBClient(const std::string& host, int port);
     ~LineairDBClient();
 

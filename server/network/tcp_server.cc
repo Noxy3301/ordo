@@ -10,6 +10,7 @@
 #include <chrono>
 #include <cerrno>
 #include <cstring>
+#include <atomic>
 
 TcpServer::TcpServer(uint16_t port) : port_(port) {}
 
@@ -66,6 +67,7 @@ bool TcpServer::setup_and_listen(int& server_socket) {
 }
 
 void TcpServer::accept_clients(int server_socket) {
+    static std::atomic<int> active_connections{0};
     while (true) {
         struct sockaddr_in client_addr;
         socklen_t client_addr_len = sizeof(client_addr);
@@ -85,14 +87,17 @@ void TcpServer::accept_clients(int server_socket) {
 
         // Hand off each client to a dedicated thread
         auto client_ip = std::string(inet_ntoa(client_addr.sin_addr));
-        LOG_DEBUG("Client connected from %s", client_ip.c_str());
+        int now_active = ++active_connections;
+        LOG_INFO("Accepted connection fd=%d from %s (active=%d)", client_socket, client_ip.c_str(), now_active);
 
         std::thread([this, client_socket, client_ip]() {
             // Process the client in this thread
             handle_client(client_socket);
             // Ensure socket is closed when done
+            int fd = client_socket;
             close(client_socket);
-            LOG_DEBUG("Client disconnected (%s)", client_ip.c_str());
+            int left = --active_connections;
+            LOG_INFO("Closed connection fd=%d (%s) (active=%d)", fd, client_ip.c_str(), left);
         }).detach();
     }
 }

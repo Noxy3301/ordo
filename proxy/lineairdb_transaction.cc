@@ -118,6 +118,7 @@ void LineairDBTransaction::begin_transaction() {
   tx_id = lineairdb_client->tx_begin_transaction();
   // TODO: maybe need error handling when tx_id == -1
   assert(tx_id != -1);
+  is_aborted_ = false;
 
   if (thd_is_transaction()) {
     isTransaction = true;
@@ -129,6 +130,7 @@ void LineairDBTransaction::begin_transaction() {
 }
 
 void LineairDBTransaction::set_status_to_abort() {
+  is_aborted_ = true;
   lineairdb_client->tx_abort(tx_id);
 }
 

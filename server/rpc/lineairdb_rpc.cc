@@ -22,9 +22,6 @@ void LineairDBRpc::handle_rpc(uint64_t sender_id, MessageType message_type,
         case MessageType::TX_ABORT:
             handleTxAbort(message, result);
             return;
-        case MessageType::TX_IS_ABORTED:
-            handleTxIsAborted(message, result);
-            return;
         case MessageType::TX_READ:
             handleTxRead(message, result);
             return;
@@ -87,32 +84,6 @@ void LineairDBRpc::handleTxAbort(const std::string& message, std::string& result
     }
     
     result = response.SerializeAsString();
-}
-
-void LineairDBRpc::handleTxIsAborted(const std::string& message, std::string& result) {
-    LOG_DEBUG("Handling TxIsAborted");
-    
-    LineairDB::Protocol::TxIsAborted::Request request;
-    LineairDB::Protocol::TxIsAborted::Response response;
-    
-    LOG_DEBUG("Parsing request from string of size: %zu", message.size());
-    request.ParseFromString(message);
-    
-    int64_t tx_id = request.transaction_id();
-    LOG_DEBUG("Extracted transaction_id: %ld", tx_id);
-    
-    auto* tx = tx_manager_->get_transaction(tx_id);
-    if (tx) {
-        bool is_aborted = tx->IsAborted();
-        response.set_is_aborted(is_aborted);
-    } else {
-        response.set_is_aborted(true);  // not found = aborted
-        LOG_WARNING("Transaction not found, considering as aborted: %ld", tx_id);
-    }
-    
-    result = response.SerializeAsString();
-    LOG_DEBUG("Serialized response, size: %zu", result.size());
-    LOG_DEBUG("Response is_aborted value: %s", response.is_aborted() ? "true" : "false");
 }
 
 void LineairDBRpc::handleTxRead(const std::string& message, std::string& result) {

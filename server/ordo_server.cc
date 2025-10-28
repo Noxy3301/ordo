@@ -48,14 +48,6 @@ void OrdoServer::handle_client(int client_socket) {
                     tx_id = request.transaction_id();
                     break;
                 }
-                case MessageType::TX_IS_ABORTED: {
-                    LineairDB::Protocol::TxIsAborted::Request request; 
-                    if (!request.ParseFromString(payload)) {
-                        LOG_WARNING("Failed to parse TxIsAborted request");
-                    }
-                    tx_id = request.transaction_id();
-                    break;
-                }
                 case MessageType::TX_READ: {
                     LineairDB::Protocol::TxRead::Request request; 
                     if (!request.ParseFromString(payload)) {

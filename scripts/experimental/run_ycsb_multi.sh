@@ -133,10 +133,20 @@ else
   banner "Skipping MySQL start (SKIP_START=true)"
 fi
 
+# Reset status counters so metrics start from zero
+banner "Resetting MySQL status counters"
+for ((i = 0; i < INSTANCES; ++i)); do
+  PORT=$((START_PORT + i))
+  "$ROOT_DIR/build/runtime_output_directory/mysql" \
+    -u root --protocol=TCP -h 127.0.0.1 -P "$PORT" \
+    -e "FLUSH STATUS"
+done
+
 export TEMPLATE_FILE="$GEN_TEMPLATE"
 export GEN_CONFIGS=true
 export OUTPUT_MULTI_DIR="$GEN_DIR/multi"
 export CONFIG_MULTI_DIR="$GEN_DIR/multi"
+export YCSB_TERMINALS="$TERMINALS"
 
 banner "Phase: setup"
 bash "$ROOT_DIR/scripts/experimental/phase_setup.sh" "$INSTANCES" "$START_PORT"

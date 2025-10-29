@@ -40,8 +40,7 @@ add_subdirectory(${LINEAIRDB_DIR} ${CMAKE_CURRENT_BINARY_DIR}/LineairDB)
 set(LINEAIRDB_PLUGIN_DYNAMIC "ha_lineairdb")
 set(LINEAIRDB_SOURCES ha_lineairdb.cc ha_lineairdb.hh 
                       lineairdb_field.cc lineairdb_field.hh
-                      lineairdb_transaction.cc lineairdb_transaction.hh
-                      lineairdb_client.cc lineairdb_client.hh)
+                      lineairdb_transaction.cc lineairdb_transaction.hh)
 add_definitions(-DMYSQL_SERVER)
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-error -Wextra -mcx16 -fPIC")
 

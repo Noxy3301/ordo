@@ -96,6 +96,7 @@
 #include "../common/log.h"
 
 #include <iostream>
+#include <mutex>
 #include <string>
 
 #include "my_dbug.h"
@@ -109,16 +110,9 @@
 #define BLOB_MEMROOT_ALLOC_SIZE (8192)
 #define FENCE false
 
-// Ordo server connection target (GLOBAL sysvars backing storage)
-static char* srv_ordo_host = nullptr;
-static ulong srv_ordo_port = 9999;
-
-// THD-scoped context
-struct LineairDBThdCtx {
-  std::shared_ptr<LineairDBClient> client;
-  LineairDBTransaction* tx{nullptr};
-};
-
+static std::shared_ptr<LineairDB::Database> get_or_allocate_database(
+    LineairDB::Config conf);
+static bool terminate_tx(LineairDBTransaction*& tx);
 static int lineairdb_commit(handlerton *hton, THD *thd, bool shouldCommit);
 static int lineairdb_abort(handlerton *hton, THD *thd, bool);
 
@@ -213,7 +207,27 @@ static int lineairdb_init_func(void* p) {
   return 0;
 }
 
-LineairDB_share::LineairDB_share() { thr_lock_init(&lock); }
+static std::shared_ptr<LineairDB::Database> get_or_allocate_database(
+    LineairDB::Config conf) {
+  static std::shared_ptr<LineairDB::Database> db;
+  static std::once_flag flag;
+  std::call_once(flag, [&]() {
+    db = std::make_shared<LineairDB::Database>(conf);
+  });
+  return db;
+}
+
+LineairDB_share::LineairDB_share() {
+  thr_lock_init(&lock);
+  if (!lineairdb_) {
+    LineairDB::Config conf;
+    conf.enable_checkpointing = false;
+    conf.enable_recovery      = false;
+    conf.enable_logging       = false;
+    conf.max_thread           = 1;
+    lineairdb_                = get_or_allocate_database(conf);
+  }
+}
 
 /**
   @brief
@@ -240,17 +254,8 @@ err:
   return tmp_share;
 }
 
-LineairDBClient* ha_lineairdb::get_db_client() {
-  // Use THD-scoped client
-  LineairDBThdCtx*& ctx = *reinterpret_cast<LineairDBThdCtx**>(thd_ha_data(userThread, lineairdb_hton));
-  if (ctx == nullptr) ctx = new LineairDBThdCtx();
-  if (!ctx->client) {
-    // Construct client using GLOBAL sysvars for target host/port
-    std::string host = srv_ordo_host ? srv_ordo_host : std::string("127.0.0.1");
-    int port = static_cast<int>(srv_ordo_port);
-    ctx->client = std::make_shared<LineairDBClient>(host, port);
-  }
-  return ctx->client.get();
+LineairDB::Database* ha_lineairdb::get_db() {
+  return get_share()->lineairdb_.get();
 }
 
 static PSI_memory_key csv_key_memory_blobroot;
@@ -736,17 +741,12 @@ int ha_lineairdb::start_stmt(THD *thd, thr_lock_type lock_type) {
  * @brief Gets transaction from MySQL allocated memory
  */
 LineairDBTransaction*& ha_lineairdb::get_transaction(THD* thd) {
-  LineairDBThdCtx*& ctx = *reinterpret_cast<LineairDBThdCtx**>(thd_ha_data(thd, lineairdb_hton));
-  if (ctx == nullptr) ctx = new LineairDBThdCtx();
-  if (!ctx->client) {
-    std::string host = srv_ordo_host ? srv_ordo_host : std::string("127.0.0.1");
-    int port = static_cast<int>(srv_ordo_port);
-    ctx->client = std::make_shared<LineairDBClient>(host, port);
+  LineairDBTransaction*& tx =
+      *reinterpret_cast<LineairDBTransaction**>(thd_ha_data(thd, lineairdb_hton));
+  if (tx == nullptr) {
+    tx = new LineairDBTransaction(thd, get_db(), lineairdb_hton, FENCE);
   }
-  if (ctx->tx == nullptr) {
-    ctx->tx = new LineairDBTransaction(thd, ctx->client.get(), lineairdb_hton, FENCE);
-  }
-  return ctx->tx;
+  return tx;
 }
 
 /**
@@ -754,17 +754,12 @@ LineairDBTransaction*& ha_lineairdb::get_transaction(THD* thd) {
 */
 static int lineairdb_commit(handlerton *hton, THD *thd, bool shouldTerminate) {
   if (shouldTerminate == false) return 0;
-  LineairDBThdCtx*& ctx = *reinterpret_cast<LineairDBThdCtx**>(thd_ha_data(thd, hton));
+  LineairDBTransaction*& tx =
+      *reinterpret_cast<LineairDBTransaction**>(thd_ha_data(thd, hton));
 
-  // 参加していない（このエンジンのトランザクションが無い）場合は noop
-  if (ctx == nullptr || ctx->tx == nullptr) return 0;
+  if (tx == nullptr) return 0;
 
-  // Terminate and propagate abort as commit error to MySQL
-  bool committed = false;
-  if (ctx->tx != nullptr) {
-    committed = ctx->tx->end_transaction();
-    ctx->tx = nullptr;
-  }
+  bool committed = terminate_tx(tx);
   if (!committed) {
     thd_mark_transaction_to_rollback(thd, 1);
     return HA_ERR_LOCK_DEADLOCK;
@@ -776,46 +771,34 @@ static int lineairdb_commit(handlerton *hton, THD *thd, bool shouldTerminate) {
  * implementation of rollback for lineairdb_hton
 */
 static int lineairdb_abort(handlerton *hton, THD *thd, bool) {
-  LineairDBThdCtx*& ctx = *reinterpret_cast<LineairDBThdCtx**>(thd_ha_data(thd, hton));
+  LineairDBTransaction*& tx =
+      *reinterpret_cast<LineairDBTransaction**>(thd_ha_data(thd, hton));
 
-  // 参加していない場合は noop
-  if (ctx == nullptr || ctx->tx == nullptr) return 0;
+  if (tx == nullptr) return 0;
 
-  ctx->tx->set_status_to_abort();
-  if (ctx->tx != nullptr) {
-    (void)ctx->tx->end_transaction();
-    ctx->tx = nullptr;
-  }
+  tx->set_status_to_abort();
+  (void)terminate_tx(tx);
   return 0;
 }
 
 static int lineairdb_close_connection(handlerton *hton, THD *thd) {
-  LineairDBThdCtx** ctx_slot =
-      reinterpret_cast<LineairDBThdCtx**>(thd_ha_data(thd, hton));
-  if (ctx_slot == nullptr) return 0;
+  LineairDBTransaction** slot =
+      reinterpret_cast<LineairDBTransaction**>(thd_ha_data(thd, hton));
+  if (slot == nullptr) return 0;
 
-  LineairDBThdCtx* ctx = *ctx_slot;
-  if (ctx == nullptr) return 0;
-
-  LOG_INFO("lineairdb_close_connection: thd=%p ctx=%p client=%p",
-           static_cast<void*>(thd),
-           static_cast<void*>(ctx),
-           ctx->client.get());
-
-  if (ctx->tx != nullptr) {
-    LOG_INFO("lineairdb_close_connection: aborting pending tx=%p", ctx->tx);
-    ctx->tx->set_status_to_abort();
-    (void)ctx->tx->end_transaction();
-    ctx->tx = nullptr;
+  if (*slot != nullptr) {
+    (*slot)->set_status_to_abort();
+    (void)terminate_tx(*slot);
   }
-
-  if (ctx->client) {
-    LOG_INFO("lineairdb_close_connection: releasing client=%p", ctx->client.get());
-  }
-  ctx->client.reset();
-  delete ctx;
-  *ctx_slot = nullptr;
+  *slot = nullptr;
   return 0;
+}
+
+static bool terminate_tx(LineairDBTransaction*& tx) {
+  if (tx == nullptr) return true;
+  bool committed = tx->end_transaction();
+  tx = nullptr;
+  return committed;
 }
 
 
@@ -1149,18 +1132,7 @@ static MYSQL_THDVAR_LONGLONG(signed_longlong_thdvar, PLUGIN_VAR_RQCMDARG,
                              "LLONG_MIN..LLONG_MAX", nullptr, nullptr, -10,
                              LLONG_MIN, LLONG_MAX, 0);
 
-// Ordo connection target sysvars
-static MYSQL_SYSVAR_STR(ordo_host, srv_ordo_host,
-                        PLUGIN_VAR_RQCMDARG | PLUGIN_VAR_MEMALLOC,
-                        "Ordo server hostname/IP for LineairDB client.",
-                        nullptr, nullptr, "127.0.0.1");
-static MYSQL_SYSVAR_ULONG(ordo_port, srv_ordo_port, PLUGIN_VAR_RQCMDARG,
-                          "Ordo server TCP port for LineairDB client.",
-                          nullptr, nullptr, 9999, 1, 65535, 0);
-
 static SYS_VAR* lineairdb_system_variables[] = {
-    MYSQL_SYSVAR(ordo_host),
-    MYSQL_SYSVAR(ordo_port),
     MYSQL_SYSVAR(enum_var),
     MYSQL_SYSVAR(ulong_var),
     MYSQL_SYSVAR(double_var),

@@ -41,9 +41,11 @@
 #ifndef HA_LINEAIRDB_H
 #define HA_LINEAIRDB_H
 
+#include <lineairdb/lineairdb.h>
 #include <string.h>
 #include <sys/types.h>
 
+#include <memory>
 #include <unordered_map>
 #include <vector>
 
@@ -56,7 +58,6 @@
 
 #include "lineairdb_field.hh"
 #include "lineairdb_transaction.hh"
-#include "lineairdb_client.hh"
 
 /** @brief
   LineairDB_share is a class that will be shared among all open handlers.
@@ -68,6 +69,7 @@ class LineairDB_share : public Handler_share {
   LineairDB_share();
   // std::shared_ptr<LineairDB::Database> get_or_allocate_database(LineairDB::Config conf);
   ~LineairDB_share() override { thr_lock_delete(&lock); }
+  std::shared_ptr<LineairDB::Database> lineairdb_;
 };
 
 /** @brief
@@ -77,7 +79,7 @@ class ha_lineairdb : public handler {
   THR_LOCK_DATA lock;            ///< MySQL lock
   LineairDB_share* share;        ///< Shared lock info
   LineairDB_share* get_share();  ///< Get the share
-  LineairDBClient* get_db_client();
+  LineairDB::Database* get_db();
 
  private:
   std::string db_table_name;

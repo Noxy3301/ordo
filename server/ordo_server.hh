@@ -6,7 +6,6 @@
 #include "network/message_handler.hh"
 #include "storage/database_manager.hh"
 #include "storage/transaction_manager.hh"
-#include "worker/worker_manager.hh"
 
 class OrdoServer : public TcpServer {
 public:

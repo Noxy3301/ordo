@@ -33,11 +33,15 @@ mkdir -p build/data
 mkdir -p build/proxy
 mkdir -p build/server
 
+# Build configuration
+SERVER_BUILD_TYPE=${SERVER_BUILD_TYPE:-Release}
+MYSQL_BUILD_TYPE=${MYSQL_BUILD_TYPE:-Release}
+
 # Build server
-echo "Building server..."
+echo "Building server (CMAKE_BUILD_TYPE=${SERVER_BUILD_TYPE})..."
 cd build/server
 cmake ../../server \
-    -DCMAKE_BUILD_TYPE=Debug \
+    -DCMAKE_BUILD_TYPE=${SERVER_BUILD_TYPE} \
     -DCMAKE_EXPORT_COMPILE_COMMANDS=1
 make -j `nproc`
 cd ../..
@@ -56,14 +60,14 @@ cp -a proto/. build/proxy/proto/
 ln -sf $(pwd)/build/proxy third_party/mysql-server/storage/lineairdb
 
 # Build MySQL with proxy storage engine  
-echo "Building MySQL with proxy..."
+echo "Building MySQL with proxy (CMAKE_BUILD_TYPE=${MYSQL_BUILD_TYPE})..."
 cd build
 
 cmake ../third_party/mysql-server \
     -DCMAKE_EXPORT_COMPILE_COMMANDS=1 \
     -DWITH_BUILD_ID=0 \
     -DWITH_ASAN=0 \
-    -DCMAKE_BUILD_TYPE=Debug \
+    -DCMAKE_BUILD_TYPE=${MYSQL_BUILD_TYPE} \
     -DDOWNLOAD_BOOST=0 \
     -DWITH_BOOST=../boost/boost_1_77_0 \
     -DWITHOUT_EXAMPLE_STORAGE_ENGINE=1 \

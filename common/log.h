@@ -75,7 +75,11 @@ inline const char* basename(const char* path) {
 template<typename... Args>
 inline void write(LogLevel level, const char* file, int line, const char* format, Args... args) {    
     char buffer[1024];
-    snprintf(buffer, sizeof(buffer), format, args...);
+    if constexpr (sizeof...(Args) > 0) {
+      snprintf(buffer, sizeof(buffer), format, args...);
+    } else {
+      snprintf(buffer, sizeof(buffer), "%s", format);
+    }
 
     std::cerr << "[" << getTimestamp() << "] "
               << "[" << getColorForLevel(level) << logLevelToString(level) << ANSI_RESET << "] "

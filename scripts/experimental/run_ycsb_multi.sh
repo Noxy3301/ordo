@@ -146,6 +146,7 @@ export TEMPLATE_FILE="$GEN_TEMPLATE"
 export GEN_CONFIGS=true
 export OUTPUT_MULTI_DIR="$GEN_DIR/multi"
 export CONFIG_MULTI_DIR="$GEN_DIR/multi"
+export YCSB_TERMINALS="$TERMINALS"
 
 banner "Phase: setup"
 bash "$ROOT_DIR/scripts/experimental/phase_setup.sh" "$INSTANCES" "$START_PORT"

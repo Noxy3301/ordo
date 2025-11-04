@@ -1,15 +1,23 @@
 #ifndef LINEAIRDB_CLIENT_H
 #define LINEAIRDB_CLIENT_H
 
+#include <chrono>
 #include <cstdint>
+#include <memory>
 #include <string>
 #include <utility>
 #include <vector>
-#include <memory>
 
 #include "lineairdb.pb.h"
 
 class LineairDBTransaction;
+
+struct NetworkTiming {
+    std::chrono::steady_clock::time_point send_start{};
+    std::chrono::steady_clock::time_point send_end{};
+    std::chrono::steady_clock::time_point recv_start{};
+    std::chrono::steady_clock::time_point recv_end{};
+};
 
 struct KeyValue {
     std::string key;
@@ -62,7 +70,10 @@ private:
     template<typename RequestType, typename ResponseType>
     bool send_protobuf_message(const RequestType& request, ResponseType& response, MessageType message_type);
     bool send_message(const std::string& serialized_request, std::string& serialized_response);
-    bool send_message_with_header(const std::string& serialized_request, std::string& serialized_response, MessageType message_type);
+    bool send_message_with_header(const std::string& serialized_request,
+                                  std::string& serialized_response,
+                                  MessageType message_type,
+                                  NetworkTiming* timing);
 
     int socket_fd_;
     bool connected_;

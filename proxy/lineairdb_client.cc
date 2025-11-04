@@ -4,12 +4,103 @@
 #include <unistd.h>
 #include <errno.h>
 #include <cstring>
+#include <cstdlib>
+#include <chrono>
+#include <fstream>
 #include <iostream>
+#include <mutex>
 #include <vector>
 
 #include "lineairdb_client.hh"
 #include "lineairdb_transaction.hh"
 #include "../common/log.h"
+
+namespace {
+
+const char* MessageTypeToString(MessageType type) {
+    switch (type) {
+        case MessageType::TX_BEGIN_TRANSACTION: return "TX_BEGIN_TRANSACTION";
+        case MessageType::TX_ABORT: return "TX_ABORT";
+        case MessageType::TX_READ: return "TX_READ";
+        case MessageType::TX_WRITE: return "TX_WRITE";
+        case MessageType::TX_SCAN: return "TX_SCAN";
+        case MessageType::DB_FENCE: return "DB_FENCE";
+        case MessageType::DB_END_TRANSACTION: return "DB_END_TRANSACTION";
+        default: return "UNKNOWN";
+    }
+}
+
+const std::string& GetTimingLogPath() {
+    static const std::string path = []() {
+        const char* env = std::getenv("LINEAIRDB_PROTOBUF_TIMING_LOG");
+        if (env && env[0] != '\0') {
+            return std::string(env);
+        }
+        return std::string("/home/noxy/ordo/lineairdb_logs/protobuf_timing.log");
+    }();
+    return path;
+}
+
+void AppendProtobufTimingRecord(
+    MessageType message_type,
+    std::chrono::steady_clock::time_point serialize_start,
+    std::chrono::steady_clock::time_point serialize_end,
+    std::chrono::steady_clock::time_point deserialize_start,
+    std::chrono::steady_clock::time_point deserialize_end,
+    const NetworkTiming* net_timing,
+    size_t request_bytes,
+    size_t response_bytes,
+    bool parse_ok) {
+
+    const std::string& path = GetTimingLogPath();
+    if (path.empty()) return;
+
+    static std::mutex file_mutex;
+    std::lock_guard<std::mutex> lock(file_mutex);
+
+    std::ofstream out(path, std::ios::app);
+    if (!out) return;
+
+    auto to_ns = [](const std::chrono::steady_clock::time_point& tp) {
+        return std::chrono::duration_cast<std::chrono::nanoseconds>(tp.time_since_epoch()).count();
+    };
+
+    auto duration_ns = [](const std::chrono::steady_clock::time_point& start,
+                          const std::chrono::steady_clock::time_point& end) {
+        return std::chrono::duration_cast<std::chrono::nanoseconds>(end - start).count();
+    };
+
+    long long send_ns = 0;
+    long long recv_ns = 0;
+    if (net_timing) {
+        send_ns = duration_ns(net_timing->send_start, net_timing->send_end);
+        recv_ns = duration_ns(net_timing->recv_start, net_timing->recv_end);
+    }
+
+    const long long serialize_ns =
+        std::chrono::duration_cast<std::chrono::nanoseconds>(serialize_end - serialize_start).count();
+    const long long deserialize_ns =
+        std::chrono::duration_cast<std::chrono::nanoseconds>(deserialize_end - deserialize_start).count();
+    const long long roundtrip_ns =
+        std::chrono::duration_cast<std::chrono::nanoseconds>(deserialize_end - serialize_start).count();
+
+    out << "message=" << MessageTypeToString(message_type)
+        << " serialize_start_ns=" << to_ns(serialize_start)
+        << " serialize_end_ns=" << to_ns(serialize_end)
+        << " deserialize_start_ns=" << to_ns(deserialize_start)
+        << " deserialize_end_ns=" << to_ns(deserialize_end)
+        << " serialize_ns=" << serialize_ns
+        << " deserialize_ns=" << deserialize_ns
+        << " send_ns=" << send_ns
+        << " recv_ns=" << recv_ns
+        << " roundtrip_ns=" << roundtrip_ns
+        << " request_bytes=" << request_bytes
+        << " response_bytes=" << response_bytes
+        << " parse_ok=" << (parse_ok ? 1 : 0)
+        << std::endl;
+}
+
+}  // namespace
 
 LineairDBClient::LineairDBClient(const std::string& host, int port)
     : socket_fd_(-1), connected_(false), host_(host), port_(port) {
@@ -305,18 +396,38 @@ bool LineairDBClient::send_protobuf_message(const RequestType& request, Response
     LOG_DEBUG("PROTOBUF_MESSAGE: Starting protobuf message send");
     
     // serialize request
+    auto serialize_start = std::chrono::steady_clock::now();
     std::string serialized_request = request.SerializeAsString();
+    auto serialize_end = std::chrono::steady_clock::now();
     LOG_DEBUG("PROTOBUF_MESSAGE: Request serialized successfully, size: %zu bytes", serialized_request.size());
 
     // send message with header
     std::string serialized_response;
-    if (!send_message_with_header(serialized_request, serialized_response, message_type)) {
+    NetworkTiming network_timing{};
+    if (!send_message_with_header(serialized_request,
+                                  serialized_response,
+                                  message_type,
+                                  &network_timing)) {
         LOG_ERROR("PROTOBUF_MESSAGE: Failed to send message with header");
         return false;
     }
 
     // deserialize response
-    if (!response.ParseFromString(serialized_response)) {
+    auto deserialize_start = std::chrono::steady_clock::now();
+    bool parse_ok = response.ParseFromString(serialized_response);
+    auto deserialize_end = std::chrono::steady_clock::now();
+
+    AppendProtobufTimingRecord(message_type,
+                               serialize_start,
+                               serialize_end,
+                               deserialize_start,
+                               deserialize_end,
+                               &network_timing,
+                               serialized_request.size(),
+                               serialized_response.size(),
+                               parse_ok);
+
+    if (!parse_ok) {
         LOG_ERROR("PROTOBUF_MESSAGE: Failed to parse response");
         return false;
     }
@@ -325,10 +436,21 @@ bool LineairDBClient::send_protobuf_message(const RequestType& request, Response
     return true;
 }
 
-bool LineairDBClient::send_message_with_header(const std::string& serialized_request, std::string& serialized_response, MessageType message_type) {
+bool LineairDBClient::send_message_with_header(const std::string& serialized_request,
+                                               std::string& serialized_response,
+                                               MessageType message_type,
+                                               NetworkTiming* timing) {
     if (!connected_) {
         LOG_ERROR("SEND_MESSAGE: Not connected!");
         return false;
+    }
+
+    if (timing) {
+        auto now = std::chrono::steady_clock::now();
+        timing->send_start = now;
+        timing->send_end = now;
+        timing->recv_start = now;
+        timing->recv_end = now;
     }
     
     LOG_DEBUG("SEND_MESSAGE: Sending message of size %zu bytes with message_type %u", serialized_request.size(), static_cast<uint32_t>(message_type));
@@ -348,7 +470,13 @@ bool LineairDBClient::send_message_with_header(const std::string& serialized_req
     std::memcpy(buffer.data() + sizeof(header), serialized_request.c_str(), serialized_request.size());
     
     // send
+    if (timing) {
+        timing->send_start = std::chrono::steady_clock::now();
+    }
     ssize_t bytes_sent = send(socket_fd_, buffer.data(), total_size, 0);
+    if (timing) {
+        timing->send_end = std::chrono::steady_clock::now();
+    }
     if (bytes_sent != static_cast<ssize_t>(total_size)) {
         LOG_ERROR("SEND_MESSAGE: Failed to send complete message, sent %zd bytes instead of %zu", bytes_sent, total_size);
         return false;
@@ -357,10 +485,16 @@ bool LineairDBClient::send_message_with_header(const std::string& serialized_req
     LOG_DEBUG("SEND_MESSAGE: Successfully sent %zd bytes", bytes_sent);
 
     // receive response header
+    if (timing) {
+        timing->recv_start = std::chrono::steady_clock::now();
+    }
     MessageHeader response_header;
     ssize_t header_received = recv(socket_fd_, &response_header, sizeof(response_header), MSG_WAITALL);
     if (header_received != sizeof(response_header)) {
         LOG_ERROR("SEND_MESSAGE: Failed to receive response header, received %zd bytes", header_received);
+        if (timing) {
+            timing->recv_end = std::chrono::steady_clock::now();
+        }
         return false;
     }
 
@@ -377,12 +511,18 @@ bool LineairDBClient::send_message_with_header(const std::string& serialized_req
         ssize_t payload_received = recv(socket_fd_, &serialized_response[0], response_payload_size, MSG_WAITALL);
         if (payload_received != static_cast<ssize_t>(response_payload_size)) {
             LOG_ERROR("SEND_MESSAGE: Failed to receive response payload, received %zd bytes instead of %u", payload_received, response_payload_size);
+            if (timing) {
+                timing->recv_end = std::chrono::steady_clock::now();
+            }
             return false;
         }
         LOG_DEBUG("SEND_MESSAGE: Successfully received response payload (%zd bytes)", payload_received);
     } else {
         LOG_DEBUG("SEND_MESSAGE: No response payload (empty response)");
         serialized_response.clear();
+    }
+    if (timing) {
+        timing->recv_end = std::chrono::steady_clock::now();
     }
     
     LOG_DEBUG("SEND_MESSAGE: Message exchange completed successfully");

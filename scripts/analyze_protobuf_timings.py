@@ -33,6 +33,9 @@ def parse_line(line: str) -> TimingSample | None:
         if key == "message":
             sample[key] = value
             continue
+        if key == "source":
+            sample[key] = value
+            continue
         try:
             sample[key] = float(value)
         except ValueError:
@@ -88,6 +91,8 @@ def analyze(log_path: Path, scale: float) -> None:
         lambda: collections.defaultdict(list)
     )
 
+    sources_seen = set()
+
     with log_path.open() as fp:
         for line in fp:
             sample = parse_line(line)
@@ -95,20 +100,60 @@ def analyze(log_path: Path, scale: float) -> None:
                 continue
 
             msg = str(sample["message"])
-            for field in ("serialize_ns", "deserialize_ns", "send_ns", "recv_ns", "roundtrip_ns"):
+            source = str(sample.get("source", "unknown"))
+            message_key = (msg, source)
+            sources_seen.add(source)
+            for field in (
+                "serialize_ns",
+                "deserialize_ns",
+                "send_ns",
+                "recv_ns",
+                "roundtrip_ns",
+                "lineairdb_exec_ns",
+            ):
                 if field in sample:
-                    per_message[msg][field].append(sample[field])
+                    per_message[message_key][field].append(sample[field])
 
     if not per_message:
         print("ログから有効なデータを読み込めませんでした。")
         return
 
-    fields = ("serialize_ns", "deserialize_ns", "send_ns", "recv_ns", "roundtrip_ns")
+    default_fields = [
+        "serialize_ns",
+        "deserialize_ns",
+        "send_ns",
+        "recv_ns",
+        "roundtrip_ns",
+        "lineairdb_exec_ns",
+    ]
 
-    for message, timings in sorted(per_message.items()):
+    fields = []
+    for field in default_fields:
+        if any(field in timings for timings in per_message.values()):
+            fields.append(field)
+    for timings in per_message.values():
+        for field in timings.keys():
+            if field not in fields and field != "message":
+                fields.append(field)
+
+    messages = sorted({message for (message, _) in per_message.keys()})
+
+    def choose_samples(message: str, field: str) -> List[float]:
+        source_priority = (
+            ["server", "client", "unknown"]
+            if field == "lineairdb_exec_ns"
+            else ["client", "server", "unknown"]
+        )
+        for src in source_priority:
+            samples = per_message.get((message, src), {}).get(field)
+            if samples:
+                return samples
+        return []
+
+    for message in messages:
         print(f"=== {message} ===")
         for field in fields:
-            samples = timings.get(field, [])
+            samples = choose_samples(message, field)
             summary = summarize(samples)
             print(f"{field:>15}: {format_summary(summary, scale)}")
         print()

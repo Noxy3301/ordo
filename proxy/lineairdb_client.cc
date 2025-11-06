@@ -81,8 +81,10 @@ void AppendProtobufTimingRecord(
         std::chrono::duration_cast<std::chrono::nanoseconds>(serialize_end - serialize_start).count();
     const long long deserialize_ns =
         std::chrono::duration_cast<std::chrono::nanoseconds>(deserialize_end - deserialize_start).count();
-    const long long roundtrip_ns =
-        std::chrono::duration_cast<std::chrono::nanoseconds>(deserialize_end - serialize_start).count();
+    long long roundtrip_ns =
+        std::chrono::duration_cast<std::chrono::nanoseconds>(deserialize_start - serialize_end).count();
+    if (roundtrip_ns < 0) roundtrip_ns = 0;
+    const long long lineairdb_exec_ns = 0;
 
     out << "message=" << MessageTypeToString(message_type)
         << " serialize_start_ns=" << to_ns(serialize_start)
@@ -94,8 +96,10 @@ void AppendProtobufTimingRecord(
         << " send_ns=" << send_ns
         << " recv_ns=" << recv_ns
         << " roundtrip_ns=" << roundtrip_ns
+        << " lineairdb_exec_ns=" << lineairdb_exec_ns
         << " request_bytes=" << request_bytes
         << " response_bytes=" << response_bytes
+        << " source=client"
         << " parse_ok=" << (parse_ok ? 1 : 0)
         << std::endl;
 }

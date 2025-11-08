@@ -384,9 +384,10 @@ int ha_lineairdb::delete_row(const uchar*) {
   return 0;
 }
 
-int ha_lineairdb::index_read_map(uchar* buf, const uchar* key, key_part_map,
-                                 enum ha_rkey_function) {
+int ha_lineairdb::index_read_map(uchar* buf, const uchar* key, key_part_map keypart_map,
+                                 enum ha_rkey_function find_flag) {
   DBUG_ENTER("ha_lineairdb::index_read_map");
+  (void)keypart_map;
 
   auto key_prefix = convert_key_to_ldbformat(key);
 
@@ -400,6 +401,25 @@ int ha_lineairdb::index_read_map(uchar* buf, const uchar* key, key_part_map,
   }
 
   tx->choose_table(db_table_name);
+
+  if (find_flag == HA_READ_KEY_EXACT) {
+    // Fast-path for exact lookup: use tx_read instead of SCAN
+    auto read_buffer = tx->read(key_prefix);
+    if (read_buffer.first == nullptr) {
+      DBUG_RETURN(HA_ERR_KEY_NOT_FOUND);
+    }
+
+    if (set_fields_from_lineairdb(buf, read_buffer.first, read_buffer.second)) {
+      tx->set_status_to_abort();
+      DBUG_RETURN(HA_ERR_OUT_OF_MEM);
+    }
+
+    scanned_keys_.clear();
+    current_position_ = 0;
+    stats.records     = 1;
+    DBUG_RETURN(0);
+  }
+
   scanned_keys_ = tx->get_matching_keys(key_prefix);
   current_position_ = 0;
 

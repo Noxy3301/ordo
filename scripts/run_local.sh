@@ -129,7 +129,7 @@ trap cleanup EXIT
 collect_results() {
   local terminals="$1"
   local latest_execute_dir
-  latest_execute_dir=$(ls -td "$ROOT_DIR/bench/results/"*_exp_execute_* 2>/dev/null | head -n1 || true)
+  latest_execute_dir=$(ls -td "$ROOT_DIR/bench/results/exp/"*_execute_* 2>/dev/null | head -n1 || true)
   if [ -z "$latest_execute_dir" ]; then
     log "WARNING: execute directory not found after terminals=${terminals}"
     return

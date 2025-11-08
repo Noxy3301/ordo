@@ -158,5 +158,5 @@ banner "Phase: execute"
 PRESERVE_WORKDIRS="$PRESERVE_WORKDIRS" bash "$ROOT_DIR/scripts/experimental/phase_execute.sh" "$INSTANCES" "$START_PORT"
 
 echo
-echo "Done. Check bench/results for the latest *_exp_execute_* directory."
+echo "Done. Check bench/results/exp for the latest *_execute_* directory."
 echo "Generated template: $GEN_TEMPLATE (kept for reproducibility)"

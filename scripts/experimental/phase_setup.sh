@@ -26,12 +26,12 @@ MYSQL_BIN="$ROOT_DIR/build/runtime_output_directory/mysql"
 TERMINALS_PER_INSTANCE=${YCSB_TERMINALS:-}
 
 TS=$(date +%Y%m%d_%H%M%S)
-# Prefer sorting by date_time, then port, then phase suffix
+# Prefer sorting by date_time, then phase suffix
 SUFFIX="${CLIENTS}c"
 if [ -n "$TERMINALS_PER_INSTANCE" ]; then
   SUFFIX="${SUFFIX}_${TERMINALS_PER_INSTANCE}t"
 fi
-RESULTS_DIR="$BENCH_DIR/results/${TS}_${START_PORT}_exp_setup_${SUFFIX}"
+RESULTS_DIR="$BENCH_DIR/results/exp/${TS}_setup_${SUFFIX}"
 mkdir -p "$RESULTS_DIR"
 
 echo "=== EXP Setup Phase ==="

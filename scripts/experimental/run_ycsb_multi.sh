@@ -8,6 +8,8 @@
 #
 # Profile:
 #   a              -> YCSB-A (50% read, 50% update)
+#   b              -> YCSB-B (95% read, 5% update)
+#   c              -> YCSB-C (100% read)
 #
 # Note: If rate is set to 0, it is converted to "unlimited" (BenchBase requirement).
 #   PRESERVE_WORKDIRS     (true|false, default false)
@@ -24,7 +26,7 @@ Usage:
 Flags (both --key value and --key=value are supported):
   --instances,    -n     Number of MySQL instances (default 4)
   --start-port,   -p     Starting MySQL port (default 3307)
-  --profile,      -w     Workload profile: a
+  --profile,      -w     Workload profile: a | b | c
   --terminals,    -t     Terminals per instance (default 4)
   --time,         -d     Execute duration seconds (default 120)
   --rate,         -r     Requests/sec; 0 means unlimited (default 0)
@@ -101,9 +103,13 @@ WEIGHTS="50,0,0,50,0,0"   # default A
 case "$PROFILE" in
   a|A|ycsb-a|ycsba)
     WEIGHTS="50,0,0,50,0,0" ;;
+  b|B|ycsb-b|ycsbb)
+    WEIGHTS="95,0,0,5,0,0" ;;
+  c|C|ycsb-c|ycsbc)
+    WEIGHTS="100,0,0,0,0,0" ;;
   *)
     echo "Unknown profile: $PROFILE" >&2
-    echo "Supported: a" >&2
+    echo "Supported: a, b, c" >&2
     exit 1 ;;
 esac
 

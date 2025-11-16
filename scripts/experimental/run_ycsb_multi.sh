@@ -9,6 +9,7 @@
 # Profile:
 #   a              -> YCSB-A (50% read, 50% update)
 #   b              -> YCSB-B (95% read, 5% update)
+#   b-scan         -> YCSB-B variant (95% scan, 5% update)
 #   c              -> YCSB-C (100% read)
 #
 # Note: If rate is set to 0, it is converted to "unlimited" (BenchBase requirement).
@@ -26,7 +27,7 @@ Usage:
 Flags (both --key value and --key=value are supported):
   --instances,    -n     Number of MySQL instances (default 4)
   --start-port,   -p     Starting MySQL port (default 3307)
-  --profile,      -w     Workload profile: a | b | c
+  --profile,      -w     Workload profile: a | b | b-scan | c
   --terminals,    -t     Terminals per instance (default 4)
   --time,         -d     Execute duration seconds (default 120)
   --rate,         -r     Requests/sec; 0 means unlimited (default 0)
@@ -105,6 +106,8 @@ case "$PROFILE" in
     WEIGHTS="50,0,0,50,0,0" ;;
   b|B|ycsb-b|ycsbb)
     WEIGHTS="95,0,0,5,0,0" ;;
+  b-scan|b_scan|bscan|ycsb-b-scan|bs|BSCAN)
+    WEIGHTS="0,0,95,5,0,0" ;;
   c|C|ycsb-c|ycsbc)
     WEIGHTS="100,0,0,0,0,0" ;;
   *)

@@ -19,7 +19,7 @@ bench/results/_run_local/run_local_<timestamp>.csv.
 Options (can also be provided via env vars):
   --profile NAME           (default: a)
   --time SEC               (default: 30)
-  --rate OPS               (default: 10000)
+  --rate OPS               (default: 0 for unlimited)
   --scalefactor N          (default: 1)
   --terminals "LIST"       (space/comma separated, e.g. "--terminals 4,8,16")
   --help                   Show this help
@@ -28,7 +28,7 @@ USAGE
 
 PROFILE=${PROFILE:-a}
 TIME_SEC=${TIME_SEC:-30}
-RATE=${RATE:-10000}
+RATE=${RATE:-0}
 SCALEFACTOR=${SCALEFACTOR:-1}
 TERMINAL_SWEEP=${TERMINAL_SWEEP:-"1 2 4 8 16 24 32 40 48 56"}
 

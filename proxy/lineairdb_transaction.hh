@@ -44,9 +44,8 @@ public:
     return tx_id;
   }
 
-  inline bool is_aborted() const {
-    assert(tx_id != -1);
-    return lineairdb_client->tx_is_aborted(tx_id);
+  inline bool is_aborted() const { 
+    return is_aborted_;
   }
 
   inline void set_aborted(bool aborted) {

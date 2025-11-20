@@ -8,6 +8,9 @@
 #
 # Profile:
 #   a              -> YCSB-A (50% read, 50% update)
+#   b              -> YCSB-B (95% read, 5% update)
+#   b-scan         -> YCSB-B variant (95% scan, 5% update)
+#   c              -> YCSB-C (100% read)
 #
 # Note: If rate is set to 0, it is converted to "unlimited" (BenchBase requirement).
 #   PRESERVE_WORKDIRS     (true|false, default false)
@@ -24,7 +27,7 @@ Usage:
 Flags (both --key value and --key=value are supported):
   --instances,    -n     Number of MySQL instances (default 4)
   --start-port,   -p     Starting MySQL port (default 3307)
-  --profile,      -w     Workload profile: a
+  --profile,      -w     Workload profile: a | b | b-scan | c
   --terminals,    -t     Terminals per instance (default 4)
   --time,         -d     Execute duration seconds (default 120)
   --rate,         -r     Requests/sec; 0 means unlimited (default 0)
@@ -101,9 +104,15 @@ WEIGHTS="50,0,0,50,0,0"   # default A
 case "$PROFILE" in
   a|A|ycsb-a|ycsba)
     WEIGHTS="50,0,0,50,0,0" ;;
+  b|B|ycsb-b|ycsbb)
+    WEIGHTS="95,0,0,5,0,0" ;;
+  b-scan|b_scan|bscan|ycsb-b-scan|bs|BSCAN)
+    WEIGHTS="0,0,95,5,0,0" ;;
+  c|C|ycsb-c|ycsbc)
+    WEIGHTS="100,0,0,0,0,0" ;;
   *)
     echo "Unknown profile: $PROFILE" >&2
-    echo "Supported: a" >&2
+    echo "Supported: a, b, c" >&2
     exit 1 ;;
 esac
 
@@ -133,10 +142,20 @@ else
   banner "Skipping MySQL start (SKIP_START=true)"
 fi
 
+# Reset status counters so metrics start from zero
+banner "Resetting MySQL status counters"
+for ((i = 0; i < INSTANCES; ++i)); do
+  PORT=$((START_PORT + i))
+  "$ROOT_DIR/build/runtime_output_directory/mysql" \
+    -u root --protocol=TCP -h 127.0.0.1 -P "$PORT" \
+    -e "FLUSH STATUS"
+done
+
 export TEMPLATE_FILE="$GEN_TEMPLATE"
 export GEN_CONFIGS=true
 export OUTPUT_MULTI_DIR="$GEN_DIR/multi"
 export CONFIG_MULTI_DIR="$GEN_DIR/multi"
+export YCSB_TERMINALS="$TERMINALS"
 
 banner "Phase: setup"
 bash "$ROOT_DIR/scripts/experimental/phase_setup.sh" "$INSTANCES" "$START_PORT"
@@ -148,5 +167,5 @@ banner "Phase: execute"
 PRESERVE_WORKDIRS="$PRESERVE_WORKDIRS" bash "$ROOT_DIR/scripts/experimental/phase_execute.sh" "$INSTANCES" "$START_PORT"
 
 echo
-echo "Done. Check bench/results for the latest *_exp_execute_* directory."
+echo "Done. Check bench/results/exp for the latest *_execute_* directory."
 echo "Generated template: $GEN_TEMPLATE (kept for reproducibility)"

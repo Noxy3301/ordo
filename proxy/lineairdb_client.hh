@@ -28,12 +28,11 @@ enum class MessageType : uint32_t {
     UNKNOWN = 0,
     TX_BEGIN_TRANSACTION = 1,
     TX_ABORT = 2,
-    TX_IS_ABORTED = 3,
-    TX_READ = 4,
-    TX_WRITE = 5,
-    TX_SCAN = 6,
-    DB_FENCE = 7,
-    DB_END_TRANSACTION = 8
+    TX_READ = 3,
+    TX_WRITE = 4,
+    TX_SCAN = 5,
+    DB_FENCE = 6,
+    DB_END_TRANSACTION = 7
 };
 
 class LineairDBClient {
@@ -49,7 +48,6 @@ public:
     // transaction management
     int64_t tx_begin_transaction();
     void tx_abort(int64_t tx_id);
-    bool tx_is_aborted(int64_t tx_id);
 
     // transaction operations
     std::string tx_read(LineairDBTransaction* tx, const std::string& key);

@@ -23,14 +23,22 @@ BENCHBASE_SRC="$BENCH_DIR/benchbase/benchbase-mysql"
 JAR="$BENCHBASE_SRC/benchbase.jar"
 CONFIG_MULTI_DIR=${CONFIG_MULTI_DIR:-"$BENCH_DIR/config/multi"}
 MYSQL_BIN="$ROOT_DIR/build/runtime_output_directory/mysql"
+TERMINALS_PER_INSTANCE=${YCSB_TERMINALS:-}
 
 TS=$(date +%Y%m%d_%H%M%S)
-# Prefer sorting by date_time, then port, then phase suffix
-RESULTS_DIR="$BENCH_DIR/results/${TS}_${START_PORT}_exp_setup_${CLIENTS}c"
+# Prefer sorting by date_time, then phase suffix
+SUFFIX="${CLIENTS}c"
+if [ -n "$TERMINALS_PER_INSTANCE" ]; then
+  SUFFIX="${SUFFIX}_${TERMINALS_PER_INSTANCE}t"
+fi
+RESULTS_DIR="$BENCH_DIR/results/exp/${TS}_setup_${SUFFIX}"
 mkdir -p "$RESULTS_DIR"
 
 echo "=== EXP Setup Phase ==="
 echo "Clients   : $CLIENTS"
+if [ -n "$TERMINALS_PER_INSTANCE" ]; then
+  echo "Terminals : $TERMINALS_PER_INSTANCE per instance"
+fi
 echo "StartPort : $START_PORT"
 echo "Results   : $RESULTS_DIR"
 

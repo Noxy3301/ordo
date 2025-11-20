@@ -229,28 +229,6 @@ bool LineairDBClient::db_end_transaction(int64_t tx_id, bool isFence) {
     return !response.is_aborted();
 }
 
-bool LineairDBClient::tx_is_aborted(int64_t tx_id) {
-    LOG_DEBUG("CLIENT: tx_is_aborted called with tx_id=%ld", tx_id);
-    if (!connected_) {
-        LOG_ERROR("RPC failed: Not connected to server");
-        return true;  // assume aborted if not connected
-    }
-
-    LineairDB::Protocol::TxIsAborted::Request request;
-    LineairDB::Protocol::TxIsAborted::Response response;
-    
-    request.set_transaction_id(tx_id);
-    LOG_DEBUG("CLIENT: Created is_aborted request");
-
-    if (!send_protobuf_message(request, response, MessageType::TX_IS_ABORTED)) {
-        LOG_ERROR("RPC failed: Failed to send message to server");
-        return true;  // assume aborted on failure
-    }
-
-    LOG_DEBUG("CLIENT: tx_is_aborted completed, result: %s", response.is_aborted() ? "true" : "false");
-    return response.is_aborted();
-}
-
 void LineairDBClient::db_fence() {
     LOG_DEBUG("CLIENT: db_fence called");
     if (!connected_) {

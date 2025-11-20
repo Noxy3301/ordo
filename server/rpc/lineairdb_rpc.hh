@@ -23,7 +23,6 @@ private:
     // RPC handlers
     void handleTxBeginTransaction(const std::string& message, std::string& result);
     void handleTxAbort(const std::string& message, std::string& result);
-    void handleTxIsAborted(const std::string& message, std::string& result);
     void handleTxRead(const std::string& message, std::string& result);
     void handleTxWrite(const std::string& message, std::string& result);
     void handleTxScan(const std::string& message, std::string& result);

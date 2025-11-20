@@ -17,14 +17,22 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$SCRIPT_DIR/../.."
 BENCH_DIR="$ROOT_DIR/bench"
 CONFIG_MULTI_DIR=${CONFIG_MULTI_DIR:-"$BENCH_DIR/config/multi"}
+TERMINALS_PER_INSTANCE=${YCSB_TERMINALS:-}
 
 TS=$(date +%Y%m%d_%H%M%S)
-# Prefer sorting by date_time, then port, then phase suffix
-RESULTS_DIR="$BENCH_DIR/results/${TS}_${START_PORT}_exp_load_${CLIENTS}c"
+# Prefer sorting by date_time, then phase suffix
+SUFFIX="${CLIENTS}c"
+if [ -n "$TERMINALS_PER_INSTANCE" ]; then
+  SUFFIX="${SUFFIX}_${TERMINALS_PER_INSTANCE}t"
+fi
+RESULTS_DIR="$BENCH_DIR/results/exp/${TS}_load_${SUFFIX}"
 mkdir -p "$RESULTS_DIR"
 
 echo "=== EXP Load Phase ==="
 echo "Clients   : $CLIENTS"
+if [ -n "$TERMINALS_PER_INSTANCE" ]; then
+  echo "Terminals : $TERMINALS_PER_INSTANCE per instance"
+fi
 echo "StartPort : $START_PORT"
 echo "Results   : $RESULTS_DIR"
 

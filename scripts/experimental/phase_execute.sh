@@ -17,14 +17,22 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$SCRIPT_DIR/../.."
 BENCH_DIR="$ROOT_DIR/bench"
 CONFIG_MULTI_DIR=${CONFIG_MULTI_DIR:-"$BENCH_DIR/config/multi"}
+TERMINALS_PER_INSTANCE=${YCSB_TERMINALS:-}
 
 TS=$(date +%Y%m%d_%H%M%S)
-# Prefer sorting by date_time, then port, then phase suffix
-RESULTS_DIR="$BENCH_DIR/results/${TS}_${START_PORT}_exp_execute_${CLIENTS}c"
+# Prefer sorting by date_time, then phase suffix
+SUFFIX="${CLIENTS}c"
+if [ -n "$TERMINALS_PER_INSTANCE" ]; then
+  SUFFIX="${SUFFIX}_${TERMINALS_PER_INSTANCE}t"
+fi
+RESULTS_DIR="$BENCH_DIR/results/exp/${TS}_execute_${SUFFIX}"
 mkdir -p "$RESULTS_DIR"
 
 echo "=== EXP Execute Phase ==="
 echo "Clients   : $CLIENTS"
+if [ -n "$TERMINALS_PER_INSTANCE" ]; then
+  echo "Terminals : $TERMINALS_PER_INSTANCE per instance"
+fi
 echo "StartPort : $START_PORT"
 echo "Results   : $RESULTS_DIR"
 
@@ -115,7 +123,7 @@ fi
 echo "Aggregating throughput/goodput ..."
 total_tps=0; total_gps=0; clients_ok=0
 {
-  echo "Port,Throughput(req/s),Goodput(req/s)"
+  echo "Terminals,Throughput(req/s),Goodput(req/s),Avg(us),Median(us),P25(us),P75(us),P90(us),P95(us),P99(us),Min(us),Max(us),TableLocksImmediate,TableLocksWaited"
   for i in $(seq 0 $((CLIENTS - 1))); do
     PORT=$((START_PORT + i))
     PORT_DIR="$RESULTS_DIR/port_${PORT}"
@@ -127,10 +135,64 @@ total_tps=0; total_gps=0; clients_ok=0
     if [ -n "$latest_run" ] && [ -d "$PORT_DIR/$latest_run" ]; then
       summary=$(ls -1 "$PORT_DIR/$latest_run"/ycsb_*summary*.json 2>/dev/null | sort | tail -n1 || true)
     fi
-    tps=""; gps=""
+    tps=""; gps=""; avg_lat=""; median_lat=""; p25_lat=""; p75_lat=""; p90_lat=""; p95_lat=""; p99_lat=""; min_lat=""; max_lat=""; locks_i=""; locks_w=""
+    metrics=""
+    if [ -n "$latest_run" ] && [ -d "$PORT_DIR/$latest_run" ]; then
+      metrics=$(ls -1 "$PORT_DIR/$latest_run"/ycsb_*metrics*.json 2>/dev/null | sort | tail -n1 || true)
+    fi
     if [ -f "$summary" ]; then
-      tps=$(grep -o '"Throughput (requests/second)": [0-9.]*' "$summary" | awk '{print $3}')
-      gps=$(grep -o '"Goodput (requests/second)": [0-9.]*' "$summary" | awk '{print $3}')
+      stats=$(python3 - <<'PY' "$summary" "${metrics:-}"
+import json, sys
+summary_path = sys.argv[1]
+metrics_path = sys.argv[2] if len(sys.argv) > 2 else ""
+
+def num(val, decimals=True):
+    if val in (None, "", "null"):
+        return ""
+    try:
+        val = float(str(val).replace(",", ""))
+    except Exception:
+        return ""
+    if decimals:
+        return f"{val:.6f}"
+    if abs(val - round(val)) < 1e-6:
+        return f"{int(round(val))}"
+    return f"{val:.0f}"
+
+out = ["", "", "", "", "", "", "", "", "", "", "", "", "", ""]
+try:
+    with open(summary_path) as f:
+        s = json.load(f)
+    out[0] = num(s.get("Throughput (requests/second)"))
+    out[1] = num(s.get("Goodput (requests/second)"))
+    lat = s.get("Latency Distribution", {})
+    out[2] = num(lat.get("Average Latency (microseconds)"), decimals=False)
+    out[3] = num(lat.get("Median Latency (microseconds)"), decimals=False)
+    out[4] = num(lat.get("25th Percentile Latency (microseconds)"), decimals=False)
+    out[5] = num(lat.get("75th Percentile Latency (microseconds)"), decimals=False)
+    out[6] = num(lat.get("90th Percentile Latency (microseconds)"), decimals=False)
+    out[7] = num(lat.get("95th Percentile Latency (microseconds)"), decimals=False)
+    out[8] = num(lat.get("99th Percentile Latency (microseconds)"), decimals=False)
+    out[9] = num(lat.get("Minimum Latency (microseconds)"), decimals=False)
+    out[10] = num(lat.get("Maximum Latency (microseconds)"), decimals=False)
+except Exception:
+    pass
+
+if metrics_path:
+    try:
+        with open(metrics_path) as f:
+            m = json.load(f)
+        out[11] = num(m.get("table_locks_immediate"), decimals=False)
+        out[12] = num(m.get("table_locks_waited"), decimals=False)
+    except Exception:
+        pass
+
+print(",".join(out))
+PY
+)
+      if [ -n "$stats" ]; then
+        IFS=',' read -r tps gps avg_lat median_lat p25_lat p75_lat p90_lat p95_lat p99_lat min_lat max_lat locks_i locks_w <<< "$stats"
+      fi
     fi
     if [ -z "$tps" ]; then
       exelog="$RESULTS_DIR/execute_${PORT}.log"
@@ -138,19 +200,19 @@ total_tps=0; total_gps=0; clients_ok=0
         tps=$(grep -m1 'Rate limited reqs/s: Results' "$exelog" | sed -E 's/.*= ([0-9.]+) requests\/sec.*/\1/')
       fi
     fi
-    print_line=""
     if [[ "$tps" =~ ^[0-9.]+$ ]]; then
       total_tps=$(awk -v a="$total_tps" -v b="$tps" 'BEGIN{printf "%.3f", a+b}')
     fi
     if [[ "$gps" =~ ^[0-9.]+$ ]]; then
       total_gps=$(awk -v a="$total_gps" -v b="$gps" 'BEGIN{printf "%.3f", a+b}')
       clients_ok=$((clients_ok+1))
-      echo "$PORT,$tps,${gps:-N/A}"
-    else
-      echo "$PORT,${tps:-N/A},N/A"
     fi
+    printf "%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s\n" \
+      "${TERMINALS_PER_INSTANCE:-N/A}" "${tps:-N/A}" "${gps:-N/A}" \
+      "${avg_lat:-N/A}" "${median_lat:-N/A}" "${p25_lat:-N/A}" "${p75_lat:-N/A}" "${p90_lat:-N/A}" "${p95_lat:-N/A}" "${p99_lat:-N/A}" "${min_lat:-N/A}" "${max_lat:-N/A}" \
+      "${locks_i:-N/A}" "${locks_w:-N/A}"
   done
-  echo "Total,$total_tps,$total_gps"
+  # Totals are tracked above but not written to CSV to keep per-port metrics concise
   echo "Clients_OK,$clients_ok/$CLIENTS"
 } | tee "$RESULTS_DIR/aggregate.csv"
 

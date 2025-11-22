@@ -6,13 +6,144 @@
 #include <cstring>
 #include <iostream>
 #include <vector>
+#include <chrono>
+#include <atomic>
+#include <mutex>
+#include <fstream>
+#include <filesystem>
+#include <array>
+#include <iomanip>
+#include <cstdlib>
+#include <ctime>
+#include <sstream>
 
 #include "lineairdb_client.hh"
 #include "lineairdb_transaction.hh"
 #include "../common/log.h"
 
+namespace {
+using Clock = std::chrono::steady_clock;
+using namespace std::chrono_literals;
+
+struct RpcProfileDatum {
+    std::atomic<uint64_t> count{0};
+    std::atomic<uint64_t> total_ns{0};
+};
+
+[[maybe_unused]] inline const char* message_type_name(MessageType t) {
+    switch (t) {
+        case MessageType::TX_BEGIN_TRANSACTION: return "begin";
+        case MessageType::TX_ABORT:             return "abort";
+        case MessageType::TX_READ:              return "read";
+        case MessageType::TX_WRITE:             return "write";
+        case MessageType::TX_SCAN:              return "scan";
+        case MessageType::DB_FENCE:             return "fence";
+        case MessageType::DB_END_TRANSACTION:   return "end";
+        default:                                return "unknown";
+    }
+}
+
+std::array<RpcProfileDatum, 8> g_rpc_profile;  // indexed by static_cast<size_t>(MessageType)
+std::atomic<bool> g_profile_enabled{false};
+std::once_flag g_profile_once;
+
+std::string make_profile_path() {
+    auto now = std::chrono::system_clock::now();
+    std::time_t t = std::chrono::system_clock::to_time_t(now);
+    std::tm tm = *std::localtime(&t);
+    std::ostringstream oss;
+    oss << "./lineairdb_logs/ordo_client_profile_"
+        << std::put_time(&tm, "%Y%m%d_%H%M%S")
+        << ".csv";
+    return oss.str();
+}
+
+void write_profile_header(std::ofstream& out) {
+    out << "timestamp,total_count,total_us,avg_us,"
+        << "begin_cnt,begin_us,begin_avg,"
+        << "abort_cnt,abort_us,abort_avg,"
+        << "read_cnt,read_us,read_avg,"
+        << "write_cnt,write_us,write_avg,"
+        << "scan_cnt,scan_us,scan_avg,"
+        << "fence_cnt,fence_us,fence_avg,"
+        << "end_cnt,end_us,end_avg\n";
+}
+
+void start_profile_thread() {
+    g_profile_enabled.store(true, std::memory_order_relaxed);
+
+    std::thread([]() {
+        const std::string dir = "./lineairdb_logs";
+        const std::string path = make_profile_path();
+        (void)std::filesystem::create_directories(dir);
+
+        std::ofstream out(path, std::ios::app);
+        if (out.tellp() == 0) {
+            write_profile_header(out);
+        }
+
+        // background flush loop
+        while (true) {
+            std::this_thread::sleep_for(1s);
+
+            uint64_t total_count = 0;
+            uint64_t total_ns = 0;
+            struct SnapshotRow {
+                uint64_t count;
+                uint64_t ns;
+            };
+            SnapshotRow rows[8]{};
+
+            // drain counters
+            for (size_t i = 0; i < g_rpc_profile.size(); ++i) {
+                rows[i].count = g_rpc_profile[i].count.exchange(0, std::memory_order_relaxed);
+                rows[i].ns    = g_rpc_profile[i].total_ns.exchange(0, std::memory_order_relaxed);
+                total_count  += rows[i].count;
+                total_ns     += rows[i].ns;
+            }
+
+            if (total_count == 0) continue;  // nothing to report
+
+            const auto now = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
+            out << std::put_time(std::localtime(&now), "%F %T") << ','
+                << total_count << ','
+                << (total_ns / 1000.0) << ','
+                << (total_count ? (total_ns / 1000.0) / static_cast<double>(total_count) : 0.0) << ',';
+
+            auto emit = [&](MessageType t) {
+                const size_t idx = static_cast<size_t>(t);
+                const uint64_t c = rows[idx].count;
+                const uint64_t ns = rows[idx].ns;
+                out << c << ',' << (ns / 1000.0) << ','
+                    << (c ? (ns / 1000.0) / static_cast<double>(c) : 0.0) << ',';
+            };
+
+            emit(MessageType::TX_BEGIN_TRANSACTION);
+            emit(MessageType::TX_ABORT);
+            emit(MessageType::TX_READ);
+            emit(MessageType::TX_WRITE);
+            emit(MessageType::TX_SCAN);
+            emit(MessageType::DB_FENCE);
+            emit(MessageType::DB_END_TRANSACTION);
+
+            out << '\n';
+            out.flush();
+        }
+    }).detach();
+}
+
+inline void record_rpc_latency(MessageType t, uint64_t ns) {
+    if (!g_profile_enabled.load(std::memory_order_relaxed)) return;
+    const size_t idx = static_cast<size_t>(t);
+    if (idx >= g_rpc_profile.size()) return;
+    g_rpc_profile[idx].count.fetch_add(1, std::memory_order_relaxed);
+    g_rpc_profile[idx].total_ns.fetch_add(ns, std::memory_order_relaxed);
+}
+}  // namespace
+
 LineairDBClient::LineairDBClient(const std::string& host, int port)
     : socket_fd_(-1), connected_(false), host_(host), port_(port) {
+    std::call_once(g_profile_once, []() { start_profile_thread(); });
     LOG_INFO("LineairDBClient(%p): connecting to %s:%d",
              static_cast<const void*>(this), host_.c_str(), port_);
     if (!connect(host_, port_)) {
@@ -330,7 +461,8 @@ bool LineairDBClient::send_message_with_header(const std::string& serialized_req
         LOG_ERROR("SEND_MESSAGE: Not connected!");
         return false;
     }
-    
+
+    const auto begin = Clock::now();
     LOG_DEBUG("SEND_MESSAGE: Sending message of size %zu bytes with message_type %u", serialized_request.size(), static_cast<uint32_t>(message_type));
 
     // prepare message header
@@ -386,5 +518,7 @@ bool LineairDBClient::send_message_with_header(const std::string& serialized_req
     }
     
     LOG_DEBUG("SEND_MESSAGE: Message exchange completed successfully");
+    const auto end = Clock::now();
+    record_rpc_latency(message_type, std::chrono::duration_cast<std::chrono::nanoseconds>(end - begin).count());
     return true;
 }

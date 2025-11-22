@@ -6,6 +6,7 @@
 #include <utility>
 #include <vector>
 #include <memory>
+#include <atomic>
 
 #include "lineairdb.pb.h"
 

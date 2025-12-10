@@ -1,7 +1,7 @@
 #!/bin/bash
 
-# Phase: setup (prepare per-port BenchBase workdirs, optional DB meta, create schema)
-# Usage: scripts/experimental/phase_setup.sh [clients] [start_port]
+# Phase: setup (prepare BenchBase workdir, optional DB meta, create schema)
+# Usage: scripts/experimental/phase_setup.sh [mysqld_port]
 # Env:
 #  GEN_CONFIGS=true|false      Generate BenchBase configs if missing (default true)
 #  DO_SQL_SETUP=true|false     Run bench/setup.sql on each port (default true)
@@ -9,8 +9,7 @@
 
 set -euo pipefail
 
-CLIENTS=${1:-4}
-START_PORT=${2:-3307}
+PORT=${1:-3307}
 
 GEN_CONFIGS=${GEN_CONFIGS:-true}
 DO_SQL_SETUP=${DO_SQL_SETUP:-true}
@@ -21,25 +20,28 @@ ROOT_DIR="$SCRIPT_DIR/../.."
 BENCH_DIR="$ROOT_DIR/bench"
 BENCHBASE_SRC="$BENCH_DIR/benchbase/benchbase-mysql"
 JAR="$BENCHBASE_SRC/benchbase.jar"
-CONFIG_MULTI_DIR=${CONFIG_MULTI_DIR:-"$BENCH_DIR/config/multi"}
+CONFIG_FILE=${CONFIG_OUT_FILE:-"$BENCH_DIR/config/generated/ycsb.generated.xml"}
 MYSQL_BIN="$ROOT_DIR/build/runtime_output_directory/mysql"
 TERMINALS_PER_INSTANCE=${YCSB_TERMINALS:-}
+MYSQL_HOST=${MYSQL_HOST:-127.0.0.1}
 
-TS=$(date +%Y%m%d_%H%M%S)
-# Prefer sorting by date_time, then phase suffix
-SUFFIX="${CLIENTS}c"
+TS=${RUN_TS:-$(date +%Y%m%d_%H%M%S)}
+PHASE_LABEL=${PHASE_LABEL:-setup}
+SUFFIX=""
 if [ -n "$TERMINALS_PER_INSTANCE" ]; then
-  SUFFIX="${SUFFIX}_${TERMINALS_PER_INSTANCE}t"
+  SUFFIX="${TERMINALS_PER_INSTANCE}t"
 fi
-RESULTS_DIR="$BENCH_DIR/results/exp/${TS}_setup_${SUFFIX}"
+RESULTS_DIR="$BENCH_DIR/results/exp/${TS}_${PHASE_LABEL}"
+if [ -n "$SUFFIX" ]; then
+  RESULTS_DIR="${RESULTS_DIR}_${SUFFIX}"
+fi
 mkdir -p "$RESULTS_DIR"
 
 echo "=== EXP Setup Phase ==="
-echo "Clients   : $CLIENTS"
+echo "Port      : $PORT"
 if [ -n "$TERMINALS_PER_INSTANCE" ]; then
-  echo "Terminals : $TERMINALS_PER_INSTANCE per instance"
+  echo "Terminals : $TERMINALS_PER_INSTANCE"
 fi
-echo "StartPort : $START_PORT"
 echo "Results   : $RESULTS_DIR"
 
 # Ensure BenchBase jar exists
@@ -54,35 +56,31 @@ fi
 
 # Generate configs if requested
 if [ "$GEN_CONFIGS" = "true" ]; then
-  echo "Generating per-port configs ..."
-  bash "$ROOT_DIR/scripts/experimental/generate_ycsb_configs.sh" "$CLIENTS" "$START_PORT"
+  echo "Generating config for port $PORT ..."
+  CONFIG_OUT_FILE="$CONFIG_FILE" bash "$ROOT_DIR/scripts/experimental/generate_ycsb_configs.sh" "$PORT"
 fi
 
-# Prepare workdirs and run optional steps
-for i in $(seq 0 $((CLIENTS - 1))); do
-  PORT=$((START_PORT + i))
-  WORKDIR="$BENCH_DIR/benchbase/port_${PORT}"
-  CFG="$CONFIG_MULTI_DIR/ycsb_port_${PORT}.xml"
-  mkdir -p "$WORKDIR"
-  rsync -a "$BENCHBASE_SRC/" "$WORKDIR/"
+# Prepare workdir and run optional steps
+WORKDIR="$BENCH_DIR/benchbase/port_${PORT}"
+CFG="$CONFIG_FILE"
+mkdir -p "$WORKDIR"
+rsync -a "$BENCHBASE_SRC/" "$WORKDIR/"
 
-  # SQL meta (plugin check, DB create, etc.)
-  if [ "$DO_SQL_SETUP" = "true" ] && [ -x "$MYSQL_BIN" ]; then
-    echo "[DB/$PORT] Applying bench/setup.sql ..."
-    SOCKET="/tmp/mysql_${PORT}.sock"
-    "$MYSQL_BIN" -u root --socket="$SOCKET" --port="$PORT" < "$BENCH_DIR/setup.sql" \
-      > "$RESULTS_DIR/sql_${PORT}.log" 2>&1 || true
-  fi
+# SQL meta (plugin check, DB create, etc.)
+if [ "$DO_SQL_SETUP" = "true" ] && [ -x "$MYSQL_BIN" ]; then
+  echo "[DB/$PORT] Applying bench/setup.sql ..."
+  "$MYSQL_BIN" -u root --protocol=TCP -h "$MYSQL_HOST" -P "$PORT" < "$BENCH_DIR/setup.sql" \
+    > "$RESULTS_DIR/sql_${PORT}.log" 2>&1 || true
+fi
 
-  if [ "$DO_CREATE_SCHEMA" = "true" ]; then
-    echo "[Schema/$PORT] BenchBase --create ..."
-    (
-      cd "$WORKDIR"
-      java -jar benchbase.jar -b ycsb -c "$CFG" --create=true --load=false --execute=false \
-        > "$RESULTS_DIR/create_${PORT}.log" 2>&1
-    )
-  fi
-done
+if [ "$DO_CREATE_SCHEMA" = "true" ]; then
+  echo "[Schema/$PORT] BenchBase --create ..."
+  (
+    cd "$WORKDIR"
+    java -jar benchbase.jar -b ycsb -c "$CFG" --create=true --load=false --execute=false \
+      > "$RESULTS_DIR/create_${PORT}.log" 2>&1
+  )
+fi
 
 echo "=== Setup Done ==="
 echo "Logs: $RESULTS_DIR"

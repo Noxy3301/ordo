@@ -70,11 +70,11 @@ build/server/ordo-server
 ```
 
 ```bash
-scripts/experimental/start_mysql_multi.sh 4 3307
+scripts/start_mysql.sh --mysqld-port 3307 --ordo-host 127.0.0.1 --ordo-port 9999
 ```
 
 ```bash
-scripts/experimental/phase_setup.sh 4 3307
-scripts/experimental/phase_load.sh 4 3307
-scripts/experimental/phase_execute.sh 4 3307
+scripts/experimental/phase_setup.sh 3307
+scripts/experimental/phase_load.sh 3307
+scripts/experimental/phase_execute.sh 3307
 ```

@@ -10,7 +10,7 @@ End-to-end local LineairDB/Ordo perf sweep runner.
 For each terminal count (default: 1 2 4 8 16 24 32 40 48 56) the script:
   1. Stops any running Ordo/MySQL pair and restarts them (ports 9999 / 3307).
   2. Prints the LineairDB sysvars to confirm the Ordo endpoint.
-  3. Executes run_ycsb_multi.sh with --skip-start.
+  3. Executes run_ycsb_multi.sh.
   4. Copies aggregate.csv into bench/results/_run_local.
 
 After the sweep it emits a combined summary file at
@@ -30,20 +30,15 @@ PROFILE=${PROFILE:-a}
 TIME_SEC=${TIME_SEC:-30}
 RATE=${RATE:-0}
 SCALEFACTOR=${SCALEFACTOR:-1}
-TERMINAL_SWEEP=${TERMINAL_SWEEP:-"1 2 4 8 16 24 32 40 48 56"}
+TERMINAL_SWEEP=${TERMINAL_SWEEP:-"1 2"}
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --profile)        PROFILE="$2"; shift 2;;
-    --profile=*)      PROFILE="${1#*=}"; shift;;
     --time)           TIME_SEC="$2"; shift 2;;
-    --time=*)         TIME_SEC="${1#*=}"; shift;;
     --rate)           RATE="$2"; shift 2;;
-    --rate=*)         RATE="${1#*=}"; shift;;
     --scalefactor)    SCALEFACTOR="$2"; shift 2;;
-    --scalefactor=*)  SCALEFACTOR="${1#*=}"; shift;;
     --terminals)      TERMINAL_SWEEP="$2"; shift 2;;
-    --terminals=*)    TERMINAL_SWEEP="${1#*=}"; shift;;
     --help|-h)        usage; exit 0;;
     --)               shift; break;;
     *) echo "Unknown option: $1" >&2; usage; exit 2;;
@@ -59,8 +54,9 @@ if [ "${#TERMINAL_COUNTS[@]}" -eq 0 ]; then
 fi
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-MYSQL_PORT=3307
-INSTANCES=1
+ORDO_HOST=${ORDO_HOST:-127.0.0.1}
+ORDO_PORT=${ORDO_PORT:-9999}
+MYSQLD_PORT=3307
 RUN_ROOT_DIR="$ROOT_DIR/bench/results/_run_local"
 RUN_ID=$(date +%Y%m%d_%H%M%S)
 RUN_SESSION_DIR="$RUN_ROOT_DIR/$RUN_ID"
@@ -86,17 +82,18 @@ start_ordo_service() {
 }
 
 start_mysql_service() {
-  log "Starting MySQL (port ${MYSQL_PORT}) with LineairDB"
-  DETACH=true bash "$ROOT_DIR/scripts/experimental/start_mysql_multi.sh" \
-    "$INSTANCES" \
-    "$MYSQL_PORT"
+  log "Starting MySQL (port ${MYSQLD_PORT}) with LineairDB"
+  bash "$ROOT_DIR/scripts/start_mysql.sh" \
+    --mysqld-port "$MYSQLD_PORT" \
+    --ordo-host "$ORDO_HOST" \
+    --ordo-port "$ORDO_PORT"
   started_mysql=true
 }
 
 verify_lineairdb_target() {
   log "Verifying LineairDB sysvars"
   "$ROOT_DIR/build/runtime_output_directory/mysql" \
-    -u root --protocol=TCP -h 127.0.0.1 -P "$MYSQL_PORT" \
+    -u root --protocol=TCP -h 127.0.0.1 -P "$MYSQLD_PORT" \
     -e "SHOW VARIABLES LIKE 'lineairdb_ordo_%';"
 }
 
@@ -104,19 +101,20 @@ run_ycsb_workload() {
   local terminals="$1"
   log "Running YCSB (profile=${PROFILE}, terminals=${terminals})"
   "$ROOT_DIR/scripts/experimental/run_ycsb_multi.sh" \
-    --instances "$INSTANCES" \
-    --start-port "$MYSQL_PORT" \
+    --mysqld-port "$MYSQLD_PORT" \
+    --ordo-host "$ORDO_HOST" \
+    --ordo-port "$ORDO_PORT" \
     --profile "$PROFILE" \
     --terminals "$terminals" \
     --time "$TIME_SEC" \
     --rate "$RATE" \
-    --scalefactor "$SCALEFACTOR" \
-    --skip-start
+    --scalefactor "$SCALEFACTOR"
 }
 
 summary_tmp=$(mktemp)
 summary_written=false
 summary_finalized=false
+summary_path=""
 
 cleanup() {
   stop_services
@@ -173,11 +171,11 @@ log "Building server + LineairDB SE"
 (cd "$ROOT_DIR" && scripts/build_partial.sh)
 log "Results for this run will be stored under $RUN_SESSION_DIR"
 
+start_ordo_service
+start_mysql_service
+
 for term in "${TERMINAL_COUNTS[@]}"; do
   log "=== Sweep: ${term} terminals ==="
-  stop_services
-  start_ordo_service
-  start_mysql_service
   verify_lineairdb_target
   run_ycsb_workload "$term"
   collect_results "$term"

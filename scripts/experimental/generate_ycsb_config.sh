@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Generate YCSB configuration file
-# Usage: ./generate_ycsb_configs.sh [mysqld_port]
+# Usage: ./generate_ycsb_config.sh [mysqld_port]
 
 MYSQLD_PORT=${1:-3307}
 

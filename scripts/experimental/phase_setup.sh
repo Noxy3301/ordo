@@ -57,7 +57,7 @@ fi
 # Generate configs if requested
 if [ "$GEN_CONFIGS" = "true" ]; then
   echo "Generating config for port $PORT ..."
-  CONFIG_OUT_FILE="$CONFIG_FILE" bash "$ROOT_DIR/scripts/experimental/generate_ycsb_configs.sh" "$PORT"
+  CONFIG_OUT_FILE="$CONFIG_FILE" bash "$ROOT_DIR/scripts/experimental/generate_ycsb_config.sh" "$PORT"
 fi
 
 # Prepare workdir and run optional steps

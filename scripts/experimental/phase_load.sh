@@ -36,7 +36,7 @@ fi
 echo "Results   : $RESULTS_DIR"
 
 if [ "$GEN_CONFIGS" = "true" ]; then
-  CONFIG_OUT_FILE="$CONFIG_FILE" bash "$ROOT_DIR/scripts/experimental/generate_ycsb_configs.sh" "$PORT"
+  CONFIG_OUT_FILE="$CONFIG_FILE" bash "$ROOT_DIR/scripts/experimental/generate_ycsb_config.sh" "$PORT"
 fi
 
 WORKDIR="$BENCH_DIR/benchbase/port_${PORT}"

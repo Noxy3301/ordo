@@ -21,10 +21,11 @@ set -euo pipefail
 usage() {
   cat <<USAGE
 Usage:
-  $0 --mysqld-port P --profile a --terminals T --time SEC --rate R --scalefactor S [--preserve-workdirs] [--ordo-host HOST] [--ordo-port PORT]
+  $0 --mysqld-port P --profile a --terminals T --time SEC --rate R --scalefactor S [--preserve-workdirs] [--ordo-host HOST] [--ordo-port PORT] [--mysql-host HOST] [--skip-setup] [--skip-load] [--skip-execute]
 
 Flags:
   --mysqld-port          MySQL port (default 3307)
+  --mysql-host           MySQL host/IP used by BenchBase/config (default 127.0.0.1)
   --profile              Workload profile: a | b | b-scan | c
   --terminals            Terminals (default 4)
   --time                 Execute duration seconds (default 120)
@@ -33,11 +34,15 @@ Flags:
   --preserve-workdirs    Do not delete BenchBase workdirs after execute
   --ordo-host            Ordo server host/IP (default 127.0.0.1)
   --ordo-port            Ordo server port (default 9999)
+  --skip-setup           Skip setup phase (config is still generated)
+  --skip-load            Skip load phase
+  --skip-execute         Skip execute phase
   --help, -h             Show this help
 USAGE
 }
 
 MYSQLD_PORT=3307
+MYSQL_HOST=127.0.0.1
 PROFILE=a
 TERMINALS=4
 TIME_SEC=120
@@ -45,11 +50,15 @@ RATE=0
 SCALEFACTOR=100
 ORDO_HOST=127.0.0.1
 ORDO_PORT=9999
+SKIP_SETUP=false
+SKIP_LOAD=false
+SKIP_EXECUTE=false
 
 # Parse flags (flags only)
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --mysqld-port)         MYSQLD_PORT="$2"; shift 2;;
+    --mysql-host)          MYSQL_HOST="$2"; shift 2;;
     --profile)             PROFILE="$2"; shift 2;;
     --terminals)           TERMINALS="$2"; shift 2;;
     --time)                TIME_SEC="$2"; shift 2;;
@@ -58,6 +67,9 @@ while [[ $# -gt 0 ]]; do
     --preserve-workdirs)   PRESERVE_WORKDIRS=true; shift;;
     --ordo-host)           ORDO_HOST="$2"; shift 2;;
     --ordo-port)           ORDO_PORT="$2"; shift 2;;
+    --skip-setup)          SKIP_SETUP=true; shift;;
+    --skip-load)           SKIP_LOAD=true; shift;;
+    --skip-execute)        SKIP_EXECUTE=true; shift;;
     --help|-h)             usage; exit 0;;
     --)                    shift; break;;
     -*)                    echo "Unknown option: $1" >&2; usage; exit 2;;
@@ -121,27 +133,42 @@ fi
 sed -i "s#<weights>.*</weights>#<weights>$WEIGHTS</weights>#" "$GEN_TEMPLATE"
 
 echo "Config: mysqld_port=$MYSQLD_PORT profile=$PROFILE terminals=$TERMINALS time=$TIME_SEC rate=$RATE scalefactor=$SCALEFACTOR ordo=${ORDO_HOST}:${ORDO_PORT}"
+echo "MySQL host: $MYSQL_HOST"
+echo "Skip flags: setup=$SKIP_SETUP load=$SKIP_LOAD execute=$SKIP_EXECUTE"
 
 # Reset status counters so metrics start from zero
 banner "Resetting MySQL status counters"
 "$ROOT_DIR/build/runtime_output_directory/mysql" \
-  -u root --protocol=TCP -h 127.0.0.1 -P "$MYSQLD_PORT" \
+  -u root --protocol=TCP -h "$MYSQL_HOST" -P "$MYSQLD_PORT" \
   -e "FLUSH STATUS"
 
 export TEMPLATE_FILE="$GEN_TEMPLATE"
 export GEN_CONFIGS=true
 export YCSB_TERMINALS="$TERMINALS"
 export CONFIG_OUT_FILE="$CONFIG_OUT_FILE"
+export MYSQL_HOST="$MYSQL_HOST"
 
 mkdir -p "$(dirname "$CONFIG_OUT_FILE")"
-banner "Phase: setup"
-RUN_TS="$RUN_TS" PHASE_LABEL="1_setup" bash "$ROOT_DIR/scripts/experimental/phase_setup.sh" "$MYSQLD_PORT"
+if [ "$SKIP_SETUP" != "true" ]; then
+  banner "Phase: setup"
+  RUN_TS="$RUN_TS" PHASE_LABEL="1_setup" MYSQL_HOST="$MYSQL_HOST" bash "$ROOT_DIR/scripts/experimental/phase_setup.sh" "$MYSQLD_PORT"
+else
+  banner "Phase: setup (skipped)"
+fi
 
-banner "Phase: load"
-RUN_TS="$RUN_TS" PHASE_LABEL="2_load" bash "$ROOT_DIR/scripts/experimental/phase_load.sh" "$MYSQLD_PORT"
+if [ "$SKIP_LOAD" != "true" ]; then
+  banner "Phase: load"
+  RUN_TS="$RUN_TS" PHASE_LABEL="2_load" bash "$ROOT_DIR/scripts/experimental/phase_load.sh" "$MYSQLD_PORT"
+else
+  banner "Phase: load (skipped)"
+fi
 
-banner "Phase: execute"
-RUN_TS="$RUN_TS" PHASE_LABEL="3_execute" PRESERVE_WORKDIRS="$PRESERVE_WORKDIRS" bash "$ROOT_DIR/scripts/experimental/phase_execute.sh" "$MYSQLD_PORT"
+if [ "$SKIP_EXECUTE" != "true" ]; then
+  banner "Phase: execute"
+  RUN_TS="$RUN_TS" PHASE_LABEL="3_execute" PRESERVE_WORKDIRS="$PRESERVE_WORKDIRS" bash "$ROOT_DIR/scripts/experimental/phase_execute.sh" "$MYSQLD_PORT"
+else
+  banner "Phase: execute (skipped)"
+fi
 
 echo
 echo "Done. Check bench/results/exp for the latest *_execute_* directory."

@@ -4,6 +4,7 @@
 # Usage: ./generate_ycsb_config.sh [mysqld_port]
 
 MYSQLD_PORT=${1:-3307}
+MYSQL_HOST=${MYSQL_HOST:-localhost}
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONFIG_DIR="$SCRIPT_DIR/../../bench/config"
@@ -12,11 +13,11 @@ TEMPLATE_FILE=${TEMPLATE_FILE:-"$CONFIG_DIR/ycsb.xml"}
 # Allow caller to override the output config path via CONFIG_OUT_FILE
 CONFIG_OUT_FILE=${CONFIG_OUT_FILE:-"$CONFIG_DIR/generated/ycsb.generated.xml"}
 
-echo "Generating YCSB config file for port $MYSQLD_PORT..."
+echo "Generating YCSB config file for ${MYSQL_HOST}:${MYSQLD_PORT} ..."
 
 mkdir -p "$(dirname "$CONFIG_OUT_FILE")"
 
 tmpfile=$(mktemp)
-sed "s/:3307/:$MYSQLD_PORT/g" "$TEMPLATE_FILE" > "$tmpfile"
+sed -E "s#jdbc:mysql://[^:/]+:[0-9]+/#jdbc:mysql://${MYSQL_HOST}:${MYSQLD_PORT}/#g" "$TEMPLATE_FILE" > "$tmpfile"
 mv "$tmpfile" "$CONFIG_OUT_FILE"
 echo "Generated: $CONFIG_OUT_FILE"

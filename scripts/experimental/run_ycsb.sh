@@ -2,7 +2,7 @@
 
 # Orchestrate YCSB runs end-to-end (single MySQL instance)
 # Usage (flags only):
-#   scripts/experimental/run_ycsb_multi.sh \
+#   scripts/experimental/run_ycsb.sh \
 #     --mysqld-port 3307 --profile a --terminals 4 \
 #     --time 120 --rate 0 --scalefactor 100 [--preserve-workdirs]
 #

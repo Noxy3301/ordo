@@ -10,7 +10,7 @@ End-to-end local LineairDB/Ordo perf sweep runner.
 For each terminal count (default: 1 2 4 8 16 24 32 40 48 56) the script:
   1. Stops any running Ordo/MySQL pair and restarts them (ports 9999 / 3307).
   2. Prints the LineairDB sysvars to confirm the Ordo endpoint.
-  3. Executes run_ycsb_multi.sh.
+  3. Executes run_ycsb.sh.
   4. Copies aggregate.csv into bench/results/_run_local.
 
 After the sweep it emits a combined summary file at
@@ -100,7 +100,7 @@ verify_lineairdb_target() {
 run_ycsb_workload() {
   local terminals="$1"
   log "Running YCSB (profile=${PROFILE}, terminals=${terminals})"
-  "$ROOT_DIR/scripts/experimental/run_ycsb_multi.sh" \
+  "$ROOT_DIR/scripts/experimental/run_ycsb.sh" \
     --mysqld-port "$MYSQLD_PORT" \
     --ordo-host "$ORDO_HOST" \
     --ordo-port "$ORDO_PORT" \

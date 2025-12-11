@@ -1,4 +1,4 @@
-#!/usr/bin
+#!/bin/bash
 
 # Run BenchBase setup (bench/setup.sql + --create) against multiple MySQL hosts directly
 # Usage:

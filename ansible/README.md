@@ -3,6 +3,9 @@
 > [!NOTE]
 > We assume each VM already has ordo downloaded and built (baked into our custom AMI snapshot).
 
+> [!CAUTION]
+> HAProxy stats auth is set to the placeholder `admin:password` in [templates/haproxy.cfg.j2](templates/haproxy.cfg.j2). Change it before use.
+
 ## Run playbook
 
 Connectivity check:

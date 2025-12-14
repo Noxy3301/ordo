@@ -34,3 +34,9 @@ ansible-playbook -i inventory.ini site.yml --limit haproxy
     --mysql-host {{ hostvars['haproxy-1'].ansible_host }} \
     --mysql-port 3307
 ```
+
+or
+
+```bash
+ansible-playbook -i inventory.ini measure.yml
+```

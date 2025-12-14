@@ -45,7 +45,10 @@ fi
 
 echo "Step 2/5: Starting MySQL with InnoDB..."
 ./runtime_output_directory/mysqld --datadir="$DATA_DIR" --socket="$SOCKET" --port="$MYSQLD_PORT" \
-  --pid-file="$PID_FILE" &
+  --pid-file="$PID_FILE" \
+  --max-connections=16384 \
+  --open-files-limit=65535 \
+  --table-open-cache=8192 &
 BOOT_PID=$!
 
 echo "Step 3/5: Waiting for MySQL to be ready..."
@@ -63,7 +66,10 @@ wait "$BOOT_PID" 2>/dev/null || true
 sleep 3
 
 ./runtime_output_directory/mysqld --datadir="$DATA_DIR" --socket="$SOCKET" --port="$MYSQLD_PORT" \
-  --pid-file="$PID_FILE" --default-storage-engine=lineairdb &
+  --pid-file="$PID_FILE" --default-storage-engine=lineairdb \
+  --max-connections=16384 \
+  --open-files-limit=65535 \
+  --table-open-cache=8192 &
 MYSQL_PID=$!
 
 until ./runtime_output_directory/mysqladmin ping -u root --socket="$SOCKET" --port="$MYSQLD_PORT" >/dev/null 2>&1; do

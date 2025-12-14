@@ -1,0 +1,38 @@
+---
+# Measurement-only playbook: run execute sweeps on bench nodes.
+- hosts: benchbase
+  gather_facts: false
+  vars:
+    bench_profile: b
+    bench_time: 30
+    bench_rate: 0
+    bench_scalefactor: 10
+    bench_terms: [1, 32, 64, 96, 128, 160, 192, 224, 256]
+    haproxy_host: "{{ hostvars['haproxy-1'].private_ip }}"
+    haproxy_port: 3307
+  tasks:
+    - name: Run with fixed-terminal
+      shell: |
+        cd ~/ordo
+        ./scripts/run_dist.sh \
+          --profile {{ bench_profile }} \
+          --time {{ bench_time }} \
+          --rate {{ bench_rate }} \
+          --scalefactor {{ bench_scalefactor }} \
+          --mysql-host {{ haproxy_host }} \
+          --mysql-port {{ haproxy_port }} \
+          --terminals {{ item }}
+        f=$(ls -td bench/results/_run_dist/* 2>/dev/null | head -n1)
+        tail -n1 "$f/summary.csv"
+      args: { executable: /bin/bash }
+      loop: "{{ bench_terms }}"
+      register: run_summaries
+      loop_control:
+        label: "{{ item }}"
+
+    - name: Show summary lines (numeric last line only)
+      debug:
+        msg: "{{ item.item }} => {{ (item.stdout_lines | select('match','^[0-9]') | list | last) | default(item.stdout | trim) }}"
+      loop: "{{ run_summaries.results }}"
+      loop_control:
+        label: "{{ item.item }}"

@@ -26,6 +26,14 @@
       args:
         executable: /bin/bash
 
+    - name: apply bench/setup.sql
+      shell: |
+        ~/ordo/build/runtime_output_directory/mysql \
+          -u root --protocol=TCP -h 127.0.0.1 -P 3307 \
+          < ~/ordo/bench/setup.sql
+      args:
+        executable: /bin/bash
+
     # Note: BenchBase connects directly to each MySQL for setup to avoid DDL sync issues via HAProxy.
     - name: Create HAProxy and BenchBase access users
       shell: |
@@ -79,5 +87,28 @@
       shell: |
         cd ~/ordo/bench
         bash ./setup_benchbase.sh
+      args:
+        executable: /bin/bash
+
+    - name: BenchBase --create on each MySQL
+      shell: |
+        BENCH_DIR=~/ordo/bench
+        JAR="$BENCH_DIR/benchbase/benchbase-mysql/benchbase.jar"
+        CFG="$(mktemp)"
+        URL="jdbc:mysql://{{ hostvars[item].private_ip }}:3307/ordo_bench?rewriteBatchedStatements=true&sslMode=DISABLED"
+        sed "s#<url>.*</url>#<url>${URL}</url>#" "$BENCH_DIR/config/ycsb.xml" > "$CFG"
+        java -jar "$JAR" -b ycsb -c "$CFG" --create=true --load=false --execute=false
+      args:
+        executable: /bin/bash
+      loop: "{{ groups['mysql'] }}"
+
+    - name: BenchBase --load once (first MySQL)
+      shell: |
+        BENCH_DIR=~/ordo/bench
+        JAR="$BENCH_DIR/benchbase/benchbase-mysql/benchbase.jar"
+        CFG="$(mktemp)"
+        URL="jdbc:mysql://{{ hostvars[groups['mysql'][0]].private_ip }}:3307/ordo_bench?rewriteBatchedStatements=true&sslMode=DISABLED"
+        sed "s#<url>.*</url>#<url>${URL}</url>#" "$BENCH_DIR/config/ycsb.xml" > "$CFG"
+        java -jar "$JAR" -b ycsb -c "$CFG" --create=false --load=true --execute=false
       args:
         executable: /bin/bash

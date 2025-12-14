@@ -43,8 +43,10 @@
               GRANT USAGE ON *.* TO 'haproxy_check'@'%';
               CREATE USER IF NOT EXISTS 'root'@'{{ hostvars['haproxy-1'].private_ip }}' IDENTIFIED WITH mysql_native_password BY '';
               GRANT ALL PRIVILEGES ON *.* TO 'root'@'{{ hostvars['haproxy-1'].private_ip }}' WITH GRANT OPTION;
-              CREATE USER IF NOT EXISTS 'root'@'{{ hostvars['bench-1'].private_ip }}' IDENTIFIED WITH mysql_native_password BY '';
-              GRANT ALL PRIVILEGES ON *.* TO 'root'@'{{ hostvars['bench-1'].private_ip }}' WITH GRANT OPTION;
+              {% for b in groups['benchbase'] | default([]) %}
+              CREATE USER IF NOT EXISTS 'root'@'{{ hostvars[b].private_ip }}' IDENTIFIED WITH mysql_native_password BY '';
+              GRANT ALL PRIVILEGES ON *.* TO 'root'@'{{ hostvars[b].private_ip }}' WITH GRANT OPTION;
+              {% endfor %}
               FLUSH PRIVILEGES;"
       args:
         executable: /bin/bash
@@ -95,10 +97,14 @@
         BENCH_DIR=~/ordo/bench
         JAR="$BENCH_DIR/benchbase/benchbase-mysql/benchbase.jar"
         CFG="$(mktemp)"
-        sed "s#localhost:3307#{{ hostvars[item].private_ip }}:3307#g" "$BENCH_DIR/config/ycsb.xml" > "$CFG"
+        sed -e "s#localhost:3307#{{ hostvars[item].private_ip }}:3307#g" \
+            -e "s#<scalefactor>.*</scalefactor>#<scalefactor>10</scalefactor>#" \
+            "$BENCH_DIR/config/ycsb.xml" > "$CFG"
         (cd "$BENCH_DIR/benchbase/benchbase-mysql" && java -jar "$JAR" -b ycsb -c "$CFG" --create=true --load=false --execute=false)
       args:
         executable: /bin/bash
+      run_once: true
+      delegate_to: "{{ groups['benchbase'][0] }}"
       loop: "{{ groups['mysql'] }}"
 
     - name: BenchBase --load once (first MySQL)
@@ -106,10 +112,14 @@
         BENCH_DIR=~/ordo/bench
         JAR="$BENCH_DIR/benchbase/benchbase-mysql/benchbase.jar"
         CFG="$(mktemp)"
-        sed "s#localhost:3307#{{ hostvars[groups['mysql'][0]].private_ip }}:3307#g" "$BENCH_DIR/config/ycsb.xml" > "$CFG"
+        sed -e "s#localhost:3307#{{ hostvars[groups['mysql'][0]].private_ip }}:3307#g" \
+            -e "s#<scalefactor>.*</scalefactor>#<scalefactor>10</scalefactor>#" \
+            "$BENCH_DIR/config/ycsb.xml" > "$CFG"
         (cd "$BENCH_DIR/benchbase/benchbase-mysql" && java -jar "$JAR" -b ycsb -c "$CFG" --create=false --load=true --execute=false)
       args:
         executable: /bin/bash
+      run_once: true
+      delegate_to: "{{ groups['benchbase'][0] }}"
 
     - name: Show manual run_dist commands (bench -> HAProxy)
       debug:

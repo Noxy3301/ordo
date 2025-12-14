@@ -68,3 +68,13 @@
         name: haproxy
         state: restarted
         daemon_reload: true
+
+- hosts: benchbase
+  gather_facts: false
+  tasks:
+    - name: Setup BenchBase (download/build once)
+      shell: |
+        cd ~/ordo/bench
+        bash ./setup_benchbase.sh
+      args:
+        executable: /bin/bash

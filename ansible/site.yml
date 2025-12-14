@@ -95,9 +95,8 @@
         BENCH_DIR=~/ordo/bench
         JAR="$BENCH_DIR/benchbase/benchbase-mysql/benchbase.jar"
         CFG="$(mktemp)"
-        URL="jdbc:mysql://{{ hostvars[item].private_ip }}:3307/ordo_bench?rewriteBatchedStatements=true&sslMode=DISABLED"
-        sed "s#<url>.*</url>#<url>${URL}</url>#" "$BENCH_DIR/config/ycsb.xml" > "$CFG"
-        java -jar "$JAR" -b ycsb -c "$CFG" --create=true --load=false --execute=false
+        sed "s#localhost:3307#{{ hostvars[item].private_ip }}:3307#g" "$BENCH_DIR/config/ycsb.xml" > "$CFG"
+        (cd "$BENCH_DIR/benchbase/benchbase-mysql" && java -jar "$JAR" -b ycsb -c "$CFG" --create=true --load=false --execute=false)
       args:
         executable: /bin/bash
       loop: "{{ groups['mysql'] }}"
@@ -107,8 +106,7 @@
         BENCH_DIR=~/ordo/bench
         JAR="$BENCH_DIR/benchbase/benchbase-mysql/benchbase.jar"
         CFG="$(mktemp)"
-        URL="jdbc:mysql://{{ hostvars[groups['mysql'][0]].private_ip }}:3307/ordo_bench?rewriteBatchedStatements=true&sslMode=DISABLED"
-        sed "s#<url>.*</url>#<url>${URL}</url>#" "$BENCH_DIR/config/ycsb.xml" > "$CFG"
-        java -jar "$JAR" -b ycsb -c "$CFG" --create=false --load=true --execute=false
+        sed "s#localhost:3307#{{ hostvars[groups['mysql'][0]].private_ip }}:3307#g" "$BENCH_DIR/config/ycsb.xml" > "$CFG"
+        (cd "$BENCH_DIR/benchbase/benchbase-mysql" && java -jar "$JAR" -b ycsb -c "$CFG" --create=false --load=true --execute=false)
       args:
         executable: /bin/bash

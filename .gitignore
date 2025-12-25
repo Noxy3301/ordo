@@ -8,3 +8,12 @@ bench/benchbase
 bench/results
 bench/config/multi
 bench/config/generated
+
+# Local environment
+.env
+scripts/aws/.env
+
+# AWS / SSH safety
+*.pem
+*.key
+.aws/

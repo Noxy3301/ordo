@@ -91,7 +91,7 @@ def main():
 
     if args.input is None:
         if args.root is None:
-            base = Path(__file__).resolve().parent
+            base = Path(__file__).resolve().parent.parent
             args.root = base / "result"
         config_root = select_config_root(args.root)
         if not config_root.exists():

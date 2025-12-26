@@ -78,7 +78,7 @@ def main():
     parser.add_argument(
         "--output",
         type=Path,
-        default=Path(__file__).resolve().parent / "inventory.ini",
+        default=Path(__file__).resolve().parent.parent / "inventory.ini",
         help="output inventory path",
     )
     args = parser.parse_args()

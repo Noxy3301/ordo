@@ -308,7 +308,7 @@ def main():
     args = parser.parse_args()
 
     if args.root is None:
-        base = Path(__file__).resolve().parent
+        base = Path(__file__).resolve().parent.parent
         args.root = base / "result"
 
     selected_root = select_config_root(args.root, args.run_id)

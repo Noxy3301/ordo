@@ -36,3 +36,31 @@
       loop: "{{ run_summaries.results }}"
       loop_control:
         label: "{{ item.item }}"
+
+    - name: Ensure throughput result dir
+      delegate_to: localhost
+      run_once: true
+      vars:
+        machine_spec: "{{ hostvars[groups['benchbase'][0]].machine_spec | default('unknown') }}"
+        throughput_dir: "{{ playbook_dir }}/result/{{ machine_spec }}/throughput"
+      file:
+        path: "{{ throughput_dir }}"
+        state: directory
+
+    - name: Write throughput raw csv
+      delegate_to: localhost
+      run_once: true
+      vars:
+        machine_spec: "{{ hostvars[groups['benchbase'][0]].machine_spec | default('unknown') }}"
+        throughput_dir: "{{ playbook_dir }}/result/{{ machine_spec }}/throughput"
+      copy:
+        dest: "{{ throughput_dir }}/throughput_raw.csv"
+        content: |
+          {% for host in groups['benchbase'] %}
+          {% for item in (hostvars[host].run_summaries.results | default([])) %}
+          {% set line = (item.stdout_lines | select('match','^[0-9]') | list | last) | default(item.stdout | trim) %}
+          {% if line %}
+          {{ host }},{{ line }}
+          {% endif %}
+          {% endfor %}
+          {% endfor %}

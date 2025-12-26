@@ -1,0 +1,70 @@
+---
+# CPU sampling wrapper: run BenchBase and capture CPU usage from all nodes.
+- hosts: lineairdb:mysql:haproxy:benchbase
+  gather_facts: false
+  vars:
+    sample_interval: "{{ sample_interval | default(1) }}"
+    run_id: "{{ run_id | default('run') }}"
+    sample_dir: /tmp/metrics
+  tasks:
+    - name: Ensure sysstat installed
+      become: yes
+      apt:
+        name: sysstat
+        state: present
+        update_cache: yes
+
+    - name: Read CPU count
+      command: nproc
+      register: cpu_count_cmd
+      changed_when: false
+
+    - name: Set CPU count fact
+      set_fact:
+        cpu_count: "{{ cpu_count_cmd.stdout | int }}"
+
+    - name: Build machine spec directory name
+      set_fact:
+        machine_spec: >-
+          {%- set roles = ['lineairdb', 'mysql', 'haproxy', 'benchbase'] -%}
+          {%- set parts = [] -%}
+          {%- for role in roles -%}
+            {%- set hosts = groups.get(role, []) -%}
+            {%- if hosts | length > 0 -%}
+              {%- set cpus = hosts | map('extract', hostvars, 'cpu_count') | list -%}
+              {%- set uniq = cpus | select('defined') | map('int') | unique | list -%}
+              {%- set cpu = ((uniq | length) > 0) | ternary(uniq[0], 'unknown') -%}
+              {%- set _ = parts.append(role ~ '-' ~ cpu ~ 'x' ~ (hosts | length)) -%}
+            {%- endif -%}
+          {%- endfor -%}
+          {{ parts | join('_') }}
+
+    - name: Start mpstat sampling
+      shell: |
+        mkdir -p {{ sample_dir }}
+        nohup mpstat -P ALL {{ sample_interval }} > {{ sample_dir }}/cpu-{{ run_id }}.log 2>&1 &
+        echo $! > {{ sample_dir }}/cpu-{{ run_id }}.pid
+      args:
+        executable: /bin/bash
+
+- import_playbook: measure.yml
+
+- hosts: lineairdb:mysql:haproxy:benchbase
+  gather_facts: false
+  vars:
+    run_id: "{{ run_id | default('run') }}"
+    sample_dir: /tmp/metrics
+  tasks:
+    - name: Stop mpstat sampling
+      shell: |
+        if [ -f {{ sample_dir }}/cpu-{{ run_id }}.pid ]; then
+          kill "$(cat {{ sample_dir }}/cpu-{{ run_id }}.pid)" || true
+        fi
+      args:
+        executable: /bin/bash
+
+    - name: Fetch cpu logs
+      fetch:
+        src: "{{ sample_dir }}/cpu-{{ run_id }}.log"
+        dest: "{{ playbook_dir }}/result/{{ machine_spec }}/cpu/{{ inventory_hostname }}/"
+        flat: yes

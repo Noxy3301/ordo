@@ -6,6 +6,21 @@
 > [!CAUTION]
 > HAProxy stats auth is set to the placeholder `admin:password` in [templates/haproxy.cfg.j2](templates/haproxy.cfg.j2). Change it before use.
 
+## Update inventory.ini
+
+Generate `inventory.ini` from AWS tags (default region: `ap-southeast-2`):
+```bash
+python3 py/update_inventory.py
+```
+
+> [!NOTE]
+> Tag instances like this so `update_inventory.py` can find them:
+> - `Name=ordo-lineairdb`
+> - `Name=ordo-haproxy`
+> - `Name=ordo-bench`
+> - `Name=ordo-mysql`
+> - `Project=Ordo`
+
 ## Run playbook
 
 Connectivity check:
@@ -18,25 +33,24 @@ Full run (LineairDB → MySQL → HAProxy):
 ansible-playbook -i inventory.ini site.yml
 ```
 
-Target a subset (e.g., HAProxy only):
+## Run BenchBase and collect CPU/throughput results
+
+Run the benchmark and collect CPU logs (set sample_interval=1) plus throughput output:
 ```bash
-ansible-playbook -i inventory.ini site.yml --limit haproxy
+ansible-playbook -i inventory.ini measure_cpu.yml -e "run_id=$(date +%Y%m%d-%H%M%S) sample_interval=1"
 ```
 
-## Run benchbase (YCSB-B sample)
+CPU logs are stored under `result/<config>/cpu/<host>/cpu-<run_id>.log`.
+Throughput results are written to `result/<config>/throughput/throughput_raw.csv`.
 
+## Plot results
+
+Plot throughput:
 ```bash
-./scripts/run_dist.sh \
-    --profile b \
-    --time 30 \
-    --rate 0 \
-    --scalefactor 1 \
-    --mysql-host {{ hostvars['haproxy-1'].ansible_host }} \
-    --mysql-port 3307
+python3 py/plot_throughput.py
 ```
 
-or
-
+Plot CPU usage:
 ```bash
-ansible-playbook -i inventory.ini measure.yml
+python3 py/plot_cpu.py
 ```

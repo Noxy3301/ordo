@@ -3,9 +3,14 @@
 - hosts: lineairdb:mysql:haproxy:benchbase
   gather_facts: false
   vars:
-    sample_interval: "{{ sample_interval | default(1) }}"
-    run_id: "{{ run_id | default('run') }}"
+    sample_interval: 1
+    softnet_interval: 1
+    interrupt_interval: 5
+    run_id: "run"
     sample_dir: /tmp/metrics
+    haproxy_stats_interval: 5
+    haproxy_stats_auth: "admin:password"
+    haproxy_host: "{{ (groups.get('haproxy', []) | length > 0) | ternary(groups['haproxy'][0], '') }}"
   tasks:
     - name: Ensure sysstat installed
       become: yes
@@ -40,10 +45,122 @@
           {{ parts | join('_') }}
 
     - name: Start mpstat sampling
+      when: inventory_hostname not in groups.get('haproxy', [])
       shell: |
         mkdir -p {{ sample_dir }}
         nohup mpstat -P ALL {{ sample_interval }} > {{ sample_dir }}/cpu-{{ run_id }}.log 2>&1 &
         echo $! > {{ sample_dir }}/cpu-{{ run_id }}.pid
+      args:
+        executable: /bin/bash
+
+    - name: Start mpstat sampling (haproxy)
+      when: haproxy_host != ''
+      run_once: true
+      delegate_to: "{{ haproxy_host }}"
+      shell: |
+        mkdir -p {{ sample_dir }}
+        nohup mpstat -P ALL {{ sample_interval }} > {{ sample_dir }}/cpu-{{ run_id }}.log 2>&1 &
+        echo $! > {{ sample_dir }}/cpu-{{ run_id }}.pid
+      args:
+        executable: /bin/bash
+
+    - name: Start Ordo pidstat sampling (lineairdb)
+      when: inventory_hostname in groups.get('lineairdb', [])
+      shell: |
+        mkdir -p {{ sample_dir }}
+        pid=$(pgrep -f '/build/server/ordo-server' | head -n1 || true)
+        if [ -z "$pid" ]; then
+          echo "ordo-server not running" > {{ sample_dir }}/pidstat-ordo-{{ run_id }}.log
+          exit 0
+        fi
+        nohup pidstat -w -p "$pid" {{ sample_interval }} > {{ sample_dir }}/pidstat-ordo-{{ run_id }}.log 2>&1 &
+        echo $! > {{ sample_dir }}/pidstat-ordo-{{ run_id }}.pid
+      args:
+        executable: /bin/bash
+
+    - name: Start sar -w sampling (lineairdb)
+      when: inventory_hostname in groups.get('lineairdb', [])
+      shell: |
+        mkdir -p {{ sample_dir }}
+        nohup sar -w {{ sample_interval }} > {{ sample_dir }}/sar-w-{{ run_id }}.log 2>&1 &
+        echo $! > {{ sample_dir }}/sar-w-{{ run_id }}.pid
+      args:
+        executable: /bin/bash
+
+    - name: Start sar -n DEV sampling (lineairdb)
+      when: inventory_hostname in groups.get('lineairdb', [])
+      shell: |
+        mkdir -p {{ sample_dir }}
+        nohup sar -n DEV {{ sample_interval }} > {{ sample_dir }}/sar-dev-{{ run_id }}.log 2>&1 &
+        echo $! > {{ sample_dir }}/sar-dev-{{ run_id }}.pid
+      args:
+        executable: /bin/bash
+
+    - name: Start sar -n SOFT sampling (lineairdb)
+      when: inventory_hostname in groups.get('lineairdb', [])
+      shell: |
+        mkdir -p {{ sample_dir }}
+        nohup sar -n SOFT {{ softnet_interval }} > {{ sample_dir }}/sar-soft-{{ run_id }}.log 2>&1 &
+        echo $! > {{ sample_dir }}/sar-soft-{{ run_id }}.pid
+      args:
+        executable: /bin/bash
+
+    - name: Start mpstat -I ALL sampling (lineairdb)
+      when: inventory_hostname in groups.get('lineairdb', [])
+      shell: |
+        mkdir -p {{ sample_dir }}
+        nohup mpstat -I ALL {{ sample_interval }} > {{ sample_dir }}/mpstat-irq-{{ run_id }}.log 2>&1 &
+        echo $! > {{ sample_dir }}/mpstat-irq-{{ run_id }}.pid
+      args:
+        executable: /bin/bash
+
+    - name: Start softnet_stat sampling (lineairdb)
+      when: inventory_hostname in groups.get('lineairdb', [])
+      shell: |
+        mkdir -p {{ sample_dir }}
+        nohup bash -c '
+        while true; do
+          ts=$(date +%s)
+          echo "# ts=$ts"
+          cat /proc/softnet_stat
+          echo
+          sleep {{ softnet_interval }}
+        done' > {{ sample_dir }}/softnet-{{ run_id }}.log 2>&1 &
+        echo $! > {{ sample_dir }}/softnet-{{ run_id }}.pid
+      args:
+        executable: /bin/bash
+
+    - name: Start /proc/interrupts sampling (lineairdb)
+      when: inventory_hostname in groups.get('lineairdb', [])
+      shell: |
+        mkdir -p {{ sample_dir }}
+        nohup bash -c '
+        while true; do
+          ts=$(date +%s)
+          echo "# ts=$ts"
+          cat /proc/interrupts
+          echo
+          sleep {{ interrupt_interval }}
+        done' > {{ sample_dir }}/interrupts-{{ run_id }}.log 2>&1 &
+        echo $! > {{ sample_dir }}/interrupts-{{ run_id }}.pid
+      args:
+        executable: /bin/bash
+
+    - name: Start HAProxy stats sampling
+      when: haproxy_host != ''
+      run_once: true
+      delegate_to: "{{ haproxy_host }}"
+      shell: |
+        mkdir -p {{ sample_dir }}
+        nohup bash -c '
+        while true; do
+          ts=$(date +%s)
+          echo "# ts=$ts"
+          curl -s -u {{ haproxy_stats_auth }} "http://127.0.0.1:8404/stats;csv"
+          echo
+          sleep {{ haproxy_stats_interval }}
+        done' > {{ sample_dir }}/haproxy-{{ run_id }}.csv 2>&1 &
+        echo $! > {{ sample_dir }}/haproxy-{{ run_id }}.pid
       args:
         executable: /bin/bash
 
@@ -52,10 +169,12 @@
 - hosts: lineairdb:mysql:haproxy:benchbase
   gather_facts: false
   vars:
-    run_id: "{{ run_id | default('run') }}"
+    run_id: "run"
     sample_dir: /tmp/metrics
+    haproxy_host: "{{ (groups.get('haproxy', []) | length > 0) | ternary(groups['haproxy'][0], '') }}"
   tasks:
     - name: Stop mpstat sampling
+      when: inventory_hostname not in groups.get('haproxy', [])
       shell: |
         if [ -f {{ sample_dir }}/cpu-{{ run_id }}.pid ]; then
           kill "$(cat {{ sample_dir }}/cpu-{{ run_id }}.pid)" || true
@@ -63,8 +182,210 @@
       args:
         executable: /bin/bash
 
+    - name: Stop mpstat sampling (haproxy)
+      when: haproxy_host != ''
+      run_once: true
+      delegate_to: "{{ haproxy_host }}"
+      shell: |
+        if [ -f {{ sample_dir }}/cpu-{{ run_id }}.pid ]; then
+          kill "$(cat {{ sample_dir }}/cpu-{{ run_id }}.pid)" || true
+        fi
+      args:
+        executable: /bin/bash
+
+    - name: Stop Ordo pidstat sampling (lineairdb)
+      when: inventory_hostname in groups.get('lineairdb', [])
+      shell: |
+        if [ -f {{ sample_dir }}/pidstat-ordo-{{ run_id }}.pid ]; then
+          kill "$(cat {{ sample_dir }}/pidstat-ordo-{{ run_id }}.pid)" || true
+        fi
+      args:
+        executable: /bin/bash
+
+    - name: Stop sar -w sampling (lineairdb)
+      when: inventory_hostname in groups.get('lineairdb', [])
+      shell: |
+        if [ -f {{ sample_dir }}/sar-w-{{ run_id }}.pid ]; then
+          kill "$(cat {{ sample_dir }}/sar-w-{{ run_id }}.pid)" || true
+        fi
+      args:
+        executable: /bin/bash
+
+    - name: Stop sar -n DEV sampling (lineairdb)
+      when: inventory_hostname in groups.get('lineairdb', [])
+      shell: |
+        if [ -f {{ sample_dir }}/sar-dev-{{ run_id }}.pid ]; then
+          kill "$(cat {{ sample_dir }}/sar-dev-{{ run_id }}.pid)" || true
+        fi
+      args:
+        executable: /bin/bash
+
+    - name: Stop sar -n SOFT sampling (lineairdb)
+      when: inventory_hostname in groups.get('lineairdb', [])
+      shell: |
+        if [ -f {{ sample_dir }}/sar-soft-{{ run_id }}.pid ]; then
+          kill "$(cat {{ sample_dir }}/sar-soft-{{ run_id }}.pid)" || true
+        fi
+      args:
+        executable: /bin/bash
+
+    - name: Stop mpstat -I ALL sampling (lineairdb)
+      when: inventory_hostname in groups.get('lineairdb', [])
+      shell: |
+        if [ -f {{ sample_dir }}/mpstat-irq-{{ run_id }}.pid ]; then
+          kill "$(cat {{ sample_dir }}/mpstat-irq-{{ run_id }}.pid)" || true
+        fi
+      args:
+        executable: /bin/bash
+
+    - name: Stop softnet_stat sampling (lineairdb)
+      when: inventory_hostname in groups.get('lineairdb', [])
+      shell: |
+        if [ -f {{ sample_dir }}/softnet-{{ run_id }}.pid ]; then
+          kill "$(cat {{ sample_dir }}/softnet-{{ run_id }}.pid)" || true
+        fi
+      args:
+        executable: /bin/bash
+
+    - name: Stop /proc/interrupts sampling (lineairdb)
+      when: inventory_hostname in groups.get('lineairdb', [])
+      shell: |
+        if [ -f {{ sample_dir }}/interrupts-{{ run_id }}.pid ]; then
+          kill "$(cat {{ sample_dir }}/interrupts-{{ run_id }}.pid)" || true
+        fi
+      args:
+        executable: /bin/bash
+
+    - name: Stop HAProxy stats sampling
+      when: haproxy_host != ''
+      run_once: true
+      delegate_to: "{{ haproxy_host }}"
+      shell: |
+        if [ -f {{ sample_dir }}/haproxy-{{ run_id }}.pid ]; then
+          kill "$(cat {{ sample_dir }}/haproxy-{{ run_id }}.pid)" || true
+        fi
+      args:
+        executable: /bin/bash
+
+    - name: Package bench logs
+      when: inventory_hostname in groups['benchbase']
+      shell: |
+        if [ -d {{ sample_dir }}/bench-{{ run_id }} ]; then
+          tar -czf {{ sample_dir }}/bench-{{ run_id }}.tgz -C {{ sample_dir }} bench-{{ run_id }}
+        fi
+      args:
+        executable: /bin/bash
+
+    - name: Package LineairDB logs
+      when: inventory_hostname in groups['lineairdb']
+      shell: |
+        if ls ~/ordo/lineairdb_logs/*.log >/dev/null 2>&1; then
+          tar -czf {{ sample_dir }}/lineairdb-{{ run_id }}.tgz -C ~/ordo lineairdb_logs
+        fi
+      args:
+        executable: /bin/bash
+
+    - name: Capture MySQL status snapshot
+      when: inventory_hostname in groups['mysql']
+      shell: |
+        ~/ordo/build/runtime_output_directory/mysql \
+          -u root --protocol=TCP -h 127.0.0.1 -P 3307 \
+          -e "SHOW GLOBAL STATUS" > {{ sample_dir }}/mysql-status-{{ run_id }}.txt
+      args:
+        executable: /bin/bash
+      failed_when: false
+
     - name: Fetch cpu logs
+      when: inventory_hostname not in groups.get('haproxy', [])
       fetch:
         src: "{{ sample_dir }}/cpu-{{ run_id }}.log"
         dest: "{{ playbook_dir }}/result/{{ machine_spec }}/cpu/{{ inventory_hostname }}/"
+        flat: yes
+
+    - name: Fetch cpu logs (haproxy)
+      when: haproxy_host != ''
+      run_once: true
+      delegate_to: "{{ haproxy_host }}"
+      fetch:
+        src: "{{ sample_dir }}/cpu-{{ run_id }}.log"
+        dest: "{{ playbook_dir }}/result/{{ hostvars[haproxy_host].machine_spec | default('unknown') }}/cpu/{{ haproxy_host }}/"
+        flat: yes
+
+    - name: Fetch HAProxy stats
+      when: haproxy_host != ''
+      run_once: true
+      delegate_to: "{{ haproxy_host }}"
+      fetch:
+        src: "{{ sample_dir }}/haproxy-{{ run_id }}.csv"
+        dest: "{{ playbook_dir }}/result/{{ hostvars[haproxy_host].machine_spec | default('unknown') }}/haproxy/{{ haproxy_host }}/"
+        flat: yes
+
+    - name: Fetch bench logs
+      when: inventory_hostname in groups['benchbase']
+      fetch:
+        src: "{{ sample_dir }}/bench-{{ run_id }}.tgz"
+        dest: "{{ playbook_dir }}/result/{{ machine_spec }}/bench/{{ inventory_hostname }}/"
+        flat: yes
+
+    - name: Fetch LineairDB logs
+      when: inventory_hostname in groups['lineairdb']
+      fetch:
+        src: "{{ sample_dir }}/lineairdb-{{ run_id }}.tgz"
+        dest: "{{ playbook_dir }}/result/{{ machine_spec }}/lineairdb/{{ inventory_hostname }}/"
+        flat: yes
+
+    - name: Fetch Ordo pidstat logs
+      when: inventory_hostname in groups['lineairdb']
+      fetch:
+        src: "{{ sample_dir }}/pidstat-ordo-{{ run_id }}.log"
+        dest: "{{ playbook_dir }}/result/{{ machine_spec }}/lineairdb/{{ inventory_hostname }}/"
+        flat: yes
+
+    - name: Fetch Ordo sar -w logs
+      when: inventory_hostname in groups['lineairdb']
+      fetch:
+        src: "{{ sample_dir }}/sar-w-{{ run_id }}.log"
+        dest: "{{ playbook_dir }}/result/{{ machine_spec }}/lineairdb/{{ inventory_hostname }}/"
+        flat: yes
+
+    - name: Fetch Ordo sar -n DEV logs
+      when: inventory_hostname in groups['lineairdb']
+      fetch:
+        src: "{{ sample_dir }}/sar-dev-{{ run_id }}.log"
+        dest: "{{ playbook_dir }}/result/{{ machine_spec }}/lineairdb/{{ inventory_hostname }}/"
+        flat: yes
+
+    - name: Fetch Ordo sar -n SOFT logs
+      when: inventory_hostname in groups['lineairdb']
+      fetch:
+        src: "{{ sample_dir }}/sar-soft-{{ run_id }}.log"
+        dest: "{{ playbook_dir }}/result/{{ machine_spec }}/lineairdb/{{ inventory_hostname }}/"
+        flat: yes
+
+    - name: Fetch Ordo mpstat -I ALL logs
+      when: inventory_hostname in groups['lineairdb']
+      fetch:
+        src: "{{ sample_dir }}/mpstat-irq-{{ run_id }}.log"
+        dest: "{{ playbook_dir }}/result/{{ machine_spec }}/lineairdb/{{ inventory_hostname }}/"
+        flat: yes
+
+    - name: Fetch Ordo softnet_stat logs
+      when: inventory_hostname in groups['lineairdb']
+      fetch:
+        src: "{{ sample_dir }}/softnet-{{ run_id }}.log"
+        dest: "{{ playbook_dir }}/result/{{ machine_spec }}/lineairdb/{{ inventory_hostname }}/"
+        flat: yes
+
+    - name: Fetch Ordo /proc/interrupts logs
+      when: inventory_hostname in groups['lineairdb']
+      fetch:
+        src: "{{ sample_dir }}/interrupts-{{ run_id }}.log"
+        dest: "{{ playbook_dir }}/result/{{ machine_spec }}/lineairdb/{{ inventory_hostname }}/"
+        flat: yes
+
+    - name: Fetch MySQL status snapshot
+      when: inventory_hostname in groups['mysql']
+      fetch:
+        src: "{{ sample_dir }}/mysql-status-{{ run_id }}.txt"
+        dest: "{{ playbook_dir }}/result/{{ machine_spec }}/mysql/{{ inventory_hostname }}/"
         flat: yes

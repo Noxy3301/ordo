@@ -1,12 +1,15 @@
 ---
 - hosts: lineairdb
   gather_facts: false
+  vars:
+    lineairdb_nofile_limit: 1048576
   tasks:
     - name: Start LineairDB-Server
       shell: |
         cd ~/ordo
         ./scripts/stop_ordo.sh
         ./scripts/build_partial.sh
+        ulimit -n {{ lineairdb_nofile_limit }}
         ./scripts/start_ordo.sh
       args:
         executable: /bin/bash

@@ -16,10 +16,11 @@ defaults
     log     global
     mode    tcp
     option  tcplog
+    option  tcpka
     option  dontlognull
     timeout connect 5s
-    timeout client  60s
-    timeout server  60s
+    timeout client  180s
+    timeout server  180s
 
 # ------------------------------
 # MySQL frontend

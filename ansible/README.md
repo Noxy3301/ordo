@@ -37,7 +37,7 @@ ansible-playbook -i inventory.ini site.yml
 
 Run the benchmark and collect CPU logs (set sample_interval=1) plus throughput output:
 ```bash
-ansible-playbook -i inventory.ini measure_cpu.yml -e "run_id=$(date +%Y%m%d-%H%M%S) sample_interval=1"
+ansible-playbook -i inventory.ini measure_usage.yml -e "run_id=$(date +%Y%m%d-%H%M%S) sample_interval=1"
 ```
 
 CPU logs are stored under `result/<config>/cpu/<host>/cpu-<run_id>.log`.

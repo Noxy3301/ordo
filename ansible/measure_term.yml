@@ -1,0 +1,36 @@
+---
+- name: Compute shared start epoch
+  run_once: true
+  delegate_to: localhost
+  delegate_facts: true
+  when: bench_sync | bool
+  set_fact:
+    bench_start_epoch: "{{ (lookup('pipe', 'date +%s') | int) + bench_sync_buffer }}"
+
+- name: Run with fixed-terminal (terminals={{ bench_term }})
+  shell: |
+    {% if bench_sync | bool %}
+    target={{ hostvars['localhost'].bench_start_epoch }}
+    now=$(date +%s)
+    if [ "$now" -lt "$target" ]; then
+      sleep $((target - now))
+    fi
+    {% endif %}
+    cd ~/ordo
+    ./scripts/run_dist.sh \
+      --profile {{ bench_profile }} \
+      --time {{ bench_time }} \
+      --rate {{ bench_rate }} \
+      --scalefactor {{ bench_scalefactor }} \
+      --mysql-host {{ haproxy_host }} \
+      --mysql-port {{ haproxy_port }} \
+      --terminals {{ bench_term }}
+    f=$(ls -td bench/results/_run_dist/* 2>/dev/null | head -n1)
+    tail -n1 "$f/summary.csv"
+  args:
+    executable: /bin/bash
+  register: run_summary
+
+- name: Append summary (terminals={{ bench_term }})
+  set_fact:
+    run_summaries: "{{ (run_summaries | default([])) + [run_summary | combine({'item': bench_term})] }}"

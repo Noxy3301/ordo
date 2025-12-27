@@ -8,32 +8,22 @@
     bench_rate: 0
     bench_scalefactor: 10
     bench_terms: [1, 32, 64, 96, 128, 160, 192, 224, 256]
+    bench_sync: true
+    bench_sync_buffer: 5
+    # If clock skew exceeds buffer, some hosts start immediately.
     haproxy_host: "{{ hostvars['haproxy-1'].private_ip }}"
     haproxy_port: 3307
   tasks:
     - name: Run with fixed-terminal
-      shell: |
-        cd ~/ordo
-        ./scripts/run_dist.sh \
-          --profile {{ bench_profile }} \
-          --time {{ bench_time }} \
-          --rate {{ bench_rate }} \
-          --scalefactor {{ bench_scalefactor }} \
-          --mysql-host {{ haproxy_host }} \
-          --mysql-port {{ haproxy_port }} \
-          --terminals {{ item }}
-        f=$(ls -td bench/results/_run_dist/* 2>/dev/null | head -n1)
-        tail -n1 "$f/summary.csv"
-      args: { executable: /bin/bash }
+      include_tasks: measure_term.yml
       loop: "{{ bench_terms }}"
-      register: run_summaries
       loop_control:
-        label: "{{ item }}"
+        loop_var: bench_term
 
     - name: Show summary lines (numeric last line only)
       debug:
         msg: "{{ item.item }} => {{ (item.stdout_lines | select('match','^[0-9]') | list | last) | default(item.stdout | trim) }}"
-      loop: "{{ run_summaries.results }}"
+      loop: "{{ run_summaries | default([]) }}"
       loop_control:
         label: "{{ item.item }}"
 
@@ -57,7 +47,7 @@
         dest: "{{ throughput_dir }}/throughput_raw.csv"
         content: |
           {% for host in groups['benchbase'] %}
-          {% for item in (hostvars[host].run_summaries.results | default([])) %}
+          {% for item in (hostvars[host].run_summaries | default([])) %}
           {% set line = (item.stdout_lines | select('match','^[0-9]') | list | last) | default(item.stdout | trim) %}
           {% if line %}
           {{ host }},{{ line }}

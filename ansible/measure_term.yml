@@ -31,6 +31,17 @@
     executable: /bin/bash
   register: run_summary
 
+- name: Capture bench execute log (terminals={{ bench_term }})
+  shell: |
+    out_dir="{{ sample_dir | default('/tmp/metrics') }}/bench-{{ run_id | default('run') }}"
+    mkdir -p "$out_dir"
+    exec_dir=$(ls -td ~/ordo/bench/results/exp/*_execute_* 2>/dev/null | head -n1 || true)
+    if [ -n "$exec_dir" ] && [ -f "$exec_dir/execute_3307.log" ]; then
+      gzip -c "$exec_dir/execute_3307.log" > "$out_dir/execute_{{ bench_term }}.log.gz"
+    fi
+  args:
+    executable: /bin/bash
+
 - name: Append summary (terminals={{ bench_term }})
   set_fact:
     run_summaries: "{{ (run_summaries | default([])) + [run_summary | combine({'item': bench_term})] }}"

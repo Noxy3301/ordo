@@ -11,6 +11,7 @@ ROLE_MAP = [
     {"tag": "ordo-haproxy", "group": "haproxy", "prefix": "haproxy"},
     {"tag": "ordo-bench", "group": "benchbase", "prefix": "bench"},
 ]
+TEMPLATE_PATH = Path(__file__).resolve().parent.parent / "templates" / "inventory.ini.template"
 
 
 def run_aws(cmd):
@@ -25,7 +26,7 @@ def run_aws(cmd):
         return None
 
 
-def build_inventory(instances, args):
+def build_inventory(instances, args, header_lines=None, group_order=None):
     by_tag = {}
     for inst in instances:
         name = inst.get("Name")
@@ -33,18 +34,26 @@ def build_inventory(instances, args):
             continue
         by_tag.setdefault(name, []).append(inst)
 
-    lines = []
-    lines.append("[all:vars]")
-    lines.append(f"ansible_user={args.user}")
-    lines.append(f"ansible_ssh_private_key_file={args.key}")
+    lines = header_lines[:] if header_lines else []
+    if not lines:
+        lines.append("[all:vars]")
+        lines.append(f"ansible_user={args.user}")
+        lines.append(f"ansible_ssh_private_key_file={args.key}")
 
-    for role in ROLE_MAP:
-        group = role["group"]
+    if not group_order:
+        group_order = [role["group"] for role in ROLE_MAP]
+
+    role_by_group = {role["group"]: role for role in ROLE_MAP}
+    for group in group_order:
+        role = role_by_group.get(group)
+        if role is None:
+            continue
         prefix = role["prefix"]
         tag = role["tag"]
         entries = by_tag.get(tag, [])
         entries.sort(key=lambda item: item.get("PrivIP") or "")
-        lines.append("")
+        if lines and lines[-1] != "":
+            lines.append("")
         lines.append(f"[{group}]")
         for idx, inst in enumerate(entries, start=1):
             private_ip = inst.get("PrivIP")
@@ -60,6 +69,36 @@ def build_inventory(instances, args):
             lines.append(f"{host} ansible_host={ansible_host} private_ip={private_ip}")
 
     return "\n".join(lines) + "\n"
+
+
+def load_template(args):
+    if not TEMPLATE_PATH.exists():
+        return None, None
+    header_lines = []
+    group_order = []
+    in_header = True
+    for raw_line in TEMPLATE_PATH.read_text().splitlines():
+        line = raw_line.rstrip()
+        stripped = line.strip()
+        if stripped.startswith("[") and stripped.endswith("]"):
+            group = stripped[1:-1].strip()
+            if group != "all:vars":
+                in_header = False
+                if group not in group_order:
+                    group_order.append(group)
+            if in_header:
+                header_lines.append(line)
+            continue
+        if in_header:
+            if line.startswith("ansible_user="):
+                header_lines.append(f"ansible_user={args.user}")
+            elif line.startswith("ansible_ssh_private_key_file="):
+                header_lines.append(f"ansible_ssh_private_key_file={args.key}")
+            else:
+                header_lines.append(line)
+    if header_lines and header_lines[-1] != "":
+        header_lines.append("")
+    return header_lines, group_order
 
 
 def main():
@@ -109,7 +148,8 @@ def main():
     if data is None:
         return 1
 
-    inventory = build_inventory(data, args)
+    header_lines, group_order = load_template(args)
+    inventory = build_inventory(data, args, header_lines=header_lines, group_order=group_order)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(inventory)
     print(f"wrote {args.output}")

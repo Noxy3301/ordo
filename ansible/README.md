@@ -7,8 +7,8 @@
 > HAProxy stats auth is set to the placeholder `admin:password` in [templates/haproxy.cfg.j2](templates/haproxy.cfg.j2). Change it before use.
 
 ## Update inventory.ini
-
-Generate `inventory.ini` from AWS tags (default region: `ap-southeast-2`):
+Generate `inventory.ini` from AWS tags (default region: `ap-southeast-2`).
+The base template lives at `templates/inventory.ini.template`.
 ```bash
 python3 py/update_inventory.py
 ```

@@ -1,0 +1,12 @@
+---
+- hosts: lineairdb
+  gather_facts: false
+  tasks:
+    - name: Start LineairDB-Server
+      shell: |
+        cd ~/ordo
+        ./scripts/stop_ordo.sh
+        ./scripts/build_partial.sh
+        ./scripts/start_ordo.sh
+      args:
+        executable: /bin/bash

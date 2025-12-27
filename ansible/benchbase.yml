@@ -1,0 +1,49 @@
+---
+- hosts: benchbase
+  gather_facts: false
+  tasks:
+    - name: Setup BenchBase (download/build once)
+      shell: |
+        cd ~/ordo/bench
+        bash ./setup_benchbase.sh
+      args:
+        executable: /bin/bash
+
+    - name: BenchBase --create on each MySQL
+      shell: |
+        BENCH_DIR=~/ordo/bench
+        JAR="$BENCH_DIR/benchbase/benchbase-mysql/benchbase.jar"
+        CFG="$(mktemp)"
+        sed -e "s#localhost:3307#{{ hostvars[item].private_ip }}:3307#g" \
+            -e "s#<scalefactor>.*</scalefactor>#<scalefactor>10</scalefactor>#" \
+            "$BENCH_DIR/config/ycsb.xml" > "$CFG"
+        (cd "$BENCH_DIR/benchbase/benchbase-mysql" && java -jar "$JAR" -b ycsb -c "$CFG" --create=true --load=false --execute=false)
+      args:
+        executable: /bin/bash
+      run_once: true
+      delegate_to: "{{ groups['benchbase'][0] }}"
+      loop: "{{ groups['mysql'] }}"
+
+    - name: BenchBase --load once (first MySQL)
+      shell: |
+        BENCH_DIR=~/ordo/bench
+        JAR="$BENCH_DIR/benchbase/benchbase-mysql/benchbase.jar"
+        CFG="$(mktemp)"
+        sed -e "s#localhost:3307#{{ hostvars[groups['mysql'][0]].private_ip }}:3307#g" \
+            -e "s#<scalefactor>.*</scalefactor>#<scalefactor>10</scalefactor>#" \
+            "$BENCH_DIR/config/ycsb.xml" > "$CFG"
+        (cd "$BENCH_DIR/benchbase/benchbase-mysql" && java -jar "$JAR" -b ycsb -c "$CFG" --create=false --load=true --execute=false)
+      args:
+        executable: /bin/bash
+      run_once: true
+      delegate_to: "{{ groups['benchbase'][0] }}"
+
+    - name: Show manual run_dist commands (bench -> HAProxy)
+      debug:
+        msg:
+          - "SSH to bench:"
+          - "  ssh -i {{ ansible_ssh_private_key_file }} {{ ansible_user }}@{{ hostvars['bench-1'].ansible_host }}"
+          - "Then run on bench:"
+          - "  cd ~/ordo"
+          - "  ./scripts/run_dist.sh --profile b --time 30 --rate 0 --scalefactor 10 --mysql-host {{ hostvars['haproxy-1'].private_ip }} --mysql-port 3307"
+      run_once: true

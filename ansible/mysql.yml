@@ -1,0 +1,40 @@
+---
+- hosts: mysql
+  gather_facts: false
+  tasks:
+    - name: Start MySQL with LineairDB-Proxy
+      shell: |
+        cd ~/ordo
+        ./scripts/stop_mysql.sh
+        ./scripts/build_partial.sh
+        ./scripts/start_mysql.sh \
+          --mysqld-port 3307 \
+          --ordo-host {{ hostvars['lineairdb-1'].private_ip }} \
+          --ordo-port 9999
+      args:
+        executable: /bin/bash
+
+    - name: apply bench/setup.sql
+      shell: |
+        ~/ordo/build/runtime_output_directory/mysql \
+          -u root --protocol=TCP -h 127.0.0.1 -P 3307 \
+          < ~/ordo/bench/setup.sql
+      args:
+        executable: /bin/bash
+
+    # Note: BenchBase connects directly to each MySQL for setup to avoid DDL sync issues via HAProxy.
+    - name: Create HAProxy and BenchBase access users
+      shell: |
+        ~/ordo/build/runtime_output_directory/mysql \
+          -u root --protocol=TCP -h 127.0.0.1 -P 3307 \
+          -e "CREATE USER IF NOT EXISTS 'haproxy_check'@'%' IDENTIFIED WITH mysql_native_password BY '';
+              GRANT USAGE ON *.* TO 'haproxy_check'@'%';
+              CREATE USER IF NOT EXISTS 'root'@'{{ hostvars['haproxy-1'].private_ip }}' IDENTIFIED WITH mysql_native_password BY '';
+              GRANT ALL PRIVILEGES ON *.* TO 'root'@'{{ hostvars['haproxy-1'].private_ip }}' WITH GRANT OPTION;
+              {% for b in groups['benchbase'] | default([]) %}
+              CREATE USER IF NOT EXISTS 'root'@'{{ hostvars[b].private_ip }}' IDENTIFIED WITH mysql_native_password BY '';
+              GRANT ALL PRIVILEGES ON *.* TO 'root'@'{{ hostvars[b].private_ip }}' WITH GRANT OPTION;
+              {% endfor %}
+              FLUSH PRIVILEGES;"
+      args:
+        executable: /bin/bash

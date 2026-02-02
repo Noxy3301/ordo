@@ -19,3 +19,5 @@ scripts/aws/.env
 *.pem
 *.key
 .aws/
+
+.claude

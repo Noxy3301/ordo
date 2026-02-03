@@ -1,5 +1,8 @@
 set -euo pipefail
 
+# Change to script directory
+cd "$(dirname "$0")"
+
 cleanup_done=false
 cleanup() {
   if $cleanup_done; then
@@ -105,6 +108,8 @@ ansible -i inventory.ini all -m wait_for_connection -a "timeout=300 delay=5 slee
 
 # setup and run benchmark
 # ansible-playbook -i inventory.ini site.yml
+
+# ansible-playbook -i inventory.ini update.yml
 
 ansible-playbook -i inventory.ini lineairdb.yml &
 ansible-playbook -i inventory.ini mysql.yml &

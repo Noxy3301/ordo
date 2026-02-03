@@ -51,7 +51,7 @@ aws ec2 run-instances \
   --region ap-southeast-2 \
   --subnet-id subnet-0a15ff55a4cae198b\
   --launch-template LaunchTemplateId=lt-0f28a9f6b02e1c019,Version='$Default' \
-  --count 1 \
+  --count 16 \
   --instance-type c6i.4xlarge \
   --instance-market-options MarketType=spot \
   --tag-specifications "ResourceType=instance,Tags=[{Key=Name,Value=ordo-mysql},{Key=Project,Value=Ordo}]" \
@@ -64,7 +64,7 @@ aws ec2 run-instances \
   --region ap-southeast-2 \
   --subnet-id subnet-0a15ff55a4cae198b\
   --launch-template LaunchTemplateId=lt-0f28a9f6b02e1c019,Version='$Default' \
-  --count 12 \
+  --count 4 \
   --instance-type c6i.8xlarge \
   --instance-market-options MarketType=spot \
   --tag-specifications "ResourceType=instance,Tags=[{Key=Name,Value=ordo-bench},{Key=Project,Value=Ordo}]" \
@@ -78,7 +78,7 @@ aws ec2 run-instances \
   --subnet-id subnet-0a15ff55a4cae198b\
   --launch-template LaunchTemplateId=lt-0f28a9f6b02e1c019,Version='$Default' \
   --count 1 \
-  --instance-type c6i.32xlarge \
+  --instance-type c6i.16xlarge \
   --instance-market-options MarketType=spot \
   --tag-specifications "ResourceType=instance,Tags=[{Key=Name,Value=ordo-haproxy},{Key=Project,Value=Ordo}]" \
   --query 'Instances[].InstanceId' \
@@ -91,7 +91,7 @@ aws ec2 run-instances \
   --subnet-id subnet-0a15ff55a4cae198b\
   --launch-template LaunchTemplateId=lt-0f28a9f6b02e1c019,Version='$Default' \
   --count 1 \
-  --instance-type c6i.32xlarge \
+  --instance-type c6i.16xlarge \
   --instance-market-options MarketType=spot \
   --tag-specifications "ResourceType=instance,Tags=[{Key=Name,Value=ordo-lineairdb},{Key=Project,Value=Ordo}]" \
   --query 'Instances[].InstanceId' \

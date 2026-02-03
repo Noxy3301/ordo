@@ -21,3 +21,4 @@ scripts/aws/.env
 .aws/
 
 .claude
+CLAUDE.md

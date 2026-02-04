@@ -42,4 +42,8 @@ private:
     void processScanOperation(int64_t tx_id, const std::string& db_table_key,
                               const std::string& first_key_part,
                               LineairDB::Protocol::TxScan::Response* response);
+    void processEndTransactionOperation(int64_t tx_id, bool fence,
+                                        LineairDB::Protocol::DbEndTransaction::Response* response);
+    void processBeginTransactionOperation(LineairDB::Protocol::TxBeginTransaction::Response* response);
+    void processAbortOperation(int64_t tx_id, LineairDB::Protocol::TxAbort::Response* response);
 };

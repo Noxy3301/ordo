@@ -23,7 +23,10 @@ class LineairDBClient;
 enum class BatchOpType {
     READ,
     WRITE,
-    SCAN
+    SCAN,
+    END_TRANSACTION,
+    BEGIN_TRANSACTION,
+    ABORT
 };
 
 // Pending operation waiting for batch dispatch
@@ -84,6 +87,9 @@ public:
     std::string submit_read(int64_t tx_id, const std::string& key);
     std::string submit_write(int64_t tx_id, const std::string& key, const std::string& value);
     std::string submit_scan(int64_t tx_id, const std::string& db_table_key, const std::string& first_key_part);
+    std::string submit_end_transaction(int64_t tx_id, bool fence);
+    std::string submit_begin_transaction();
+    std::string submit_abort(int64_t tx_id);
 
     // Control methods
     void set_epoch_ms(uint32_t ms);

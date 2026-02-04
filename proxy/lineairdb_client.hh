@@ -76,6 +76,9 @@ private:
     std::string tx_read_direct(LineairDBTransaction* tx, const std::string& key);
     bool tx_write_direct(LineairDBTransaction* tx, const std::string& key, const std::string& value);
     std::vector<KeyValue> tx_scan_direct(LineairDBTransaction* tx, const std::string& db_table_key, const std::string& first_key_part);
+    int64_t tx_begin_transaction_direct();
+    bool db_end_transaction_direct(int64_t tx_id, bool isFence);
+    void tx_abort_direct(int64_t tx_id);
 
     int socket_fd_;
     bool connected_;

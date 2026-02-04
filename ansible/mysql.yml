@@ -1,6 +1,10 @@
 ---
 - hosts: mysql
   gather_facts: false
+  vars:
+    # Batch RPC configuration
+    batch_enabled: 1        # 0=disabled, 1=enabled
+    batch_epoch_ms: 1       # Batch flush interval in milliseconds
   tasks:
     - name: Start MySQL with LineairDB-Proxy
       shell: |
@@ -13,6 +17,28 @@
           --ordo-port 9999
       args:
         executable: /bin/bash
+
+    - name: Configure batch RPC settings
+      shell: |
+        ~/ordo/build/runtime_output_directory/mysql \
+          -u root --protocol=TCP -h 127.0.0.1 -P 3307 \
+          -e "SET GLOBAL lineairdb_batch_enabled = {{ batch_enabled }};
+              SET GLOBAL lineairdb_batch_epoch_ms = {{ batch_epoch_ms }};"
+      args:
+        executable: /bin/bash
+
+    - name: Verify batch settings
+      shell: |
+        ~/ordo/build/runtime_output_directory/mysql \
+          -u root --protocol=TCP -h 127.0.0.1 -P 3307 \
+          -e "SHOW VARIABLES LIKE 'lineairdb_batch%';"
+      args:
+        executable: /bin/bash
+      register: batch_settings
+
+    - name: Display batch settings
+      debug:
+        msg: "{{ batch_settings.stdout_lines }}"
 
     - name: apply bench/setup.sql
       shell: |

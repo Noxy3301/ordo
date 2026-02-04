@@ -269,6 +269,21 @@ void LineairDBRpc::handleTxBatchOperations(const std::string& message, std::stri
                                      scan_req.first_key_part(), op_result->mutable_scan());
                 break;
             }
+            case LineairDB::Protocol::TxBatchOperations::Operation::kEndTransaction: {
+                const auto& end_req = op.end_transaction();
+                processEndTransactionOperation(end_req.transaction_id(), end_req.fence(),
+                                               op_result->mutable_end_transaction());
+                break;
+            }
+            case LineairDB::Protocol::TxBatchOperations::Operation::kBeginTransaction: {
+                processBeginTransactionOperation(op_result->mutable_begin_transaction());
+                break;
+            }
+            case LineairDB::Protocol::TxBatchOperations::Operation::kAbort: {
+                const auto& abort_req = op.abort();
+                processAbortOperation(abort_req.transaction_id(), op_result->mutable_abort());
+                break;
+            }
             default:
                 LOG_WARNING("Unknown operation type in batch: %d", op.op_case());
                 break;
@@ -355,4 +370,45 @@ void LineairDBRpc::processScanOperation(int64_t tx_id, const std::string& db_tab
         response->set_is_aborted(true);
         LOG_WARNING("Transaction not found for scan: %ld", tx_id);
     }
+}
+
+void LineairDBRpc::processEndTransactionOperation(int64_t tx_id, bool fence,
+                                                  LineairDB::Protocol::DbEndTransaction::Response* response) {
+    auto* tx = tx_manager_->get_transaction(tx_id);
+    if (tx) {
+        bool committed = db_manager_->get_database()->EndTransaction(
+            *tx, [fence, tx_id](LineairDB::TxStatus status) {
+                LOG_DEBUG("Transaction %ld ended with status: %d, fence=%s",
+                          tx_id, static_cast<int>(status), fence ? "true" : "false");
+            });
+        bool aborted = !committed;
+        response->set_is_aborted(aborted);
+        tx_manager_->remove_transaction(tx_id);
+        LOG_DEBUG("Ended transaction %ld with fence=%s (committed=%s)",
+                  tx_id, fence ? "true" : "false", committed ? "true" : "false");
+    } else {
+        response->set_is_aborted(true);
+        LOG_WARNING("Transaction not found for end: %ld", tx_id);
+    }
+}
+
+void LineairDBRpc::processBeginTransactionOperation(LineairDB::Protocol::TxBeginTransaction::Response* response) {
+    auto& tx = db_manager_->get_database()->BeginTransaction();
+    int64_t tx_id = tx_manager_->generate_tx_id();
+    tx_manager_->store_transaction(tx_id, &tx);
+
+    response->set_transaction_id(tx_id);
+    LOG_DEBUG("Created transaction (batched): %ld", tx_id);
+}
+
+void LineairDBRpc::processAbortOperation(int64_t tx_id, LineairDB::Protocol::TxAbort::Response* response) {
+    auto* tx = tx_manager_->get_transaction(tx_id);
+    if (tx) {
+        tx->Abort();
+        tx_manager_->remove_transaction(tx_id);
+        LOG_DEBUG("Aborted transaction (batched): %ld", tx_id);
+    } else {
+        LOG_WARNING("Transaction not found for abort (batched): %ld", tx_id);
+    }
+    // Response is empty for abort
 }

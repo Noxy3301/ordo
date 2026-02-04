@@ -1,12 +1,40 @@
 ---
 - hosts: lineairdb:mysql:benchbase
   gather_facts: false
+  vars:
+    ordo_branch: perf/wip-claude/bulk-transfer  # Change this to switch branches
   tasks:
     - name: Update Ordo repository
       shell: |
         cd ~/ordo
         git fetch origin
-        git checkout perf/bulk-transfer
-        git pull origin perf/bulk-transfer
+        git checkout {{ ordo_branch }}
+        git pull origin {{ ordo_branch }}
       args:
         executable: /bin/bash
+
+# Build on LineairDB server
+- hosts: lineairdb
+  gather_facts: false
+  tasks:
+    - name: Build Ordo server
+      shell: |
+        cd ~/ordo
+        ./scripts/build.sh
+      args:
+        executable: /bin/bash
+      async: 1800  # 30 minutes timeout
+      poll: 30
+
+# Build on MySQL nodes
+- hosts: mysql
+  gather_facts: false
+  tasks:
+    - name: Build MySQL storage engine plugin
+      shell: |
+        cd ~/ordo
+        ./scripts/build.sh
+      args:
+        executable: /bin/bash
+      async: 1800  # 30 minutes timeout
+      poll: 30

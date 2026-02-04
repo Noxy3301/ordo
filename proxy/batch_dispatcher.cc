@@ -76,6 +76,24 @@ std::string BatchBuffer::build_request() const {
                 *op->mutable_scan() = scan_req;
                 break;
             }
+            case BatchOpType::END_TRANSACTION: {
+                LineairDB::Protocol::DbEndTransaction::Request end_req;
+                end_req.ParseFromString(pending_op.serialized_request);
+                *op->mutable_end_transaction() = end_req;
+                break;
+            }
+            case BatchOpType::BEGIN_TRANSACTION: {
+                LineairDB::Protocol::TxBeginTransaction::Request begin_req;
+                begin_req.ParseFromString(pending_op.serialized_request);
+                *op->mutable_begin_transaction() = begin_req;
+                break;
+            }
+            case BatchOpType::ABORT: {
+                LineairDB::Protocol::TxAbort::Request abort_req;
+                abort_req.ParseFromString(pending_op.serialized_request);
+                *op->mutable_abort() = abort_req;
+                break;
+            }
         }
     }
 
@@ -122,6 +140,15 @@ void BatchBuffer::distribute_results(const std::string& serialized_response) {
                 break;
             case BatchOpType::SCAN:
                 serialized_result = result->scan().SerializeAsString();
+                break;
+            case BatchOpType::END_TRANSACTION:
+                serialized_result = result->end_transaction().SerializeAsString();
+                break;
+            case BatchOpType::BEGIN_TRANSACTION:
+                serialized_result = result->begin_transaction().SerializeAsString();
+                break;
+            case BatchOpType::ABORT:
+                serialized_result = result->abort().SerializeAsString();
                 break;
         }
 
@@ -252,6 +279,31 @@ std::string BatchDispatcher::submit_scan(int64_t tx_id, const std::string& db_ta
     request.set_first_key_part(first_key_part);
 
     auto future = submit_operation(BatchOpType::SCAN, request.SerializeAsString());
+    return future.get();  // Block until result
+}
+
+std::string BatchDispatcher::submit_end_transaction(int64_t tx_id, bool fence) {
+    LineairDB::Protocol::DbEndTransaction::Request request;
+    request.set_transaction_id(tx_id);
+    request.set_fence(fence);
+
+    auto future = submit_operation(BatchOpType::END_TRANSACTION, request.SerializeAsString());
+    return future.get();  // Block until result
+}
+
+std::string BatchDispatcher::submit_begin_transaction() {
+    LineairDB::Protocol::TxBeginTransaction::Request request;
+    // Request is empty for begin_transaction
+
+    auto future = submit_operation(BatchOpType::BEGIN_TRANSACTION, request.SerializeAsString());
+    return future.get();  // Block until result
+}
+
+std::string BatchDispatcher::submit_abort(int64_t tx_id) {
+    LineairDB::Protocol::TxAbort::Request request;
+    request.set_transaction_id(tx_id);
+
+    auto future = submit_operation(BatchOpType::ABORT, request.SerializeAsString());
     return future.get();  // Block until result
 }
 

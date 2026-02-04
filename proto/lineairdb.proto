@@ -116,6 +116,9 @@ message TxBatchOperations {
             TxRead.Request read = 2;
             TxWrite.Request write = 3;
             TxScan.Request scan = 4;
+            DbEndTransaction.Request end_transaction = 5;
+            TxBeginTransaction.Request begin_transaction = 6;
+            TxAbort.Request abort = 7;
         }
     }
 
@@ -127,6 +130,9 @@ message TxBatchOperations {
             TxRead.Response read = 2;
             TxWrite.Response write = 3;
             TxScan.Response scan = 4;
+            DbEndTransaction.Response end_transaction = 5;
+            TxBeginTransaction.Response begin_transaction = 6;
+            TxAbort.Response abort = 7;
         }
     }
 

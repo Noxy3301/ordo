@@ -261,6 +261,33 @@ std::vector<KeyValue> LineairDBClient::tx_scan_direct(LineairDBTransaction* tx, 
 
 int64_t LineairDBClient::tx_begin_transaction() {
     LOG_DEBUG("CLIENT: tx_begin_transaction called");
+
+    // Use batch dispatcher if enabled
+    if (batching_enabled_ && batch_dispatcher_ != nullptr) {
+        LOG_DEBUG("CLIENT: tx_begin_transaction (batched)");
+
+        std::string serialized_response = batch_dispatcher_->submit_begin_transaction();
+        if (serialized_response.empty()) {
+            LOG_ERROR("RPC failed: Batch begin_transaction returned empty response");
+            return -1;
+        }
+
+        LineairDB::Protocol::TxBeginTransaction::Response response;
+        if (!response.ParseFromString(serialized_response)) {
+            LOG_ERROR("RPC failed: Failed to parse batched begin_transaction response");
+            return -1;
+        }
+
+        LOG_DEBUG("CLIENT: tx_begin_transaction (batched) completed, tx_id: %ld", response.transaction_id());
+        return response.transaction_id();
+    }
+
+    // Direct (non-batched) path
+    return tx_begin_transaction_direct();
+}
+
+int64_t LineairDBClient::tx_begin_transaction_direct() {
+    LOG_DEBUG("CLIENT: tx_begin_transaction_direct called");
     if (!connected_) {
         LOG_ERROR("RPC failed: Not connected to server");
         return -1;
@@ -275,12 +302,30 @@ int64_t LineairDBClient::tx_begin_transaction() {
         return -1;
     }
 
-    LOG_DEBUG("CLIENT: tx_begin_transaction completed, tx_id: %ld", response.transaction_id());
+    LOG_DEBUG("CLIENT: tx_begin_transaction_direct completed, tx_id: %ld", response.transaction_id());
     return response.transaction_id();
 }
 
 void LineairDBClient::tx_abort(int64_t tx_id) {
     LOG_DEBUG("CLIENT: tx_abort called with tx_id=%ld", tx_id);
+
+    // Use batch dispatcher if enabled
+    if (batching_enabled_ && batch_dispatcher_ != nullptr) {
+        LOG_DEBUG("CLIENT: tx_abort (batched) with tx_id=%ld", tx_id);
+
+        std::string serialized_response = batch_dispatcher_->submit_abort(tx_id);
+        // Response is empty for abort, just log completion
+        LOG_DEBUG("CLIENT: tx_abort (batched) completed");
+        return;
+    }
+
+    // Direct (non-batched) path
+    tx_abort_direct(tx_id);
+}
+
+void LineairDBClient::tx_abort_direct(int64_t tx_id) {
+    LOG_DEBUG("CLIENT: tx_abort_direct called with tx_id=%ld", tx_id);
+
     if (!connected_) {
         LOG_ERROR("RPC failed: Not connected to server");
         return;
@@ -288,7 +333,7 @@ void LineairDBClient::tx_abort(int64_t tx_id) {
 
     LineairDB::Protocol::TxAbort::Request request;
     LineairDB::Protocol::TxAbort::Response response;
-    
+
     request.set_transaction_id(tx_id);
     LOG_DEBUG("CLIENT: Created abort request");
 
@@ -297,11 +342,40 @@ void LineairDBClient::tx_abort(int64_t tx_id) {
         return;
     }
 
-    LOG_DEBUG("CLIENT: tx_abort completed");
+    LOG_DEBUG("CLIENT: tx_abort_direct completed");
 }
 
 bool LineairDBClient::db_end_transaction(int64_t tx_id, bool isFence) {
     LOG_DEBUG("CLIENT: db_end_transaction called with tx_id=%ld, fence=%s", tx_id, isFence ? "true" : "false");
+
+    // Use batch dispatcher if enabled
+    if (batching_enabled_ && batch_dispatcher_ != nullptr) {
+        LOG_DEBUG("CLIENT: db_end_transaction (batched) with tx_id=%ld", tx_id);
+
+        std::string serialized_response = batch_dispatcher_->submit_end_transaction(tx_id, isFence);
+        if (serialized_response.empty()) {
+            LOG_ERROR("RPC failed: Batch end_transaction returned empty response");
+            return false;
+        }
+
+        LineairDB::Protocol::DbEndTransaction::Response response;
+        if (!response.ParseFromString(serialized_response)) {
+            LOG_ERROR("RPC failed: Failed to parse batched end_transaction response");
+            return false;
+        }
+
+        LOG_DEBUG("CLIENT: db_end_transaction (batched) completed, aborted=%s",
+                  response.is_aborted() ? "true" : "false");
+        return !response.is_aborted();
+    }
+
+    // Direct (non-batched) path
+    return db_end_transaction_direct(tx_id, isFence);
+}
+
+bool LineairDBClient::db_end_transaction_direct(int64_t tx_id, bool isFence) {
+    LOG_DEBUG("CLIENT: db_end_transaction_direct called with tx_id=%ld, fence=%s", tx_id, isFence ? "true" : "false");
+
     if (!connected_) {
         LOG_ERROR("RPC failed: Not connected to server");
         return false;
@@ -309,7 +383,7 @@ bool LineairDBClient::db_end_transaction(int64_t tx_id, bool isFence) {
 
     LineairDB::Protocol::DbEndTransaction::Request request;
     LineairDB::Protocol::DbEndTransaction::Response response;
-    
+
     request.set_transaction_id(tx_id);
     request.set_fence(isFence);
     LOG_DEBUG("CLIENT: Created end_transaction request");
@@ -319,7 +393,7 @@ bool LineairDBClient::db_end_transaction(int64_t tx_id, bool isFence) {
         return false;
     }
 
-    LOG_DEBUG("CLIENT: db_end_transaction completed");
+    LOG_DEBUG("CLIENT: db_end_transaction_direct completed");
     return !response.is_aborted();
 }
 

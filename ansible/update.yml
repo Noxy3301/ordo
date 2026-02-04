@@ -1,0 +1,12 @@
+---
+- hosts: lineairdb:mysql:benchbase
+  gather_facts: false
+  tasks:
+    - name: Update Ordo repository
+      shell: |
+        cd ~/ordo
+        git fetch origin
+        git checkout perf/bulk-transfer
+        git pull origin perf/bulk-transfer
+      args:
+        executable: /bin/bash

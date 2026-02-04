@@ -12,6 +12,7 @@ enum OpCode {
     TX_SCAN = 5;
     DB_FENCE = 6;
     DB_END_TRANSACTION = 7;
+    TX_BATCH_OPERATIONS = 8;
 }
 
 // Tx Begin Transaction RPC
@@ -102,5 +103,38 @@ message DbEndTransaction {
 
     message Response {
         bool is_aborted = 1;
+    }
+}
+
+// Batch Operations RPC - multiple operations in single network round-trip
+message TxBatchOperations {
+    // Individual operation within a batch
+    message Operation {
+        uint32 operation_id = 1;  // unique ID for response routing
+
+        oneof op {
+            TxRead.Request read = 2;
+            TxWrite.Request write = 3;
+            TxScan.Request scan = 4;
+        }
+    }
+
+    // Result for a single operation
+    message OperationResult {
+        uint32 operation_id = 1;
+
+        oneof result {
+            TxRead.Response read = 2;
+            TxWrite.Response write = 3;
+            TxScan.Response scan = 4;
+        }
+    }
+
+    message Request {
+        repeated Operation operations = 1;
+    }
+
+    message Response {
+        repeated OperationResult results = 1;
     }
 }

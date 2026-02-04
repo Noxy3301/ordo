@@ -7,7 +7,7 @@
     bench_time: 30
     bench_rate: 0
     bench_scalefactor: 10
-    bench_terms: [1, 32, 64, 96, 128, 160, 192, 224, 256]
+    bench_terms: [1, 32, 64, 128, 192, 256]
     bench_sync: true
     bench_sync_buffer: 5
     # If clock skew exceeds buffer, some hosts start immediately.

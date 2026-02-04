@@ -18,5 +18,6 @@ enum class MessageType : uint32_t {
     TX_WRITE = 4,
     TX_SCAN = 5,
     DB_FENCE = 6,
-    DB_END_TRANSACTION = 7
+    DB_END_TRANSACTION = 7,
+    TX_BATCH_OPERATIONS = 8
 };

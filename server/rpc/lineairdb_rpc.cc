@@ -37,6 +37,9 @@ void LineairDBRpc::handle_rpc(uint64_t sender_id, MessageType message_type,
         case MessageType::DB_END_TRANSACTION:
             handleDbEndTransaction(message, result);
             return;
+        case MessageType::TX_BATCH_OPERATIONS:
+            handleTxBatchOperations(message, result);
+            return;
         default:
             LOG_ERROR("Unknown message type: %u", static_cast<uint32_t>(message_type));
             return;
@@ -207,12 +210,12 @@ void LineairDBRpc::handleDbFence(const std::string& message, std::string& result
 
 void LineairDBRpc::handleDbEndTransaction(const std::string& message, std::string& result) {
     LOG_DEBUG("Handling DbEndTransaction");
-    
+
     LineairDB::Protocol::DbEndTransaction::Request request;
     LineairDB::Protocol::DbEndTransaction::Response response;
-    
+
     request.ParseFromString(message);
-    
+
     int64_t tx_id = request.transaction_id();
     auto* tx = tx_manager_->get_transaction(tx_id);
     if (tx) {
@@ -229,6 +232,127 @@ void LineairDBRpc::handleDbEndTransaction(const std::string& message, std::strin
         response.set_is_aborted(true);  // not found assumes aborted
         LOG_WARNING("Transaction not found for end: %ld", tx_id);
     }
-    
+
     result = response.SerializeAsString();
+}
+
+void LineairDBRpc::handleTxBatchOperations(const std::string& message, std::string& result) {
+    LOG_DEBUG("Handling TxBatchOperations");
+
+    LineairDB::Protocol::TxBatchOperations::Request batch_request;
+    LineairDB::Protocol::TxBatchOperations::Response batch_response;
+
+    batch_request.ParseFromString(message);
+
+    LOG_DEBUG("Processing batch with %d operations", batch_request.operations_size());
+
+    for (const auto& op : batch_request.operations()) {
+        auto* op_result = batch_response.add_results();
+        op_result->set_operation_id(op.operation_id());
+
+        switch (op.op_case()) {
+            case LineairDB::Protocol::TxBatchOperations::Operation::kRead: {
+                const auto& read_req = op.read();
+                processReadOperation(read_req.transaction_id(), read_req.key(),
+                                     op_result->mutable_read());
+                break;
+            }
+            case LineairDB::Protocol::TxBatchOperations::Operation::kWrite: {
+                const auto& write_req = op.write();
+                processWriteOperation(write_req.transaction_id(), write_req.key(),
+                                      write_req.value(), op_result->mutable_write());
+                break;
+            }
+            case LineairDB::Protocol::TxBatchOperations::Operation::kScan: {
+                const auto& scan_req = op.scan();
+                processScanOperation(scan_req.transaction_id(), scan_req.db_table_key(),
+                                     scan_req.first_key_part(), op_result->mutable_scan());
+                break;
+            }
+            default:
+                LOG_WARNING("Unknown operation type in batch: %d", op.op_case());
+                break;
+        }
+    }
+
+    LOG_DEBUG("Batch processing completed: %d results", batch_response.results_size());
+    result = batch_response.SerializeAsString();
+}
+
+void LineairDBRpc::processReadOperation(int64_t tx_id, const std::string& key,
+                                        LineairDB::Protocol::TxRead::Response* response) {
+    auto* tx = tx_manager_->get_transaction(tx_id);
+    if (tx) {
+        response->set_is_aborted(tx->IsAborted());
+
+        auto read_result = tx->Read(key);
+        if (read_result.first != nullptr) {
+            response->set_found(true);
+            std::string value(reinterpret_cast<const char*>(read_result.first), read_result.second);
+            response->set_value(value);
+        } else {
+            response->set_found(false);
+        }
+        LOG_DEBUG("Read key '%s' from transaction %ld: %s", key.c_str(), tx_id,
+                  (read_result.first != nullptr ? "found" : "not found"));
+    } else {
+        response->set_found(false);
+        response->set_is_aborted(true);
+        LOG_WARNING("Transaction not found for read: %ld", tx_id);
+    }
+}
+
+void LineairDBRpc::processWriteOperation(int64_t tx_id, const std::string& key,
+                                         const std::string& value,
+                                         LineairDB::Protocol::TxWrite::Response* response) {
+    auto* tx = tx_manager_->get_transaction(tx_id);
+    if (tx) {
+        response->set_is_aborted(tx->IsAborted());
+
+        tx->Write(key, reinterpret_cast<const std::byte*>(value.c_str()), value.size());
+        response->set_success(true);
+        LOG_DEBUG("Wrote key '%s' to transaction %ld", key.c_str(), tx_id);
+    } else {
+        response->set_success(false);
+        response->set_is_aborted(true);
+        LOG_WARNING("Transaction not found for write: %ld", tx_id);
+    }
+}
+
+void LineairDBRpc::processScanOperation(int64_t tx_id, const std::string& db_table_key,
+                                        const std::string& first_key_part,
+                                        LineairDB::Protocol::TxScan::Response* response) {
+    auto* tx = tx_manager_->get_transaction(tx_id);
+    if (tx) {
+        response->set_is_aborted(tx->IsAborted());
+
+        std::string table_prefix = db_table_key;
+        std::string key_prefix = table_prefix + first_key_part;
+        std::string scan_end_key = key_prefix + "\xFF";
+
+        LOG_DEBUG("SCAN: tx_id=%ld, table_prefix='%s', first_key_part='%s', key_prefix='%s'",
+                  tx_id, table_prefix.c_str(), first_key_part.c_str(), key_prefix.c_str());
+
+        tx->Scan(key_prefix, scan_end_key,
+                 [response, &key_prefix, &table_prefix, this](
+                     const std::string_view key,
+                     const std::pair<const void*, const size_t>& value) {
+                     std::string key_str(key);
+
+                     if (key_prefix_is_matching(key_prefix, key_str)) {
+                         if (value.first != nullptr) {
+                             std::string relative_key = key_str.substr(table_prefix.size());
+                             auto* kv = response->add_key_values();
+                             kv->set_key(relative_key);
+                             kv->set_value(reinterpret_cast<const char*>(value.first), value.second);
+                         }
+                     }
+                     return false;
+                 });
+
+        LOG_DEBUG("SCAN: completed scan, found %d key-value pairs", response->key_values_size());
+    } else {
+        response->set_is_aborted(true);
+        LOG_WARNING("Transaction not found for scan: %ld", tx_id);
+    }
 }

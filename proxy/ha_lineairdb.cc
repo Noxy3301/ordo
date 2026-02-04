@@ -93,10 +93,12 @@
 */
 
 #include "storage/lineairdb/ha_lineairdb.hh"
+#include "batch_dispatcher.hh"
 #include "../common/log.h"
 
 #include <iostream>
 #include <string>
+#include <memory>
 
 #include "my_dbug.h"
 #include "mysql/plugin.h"
@@ -112,6 +114,13 @@
 // Ordo server connection target (GLOBAL sysvars backing storage)
 static char* srv_ordo_host = nullptr;
 static ulong srv_ordo_port = 9999;
+
+// Batching configuration (GLOBAL sysvars)
+static bool srv_batch_enabled = false;
+static ulong srv_batch_epoch_ms = 1;  // 1ms default
+
+// Global BatchDispatcher instance
+static std::unique_ptr<BatchDispatcher> g_batch_dispatcher = nullptr;
 
 // THD-scoped context
 struct LineairDBThdCtx {
@@ -196,6 +205,37 @@ static handler* lineairdb_create_handler(handlerton* hton, TABLE_SHARE* table,
   return new (mem_root) ha_lineairdb(hton, table);
 }
 
+// Callback for batch_enabled sysvar change
+static void batch_enabled_update(THD*, SYS_VAR*, void* var_ptr, const void* save) {
+  bool new_val = *static_cast<const bool*>(save);
+  *static_cast<bool*>(var_ptr) = new_val;
+
+  if (new_val && g_batch_dispatcher == nullptr) {
+    // Initialize BatchDispatcher on first enable
+    std::string host = srv_ordo_host ? srv_ordo_host : "127.0.0.1";
+    int port = static_cast<int>(srv_ordo_port);
+    g_batch_dispatcher = std::make_unique<BatchDispatcher>(host, port);
+    LineairDBClient::set_batch_dispatcher(g_batch_dispatcher.get());
+    LOG_INFO("BatchDispatcher created: host=%s, port=%d", host.c_str(), port);
+  }
+
+  LineairDBClient::set_batching_enabled(new_val);
+  if (g_batch_dispatcher) {
+    g_batch_dispatcher->set_enabled(new_val);
+  }
+}
+
+// Callback for batch_epoch_ms sysvar change
+static void batch_epoch_update(THD*, SYS_VAR*, void* var_ptr, const void* save) {
+  ulong new_val = *static_cast<const ulong*>(save);
+  *static_cast<ulong*>(var_ptr) = new_val;
+
+  if (g_batch_dispatcher) {
+    g_batch_dispatcher->set_epoch_ms(static_cast<uint32_t>(new_val));
+    LOG_INFO("BatchDispatcher epoch_ms updated: %lu", new_val);
+  }
+}
+
 static int lineairdb_init_func(void* p) {
   DBUG_TRACE;
 
@@ -209,6 +249,20 @@ static int lineairdb_init_func(void* p) {
   lineairdb_hton->commit = lineairdb_commit;
   lineairdb_hton->rollback = lineairdb_abort;
   lineairdb_hton->close_connection = lineairdb_close_connection;
+
+  // Initialize BatchDispatcher if batching is enabled at startup
+  if (srv_batch_enabled) {
+    std::string host = srv_ordo_host ? srv_ordo_host : "127.0.0.1";
+    int port = static_cast<int>(srv_ordo_port);
+    g_batch_dispatcher = std::make_unique<BatchDispatcher>(host, port);
+    LineairDBClient::set_batch_dispatcher(g_batch_dispatcher.get());
+    LineairDBClient::set_batching_enabled(true);
+    if (g_batch_dispatcher) {
+      g_batch_dispatcher->set_epoch_ms(static_cast<uint32_t>(srv_batch_epoch_ms));
+    }
+    LOG_INFO("BatchDispatcher initialized at startup: host=%s, port=%d, epoch_ms=%lu",
+             host.c_str(), port, srv_batch_epoch_ms);
+  }
 
   return 0;
 }
@@ -1178,9 +1232,21 @@ static MYSQL_SYSVAR_ULONG(ordo_port, srv_ordo_port, PLUGIN_VAR_RQCMDARG,
                           "Ordo server TCP port for LineairDB client.",
                           nullptr, nullptr, 9999, 1, 65535, 0);
 
+// Batching configuration sysvars
+static MYSQL_SYSVAR_BOOL(batch_enabled, srv_batch_enabled,
+                         PLUGIN_VAR_RQCMDARG,
+                         "Enable RPC batching for cross-connection optimization.",
+                         nullptr, batch_enabled_update, false);
+static MYSQL_SYSVAR_ULONG(batch_epoch_ms, srv_batch_epoch_ms,
+                          PLUGIN_VAR_RQCMDARG,
+                          "Epoch interval in milliseconds for batch flushing.",
+                          nullptr, batch_epoch_update, 40, 1, 10000, 0);
+
 static SYS_VAR* lineairdb_system_variables[] = {
     MYSQL_SYSVAR(ordo_host),
     MYSQL_SYSVAR(ordo_port),
+    MYSQL_SYSVAR(batch_enabled),
+    MYSQL_SYSVAR(batch_epoch_ms),
     MYSQL_SYSVAR(enum_var),
     MYSQL_SYSVAR(ulong_var),
     MYSQL_SYSVAR(double_var),

@@ -10,6 +10,7 @@
 #include "lineairdb.pb.h"
 
 class LineairDBTransaction;
+class BatchDispatcher;
 
 struct KeyValue {
     std::string key;
@@ -32,7 +33,8 @@ enum class MessageType : uint32_t {
     TX_WRITE = 4,
     TX_SCAN = 5,
     DB_FENCE = 6,
-    DB_END_TRANSACTION = 7
+    DB_END_TRANSACTION = 7,
+    TX_BATCH_OPERATIONS = 8
 };
 
 class LineairDBClient {
@@ -58,16 +60,31 @@ public:
     bool db_end_transaction(int64_t tx_id, bool isFence);
     void db_fence();
 
+    // Global BatchDispatcher management (for cross-connection batching)
+    static void set_batch_dispatcher(BatchDispatcher* dispatcher);
+    static BatchDispatcher* get_batch_dispatcher();
+    static void set_batching_enabled(bool enabled);
+    static bool is_batching_enabled();
+
 private:
     template<typename RequestType, typename ResponseType>
     bool send_protobuf_message(const RequestType& request, ResponseType& response, MessageType message_type);
     bool send_message(const std::string& serialized_request, std::string& serialized_response);
     bool send_message_with_header(const std::string& serialized_request, std::string& serialized_response, MessageType message_type);
 
+    // Direct (non-batched) implementations
+    std::string tx_read_direct(LineairDBTransaction* tx, const std::string& key);
+    bool tx_write_direct(LineairDBTransaction* tx, const std::string& key, const std::string& value);
+    std::vector<KeyValue> tx_scan_direct(LineairDBTransaction* tx, const std::string& db_table_key, const std::string& first_key_part);
+
     int socket_fd_;
     bool connected_;
     std::string host_;
     int port_;
+
+    // Global batch dispatcher (shared across all clients)
+    static BatchDispatcher* batch_dispatcher_;
+    static bool batching_enabled_;
 };
 
 #endif // LINEAIRDB_CLIENT_H

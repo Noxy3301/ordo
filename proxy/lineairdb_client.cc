@@ -9,7 +9,12 @@
 
 #include "lineairdb_client.hh"
 #include "lineairdb_transaction.hh"
+#include "batch_dispatcher.hh"
 #include "../common/log.h"
+
+// Static member initialization
+BatchDispatcher* LineairDBClient::batch_dispatcher_ = nullptr;
+bool LineairDBClient::batching_enabled_ = false;
 
 LineairDBClient::LineairDBClient(const std::string& host, int port)
     : socket_fd_(-1), connected_(false), host_(host), port_(port) {
@@ -77,6 +82,33 @@ bool LineairDBClient::is_connected() const {
 }
 
 std::string LineairDBClient::tx_read(LineairDBTransaction* tx, const std::string& key) {
+    // Use batch dispatcher if enabled
+    if (batching_enabled_ && batch_dispatcher_ != nullptr) {
+        int64_t tx_id = tx->get_tx_id();
+        LOG_DEBUG("CLIENT: tx_read (batched) called with tx_id=%ld, key=%s", tx_id, key.c_str());
+
+        std::string serialized_response = batch_dispatcher_->submit_read(tx_id, key);
+        if (serialized_response.empty()) {
+            LOG_ERROR("RPC failed: Batch read returned empty response");
+            return "";
+        }
+
+        LineairDB::Protocol::TxRead::Response response;
+        if (!response.ParseFromString(serialized_response)) {
+            LOG_ERROR("RPC failed: Failed to parse batched read response");
+            return "";
+        }
+
+        tx->set_aborted(response.is_aborted());
+        LOG_DEBUG("CLIENT: tx_read (batched) completed, found: %s", response.found() ? "true" : "false");
+        return response.found() ? response.value() : "";
+    }
+
+    // Direct (non-batched) path
+    return tx_read_direct(tx, key);
+}
+
+std::string LineairDBClient::tx_read_direct(LineairDBTransaction* tx, const std::string& key) {
     int64_t tx_id = tx->get_tx_id();
     LOG_DEBUG("CLIENT: tx_read called with tx_id=%ld, key=%s", tx_id, key.c_str());
     if (!connected_) {
@@ -86,7 +118,7 @@ std::string LineairDBClient::tx_read(LineairDBTransaction* tx, const std::string
 
     LineairDB::Protocol::TxRead::Request request;
     LineairDB::Protocol::TxRead::Response response;
-    
+
     request.set_transaction_id(tx_id);
     request.set_key(key);
     LOG_DEBUG("CLIENT: Created read request");
@@ -104,6 +136,33 @@ std::string LineairDBClient::tx_read(LineairDBTransaction* tx, const std::string
 }
 
 bool LineairDBClient::tx_write(LineairDBTransaction* tx, const std::string& key, const std::string& value) {
+    // Use batch dispatcher if enabled
+    if (batching_enabled_ && batch_dispatcher_ != nullptr) {
+        int64_t tx_id = tx->get_tx_id();
+        LOG_DEBUG("CLIENT: tx_write (batched) called with tx_id=%ld, key=%s", tx_id, key.c_str());
+
+        std::string serialized_response = batch_dispatcher_->submit_write(tx_id, key, value);
+        if (serialized_response.empty()) {
+            LOG_ERROR("RPC failed: Batch write returned empty response");
+            return false;
+        }
+
+        LineairDB::Protocol::TxWrite::Response response;
+        if (!response.ParseFromString(serialized_response)) {
+            LOG_ERROR("RPC failed: Failed to parse batched write response");
+            return false;
+        }
+
+        tx->set_aborted(response.is_aborted());
+        LOG_DEBUG("CLIENT: tx_write (batched) completed, success: %s", response.success() ? "true" : "false");
+        return response.success();
+    }
+
+    // Direct (non-batched) path
+    return tx_write_direct(tx, key, value);
+}
+
+bool LineairDBClient::tx_write_direct(LineairDBTransaction* tx, const std::string& key, const std::string& value) {
     int64_t tx_id = tx->get_tx_id();
     LOG_DEBUG("CLIENT: tx_write called with tx_id=%ld, key=%s, value=%s", tx_id, key.c_str(), value.c_str());
     if (!connected_) {
@@ -113,7 +172,7 @@ bool LineairDBClient::tx_write(LineairDBTransaction* tx, const std::string& key,
 
     LineairDB::Protocol::TxWrite::Request request;
     LineairDB::Protocol::TxWrite::Response response;
-    
+
     request.set_transaction_id(tx_id);
     request.set_key(key);
     request.set_value(value);
@@ -132,6 +191,41 @@ bool LineairDBClient::tx_write(LineairDBTransaction* tx, const std::string& key,
 }
 
 std::vector<KeyValue> LineairDBClient::tx_scan(LineairDBTransaction* tx, const std::string& db_table_key, const std::string& first_key_part) {
+    // Use batch dispatcher if enabled
+    if (batching_enabled_ && batch_dispatcher_ != nullptr) {
+        int64_t tx_id = tx->get_tx_id();
+        LOG_DEBUG("CLIENT: tx_scan (batched) called with tx_id=%ld, table=%s, prefix=%s",
+                  tx_id, db_table_key.c_str(), first_key_part.c_str());
+
+        std::string serialized_response = batch_dispatcher_->submit_scan(tx_id, db_table_key, first_key_part);
+        if (serialized_response.empty()) {
+            LOG_ERROR("RPC failed: Batch scan returned empty response");
+            return {};
+        }
+
+        LineairDB::Protocol::TxScan::Response response;
+        if (!response.ParseFromString(serialized_response)) {
+            LOG_ERROR("RPC failed: Failed to parse batched scan response");
+            return {};
+        }
+
+        tx->set_aborted(response.is_aborted());
+
+        std::vector<KeyValue> key_values;
+        for (const auto& kv : response.key_values()) {
+            key_values.emplace_back(KeyValue{kv.key(), kv.value()});
+            LOG_DEBUG("CLIENT: received key='%s', value_size=%zu", kv.key().c_str(), kv.value().size());
+        }
+
+        LOG_DEBUG("CLIENT: tx_scan (batched) completed, found %zu key-value pairs", key_values.size());
+        return key_values;
+    }
+
+    // Direct (non-batched) path
+    return tx_scan_direct(tx, db_table_key, first_key_part);
+}
+
+std::vector<KeyValue> LineairDBClient::tx_scan_direct(LineairDBTransaction* tx, const std::string& db_table_key, const std::string& first_key_part) {
     int64_t tx_id = tx->get_tx_id();
     LOG_DEBUG("CLIENT: tx_scan called with tx_id=%ld, table=%s, prefix=%s", tx_id, db_table_key.c_str(), first_key_part.c_str());
     if (!connected_) {
@@ -141,7 +235,7 @@ std::vector<KeyValue> LineairDBClient::tx_scan(LineairDBTransaction* tx, const s
 
     LineairDB::Protocol::TxScan::Request request;
     LineairDB::Protocol::TxScan::Response response;
-    
+
     request.set_transaction_id(tx_id);
     request.set_db_table_key(db_table_key);
     request.set_first_key_part(first_key_part);
@@ -160,7 +254,7 @@ std::vector<KeyValue> LineairDBClient::tx_scan(LineairDBTransaction* tx, const s
         key_values.emplace_back(KeyValue{kv.key(), kv.value()});
         LOG_DEBUG("CLIENT: received key='%s', value_size=%zu", kv.key().c_str(), kv.value().size());
     }
-    
+
     LOG_DEBUG("CLIENT: tx_scan completed, found %zu key-value pairs", key_values.size());
     return key_values;
 }
@@ -330,7 +424,7 @@ bool LineairDBClient::send_message_with_header(const std::string& serialized_req
         LOG_ERROR("SEND_MESSAGE: Not connected!");
         return false;
     }
-    
+
     LOG_DEBUG("SEND_MESSAGE: Sending message of size %zu bytes with message_type %u", serialized_request.size(), static_cast<uint32_t>(message_type));
 
     // prepare message header
@@ -338,22 +432,22 @@ bool LineairDBClient::send_message_with_header(const std::string& serialized_req
     header.sender_id = htobe64(1);  // TODO: replace with actual sender ID
     header.message_type = htonl(static_cast<uint32_t>(message_type));
     header.payload_size = htonl(static_cast<uint32_t>(serialized_request.size()));
-    
+
     LOG_DEBUG("SEND_MESSAGE: Prepared header: sender_id=1, message_type=%u, payload_size=%zu", static_cast<uint32_t>(message_type), serialized_request.size());
-    
+
     // combine header and payload
     size_t total_size = sizeof(header) + serialized_request.size();
     std::vector<char> buffer(total_size);
     std::memcpy(buffer.data(), &header, sizeof(header));
     std::memcpy(buffer.data() + sizeof(header), serialized_request.c_str(), serialized_request.size());
-    
+
     // send
     ssize_t bytes_sent = send(socket_fd_, buffer.data(), total_size, 0);
     if (bytes_sent != static_cast<ssize_t>(total_size)) {
         LOG_ERROR("SEND_MESSAGE: Failed to send complete message, sent %zd bytes instead of %zu", bytes_sent, total_size);
         return false;
     }
-    
+
     LOG_DEBUG("SEND_MESSAGE: Successfully sent %zd bytes", bytes_sent);
 
     // receive response header
@@ -368,7 +462,7 @@ bool LineairDBClient::send_message_with_header(const std::string& serialized_req
     uint64_t response_sender_id = be64toh(response_header.sender_id);
     uint32_t response_message_type = ntohl(response_header.message_type);
     uint32_t response_payload_size = ntohl(response_header.payload_size);
-    
+
     LOG_DEBUG("SEND_MESSAGE: Received response header: sender_id=%lu, message_type=%u, payload_size=%u", response_sender_id, response_message_type, response_payload_size);
 
     // receive response payload
@@ -384,7 +478,26 @@ bool LineairDBClient::send_message_with_header(const std::string& serialized_req
         LOG_DEBUG("SEND_MESSAGE: No response payload (empty response)");
         serialized_response.clear();
     }
-    
+
     LOG_DEBUG("SEND_MESSAGE: Message exchange completed successfully");
     return true;
+}
+
+// Static methods for batch dispatcher management
+void LineairDBClient::set_batch_dispatcher(BatchDispatcher* dispatcher) {
+    batch_dispatcher_ = dispatcher;
+    LOG_INFO("BatchDispatcher set: %p", static_cast<void*>(dispatcher));
+}
+
+BatchDispatcher* LineairDBClient::get_batch_dispatcher() {
+    return batch_dispatcher_;
+}
+
+void LineairDBClient::set_batching_enabled(bool enabled) {
+    batching_enabled_ = enabled;
+    LOG_INFO("Batching %s", enabled ? "enabled" : "disabled");
+}
+
+bool LineairDBClient::is_batching_enabled() {
+    return batching_enabled_;
 }

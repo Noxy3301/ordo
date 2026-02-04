@@ -24,16 +24,6 @@
       delegate_to: "{{ groups['benchbase'][0] }}"
       loop: "{{ groups['mysql'] }}"
 
-    - name: Disable batch for load phase
-      shell: |
-        ~/ordo/build/runtime_output_directory/mysql \
-          -u root --protocol=TCP -h 127.0.0.1 -P 3307 \
-          -e "SET GLOBAL lineairdb_batch_enabled = 0;"
-      args:
-        executable: /bin/bash
-      delegate_to: "{{ item }}"
-      loop: "{{ groups['mysql'] }}"
-
     - name: BenchBase --load once (first MySQL)
       shell: |
         BENCH_DIR=~/ordo/bench
@@ -47,17 +37,6 @@
         executable: /bin/bash
       run_once: true
       delegate_to: "{{ groups['benchbase'][0] }}"
-
-    - name: Re-enable batch after load phase
-      shell: |
-        ~/ordo/build/runtime_output_directory/mysql \
-          -u root --protocol=TCP -h 127.0.0.1 -P 3307 \
-          -e "SET GLOBAL lineairdb_batch_enabled = {{ batch_enabled | default(1) }};
-              SET GLOBAL lineairdb_batch_epoch_ms = {{ batch_epoch_ms | default(1) }};"
-      args:
-        executable: /bin/bash
-      delegate_to: "{{ item }}"
-      loop: "{{ groups['mysql'] }}"
 
     - name: Show manual run_dist commands (bench -> HAProxy)
       debug:

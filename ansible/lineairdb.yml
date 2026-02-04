@@ -4,6 +4,42 @@
   vars:
     lineairdb_nofile_limit: 1048576
   tasks:
+    - name: Enable RPS (Receive Packet Steering) for network interface
+      become: yes
+      shell: |
+        # Calculate CPU mask based on actual CPU count
+        ncpu=$(nproc)
+        if [ $ncpu -le 32 ]; then
+          # For 32 or fewer CPUs, use single hex value
+          mask=$(printf '%x' $(( (1 << ncpu) - 1 )))
+        else
+          # For more than 32 CPUs, use comma-separated 32-bit values
+          mask="ffffffff,$(printf '%x' $(( (1 << (ncpu - 32)) - 1 )))"
+        fi
+        echo "CPU count: $ncpu, RPS mask: $mask"
+
+        # Enable RPS on all RX queues
+        for rxq in /sys/class/net/ens5/queues/rx-*/rps_cpus; do
+          echo "$mask" | tee "$rxq" > /dev/null
+        done
+
+        # Also enable RFS (Receive Flow Steering) for better flow affinity
+        echo 32768 | tee /proc/sys/net/core/rps_sock_flow_entries > /dev/null
+        for rxq in /sys/class/net/ens5/queues/rx-*/rps_flow_cnt; do
+          echo 32768 | tee "$rxq" > /dev/null 2>&1 || true
+        done
+
+        # Verify RPS is set
+        echo "RPS configuration:"
+        cat /sys/class/net/ens5/queues/rx-*/rps_cpus
+      args:
+        executable: /bin/bash
+      register: rps_result
+
+    - name: Show RPS configuration
+      debug:
+        msg: "{{ rps_result.stdout_lines }}"
+
     - name: Start LineairDB-Server
       shell: |
         cd ~/ordo

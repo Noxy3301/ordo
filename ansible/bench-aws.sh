@@ -109,7 +109,8 @@ ansible -i inventory.ini all -m wait_for_connection -a "timeout=300 delay=5 slee
 # setup and run benchmark
 # ansible-playbook -i inventory.ini site.yml
 
-# ansible-playbook -i inventory.ini update.yml
+# Pull latest code and rebuild
+ansible-playbook -i inventory.ini update.yml
 
 ansible-playbook -i inventory.ini lineairdb.yml &
 ansible-playbook -i inventory.ini mysql.yml &

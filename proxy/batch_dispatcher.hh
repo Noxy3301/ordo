@@ -77,7 +77,7 @@ private:
 class BatchDispatcher {
 public:
     static constexpr size_t POOL_SIZE = 4;
-    static constexpr uint32_t DEFAULT_EPOCH_MS = 1;  // 1ms epoch
+    static constexpr uint32_t DEFAULT_EPOCH_US = 10;  // 10μs epoch
 
     BatchDispatcher(const std::string& host, int port);
     ~BatchDispatcher();
@@ -92,7 +92,7 @@ public:
     std::string submit_abort(int64_t tx_id);
 
     // Control methods
-    void set_epoch_ms(uint32_t ms);
+    void set_epoch_us(uint32_t us);
     void set_enabled(bool enabled);
     bool is_enabled() const;
 
@@ -135,7 +135,7 @@ private:
     // Epoch timer
     std::thread epoch_thread_;
     std::atomic<bool> running_{true};
-    std::atomic<uint32_t> epoch_ms_{DEFAULT_EPOCH_MS};
+    std::atomic<uint32_t> epoch_us_{DEFAULT_EPOCH_US};
 
     // Enable/disable batching
     std::atomic<bool> enabled_{true};

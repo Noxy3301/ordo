@@ -187,8 +187,8 @@ BatchDispatcher::BatchDispatcher(const std::string& host, int port)
     // Start epoch timer thread
     epoch_thread_ = std::thread(&BatchDispatcher::epoch_timer_thread, this);
 
-    LOG_INFO("BatchDispatcher initialized: host=%s, port=%d, pool_size=%zu, epoch_ms=%u",
-             host_.c_str(), port_, POOL_SIZE, epoch_ms_.load());
+    LOG_INFO("BatchDispatcher initialized: host=%s, port=%d, pool_size=%zu, epoch_us=%u",
+             host_.c_str(), port_, POOL_SIZE, epoch_us_.load());
 }
 
 BatchDispatcher::~BatchDispatcher() {
@@ -436,7 +436,7 @@ bool BatchDispatcher::send_batch_request(const std::string& request, std::string
 
 void BatchDispatcher::epoch_timer_thread() {
     while (running_) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(epoch_ms_.load()));
+        std::this_thread::sleep_for(std::chrono::microseconds(epoch_us_.load()));
 
         if (!running_ || !enabled_) {
             continue;
@@ -501,8 +501,8 @@ void BatchDispatcher::flush() {
     }
 }
 
-void BatchDispatcher::set_epoch_ms(uint32_t ms) {
-    epoch_ms_ = ms;
+void BatchDispatcher::set_epoch_us(uint32_t us) {
+    epoch_us_ = us;
 }
 
 void BatchDispatcher::set_enabled(bool enabled) {

@@ -4,7 +4,7 @@
   vars:
     # Batch RPC configuration
     batch_enabled: 1        # 0=disabled, 1=enabled
-    batch_epoch_ms: 1       # Batch flush interval in milliseconds
+    batch_epoch_us: 10      # Batch flush interval in microseconds
   tasks:
     - name: Start MySQL with LineairDB-Proxy
       shell: |
@@ -23,7 +23,7 @@
         ~/ordo/build/runtime_output_directory/mysql \
           -u root --protocol=TCP -h 127.0.0.1 -P 3307 \
           -e "SET GLOBAL lineairdb_batch_enabled = {{ batch_enabled }};
-              SET GLOBAL lineairdb_batch_epoch_ms = {{ batch_epoch_ms }};"
+              SET GLOBAL lineairdb_batch_epoch_us = {{ batch_epoch_us }};"
       args:
         executable: /bin/bash
 

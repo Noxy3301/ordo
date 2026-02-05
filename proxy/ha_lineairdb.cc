@@ -117,7 +117,7 @@ static ulong srv_ordo_port = 9999;
 
 // Batching configuration (GLOBAL sysvars)
 static bool srv_batch_enabled = false;
-static ulong srv_batch_epoch_ms = 1;  // 1ms default
+static ulong srv_batch_epoch_us = 10;  // 10μs default
 
 // Global BatchDispatcher instance
 static std::unique_ptr<BatchDispatcher> g_batch_dispatcher = nullptr;
@@ -225,14 +225,14 @@ static void batch_enabled_update(THD*, SYS_VAR*, void* var_ptr, const void* save
   }
 }
 
-// Callback for batch_epoch_ms sysvar change
+// Callback for batch_epoch_us sysvar change
 static void batch_epoch_update(THD*, SYS_VAR*, void* var_ptr, const void* save) {
   ulong new_val = *static_cast<const ulong*>(save);
   *static_cast<ulong*>(var_ptr) = new_val;
 
   if (g_batch_dispatcher) {
-    g_batch_dispatcher->set_epoch_ms(static_cast<uint32_t>(new_val));
-    LOG_INFO("BatchDispatcher epoch_ms updated: %lu", new_val);
+    g_batch_dispatcher->set_epoch_us(static_cast<uint32_t>(new_val));
+    LOG_INFO("BatchDispatcher epoch_us updated: %lu", new_val);
   }
 }
 
@@ -258,10 +258,10 @@ static int lineairdb_init_func(void* p) {
     LineairDBClient::set_batch_dispatcher(g_batch_dispatcher.get());
     LineairDBClient::set_batching_enabled(true);
     if (g_batch_dispatcher) {
-      g_batch_dispatcher->set_epoch_ms(static_cast<uint32_t>(srv_batch_epoch_ms));
+      g_batch_dispatcher->set_epoch_us(static_cast<uint32_t>(srv_batch_epoch_us));
     }
-    LOG_INFO("BatchDispatcher initialized at startup: host=%s, port=%d, epoch_ms=%lu",
-             host.c_str(), port, srv_batch_epoch_ms);
+    LOG_INFO("BatchDispatcher initialized at startup: host=%s, port=%d, epoch_us=%lu",
+             host.c_str(), port, srv_batch_epoch_us);
   }
 
   return 0;
@@ -1237,16 +1237,16 @@ static MYSQL_SYSVAR_BOOL(batch_enabled, srv_batch_enabled,
                          PLUGIN_VAR_RQCMDARG,
                          "Enable RPC batching for cross-connection optimization.",
                          nullptr, batch_enabled_update, false);
-static MYSQL_SYSVAR_ULONG(batch_epoch_ms, srv_batch_epoch_ms,
+static MYSQL_SYSVAR_ULONG(batch_epoch_us, srv_batch_epoch_us,
                           PLUGIN_VAR_RQCMDARG,
-                          "Epoch interval in milliseconds for batch flushing.",
-                          nullptr, batch_epoch_update, 40, 1, 10000, 0);
+                          "Epoch interval in microseconds for batch flushing.",
+                          nullptr, batch_epoch_update, 10, 1, 10000000, 0);
 
 static SYS_VAR* lineairdb_system_variables[] = {
     MYSQL_SYSVAR(ordo_host),
     MYSQL_SYSVAR(ordo_port),
     MYSQL_SYSVAR(batch_enabled),
-    MYSQL_SYSVAR(batch_epoch_ms),
+    MYSQL_SYSVAR(batch_epoch_us),
     MYSQL_SYSVAR(enum_var),
     MYSQL_SYSVAR(ulong_var),
     MYSQL_SYSVAR(double_var),

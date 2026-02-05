@@ -3,7 +3,7 @@
   gather_facts: false
   vars:
     # Batch RPC configuration
-    batch_enabled: 1        # 0=disabled, 1=enabled
+    batch_enabled: 0        # 0=disabled, 1=enabled
     batch_epoch_us: 10      # Batch flush interval in microseconds
   tasks:
     - name: Start MySQL with LineairDB-Proxy

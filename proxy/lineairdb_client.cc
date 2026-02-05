@@ -1,5 +1,6 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
+#include <netinet/tcp.h>
 #include <arpa/inet.h>
 #include <unistd.h>
 #include <errno.h>
@@ -41,6 +42,10 @@ bool LineairDBClient::connect(const std::string& host, int port) {
     if (socket_fd_ < 0) {
         return false;
     }
+
+    // Set TCP_NODELAY for low latency
+    int flag = 1;
+    setsockopt(socket_fd_, IPPROTO_TCP, TCP_NODELAY, &flag, sizeof(flag));
 
     // set up server address
     struct sockaddr_in server_addr;

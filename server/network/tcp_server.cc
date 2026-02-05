@@ -4,6 +4,7 @@
 #include <iostream>
 #include <sys/socket.h>
 #include <netinet/in.h>
+#include <netinet/tcp.h>
 #include <arpa/inet.h>
 #include <unistd.h>
 #include <thread>
@@ -84,6 +85,10 @@ void TcpServer::accept_clients(int server_socket) {
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
             continue;
         }
+
+        // Set TCP_NODELAY for low latency
+        int flag = 1;
+        setsockopt(client_socket, IPPROTO_TCP, TCP_NODELAY, &flag, sizeof(flag));
 
         // Hand off each client to a dedicated thread
         auto client_ip = std::string(inet_ntoa(client_addr.sin_addr));

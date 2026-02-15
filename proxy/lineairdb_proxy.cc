@@ -7,26 +7,26 @@
 #include <iostream>
 #include <vector>
 
-#include "lineairdb_client.hh"
+#include "lineairdb_proxy.hh"
 #include "lineairdb_transaction.hh"
 #include "../common/log.h"
 
-LineairDBClient::LineairDBClient(const std::string& host, int port)
+LineairDBProxy::LineairDBProxy(const std::string& host, int port)
     : socket_fd_(-1), connected_(false), host_(host), port_(port) {
-    LOG_INFO("LineairDBClient(%p): connecting to %s:%d",
+    LOG_INFO("LineairDBProxy(%p): connecting to %s:%d",
              static_cast<const void*>(this), host_.c_str(), port_);
     if (!connect(host_, port_)) {
         std::cerr << "Failed to connect to LineairDB service at " << host_ << ":" << port_ << std::endl;
     }
 }
 
-LineairDBClient::~LineairDBClient() {
-    LOG_INFO("LineairDBClient(%p): destructor, connected=%s",
+LineairDBProxy::~LineairDBProxy() {
+    LOG_INFO("LineairDBProxy(%p): destructor, connected=%s",
              static_cast<const void*>(this), connected_ ? "true" : "false");
     disconnect();
 }
 
-bool LineairDBClient::connect(const std::string& host, int port) {
+bool LineairDBProxy::connect(const std::string& host, int port) {
     if (connected_) {
         disconnect();
     }
@@ -62,9 +62,9 @@ bool LineairDBClient::connect(const std::string& host, int port) {
     return true;
 }
 
-void LineairDBClient::disconnect() {
+void LineairDBProxy::disconnect() {
     if (socket_fd_ >= 0) {
-        LOG_INFO("LineairDBClient(%p): disconnecting socket_fd=%d",
+        LOG_INFO("LineairDBProxy(%p): disconnecting socket_fd=%d",
                  static_cast<const void*>(this), socket_fd_);
         close(socket_fd_);
         socket_fd_ = -1;
@@ -72,11 +72,11 @@ void LineairDBClient::disconnect() {
     connected_ = false;
 }
 
-bool LineairDBClient::is_connected() const {
+bool LineairDBProxy::is_connected() const {
     return connected_;
 }
 
-std::string LineairDBClient::tx_read(LineairDBTransaction* tx, const std::string& key) {
+std::string LineairDBProxy::tx_read(LineairDBTransaction* tx, const std::string& key) {
     int64_t tx_id = tx->get_tx_id();
     LOG_DEBUG("CLIENT: tx_read called with tx_id=%ld, key=%s", tx_id, key.c_str());
     if (!connected_) {
@@ -103,7 +103,7 @@ std::string LineairDBClient::tx_read(LineairDBTransaction* tx, const std::string
     return response.found() ? response.value() : "";
 }
 
-bool LineairDBClient::tx_write(LineairDBTransaction* tx, const std::string& key, const std::string& value) {
+bool LineairDBProxy::tx_write(LineairDBTransaction* tx, const std::string& key, const std::string& value) {
     int64_t tx_id = tx->get_tx_id();
     LOG_DEBUG("CLIENT: tx_write called with tx_id=%ld, key=%s, value=%s", tx_id, key.c_str(), value.c_str());
     if (!connected_) {
@@ -131,7 +131,7 @@ bool LineairDBClient::tx_write(LineairDBTransaction* tx, const std::string& key,
     return response.success();
 }
 
-std::vector<KeyValue> LineairDBClient::tx_scan(LineairDBTransaction* tx, const std::string& db_table_key, const std::string& first_key_part) {
+std::vector<KeyValue> LineairDBProxy::tx_scan(LineairDBTransaction* tx, const std::string& db_table_key, const std::string& first_key_part) {
     int64_t tx_id = tx->get_tx_id();
     LOG_DEBUG("CLIENT: tx_scan called with tx_id=%ld, table=%s, prefix=%s", tx_id, db_table_key.c_str(), first_key_part.c_str());
     if (!connected_) {
@@ -165,7 +165,7 @@ std::vector<KeyValue> LineairDBClient::tx_scan(LineairDBTransaction* tx, const s
     return key_values;
 }
 
-int64_t LineairDBClient::tx_begin_transaction() {
+int64_t LineairDBProxy::tx_begin_transaction() {
     LOG_DEBUG("CLIENT: tx_begin_transaction called");
     if (!connected_) {
         LOG_ERROR("RPC failed: Not connected to server");
@@ -185,7 +185,7 @@ int64_t LineairDBClient::tx_begin_transaction() {
     return response.transaction_id();
 }
 
-void LineairDBClient::tx_abort(int64_t tx_id) {
+void LineairDBProxy::tx_abort(int64_t tx_id) {
     LOG_DEBUG("CLIENT: tx_abort called with tx_id=%ld", tx_id);
     if (!connected_) {
         LOG_ERROR("RPC failed: Not connected to server");
@@ -206,7 +206,7 @@ void LineairDBClient::tx_abort(int64_t tx_id) {
     LOG_DEBUG("CLIENT: tx_abort completed");
 }
 
-bool LineairDBClient::db_end_transaction(int64_t tx_id, bool isFence) {
+bool LineairDBProxy::db_end_transaction(int64_t tx_id, bool isFence) {
     LOG_DEBUG("CLIENT: db_end_transaction called with tx_id=%ld, fence=%s", tx_id, isFence ? "true" : "false");
     if (!connected_) {
         LOG_ERROR("RPC failed: Not connected to server");
@@ -229,7 +229,7 @@ bool LineairDBClient::db_end_transaction(int64_t tx_id, bool isFence) {
     return !response.is_aborted();
 }
 
-void LineairDBClient::db_fence() {
+void LineairDBProxy::db_fence() {
     LOG_DEBUG("CLIENT: db_fence called");
     if (!connected_) {
         LOG_ERROR("RPC failed: Not connected to server");
@@ -248,7 +248,7 @@ void LineairDBClient::db_fence() {
     LOG_DEBUG("CLIENT: db_fence completed");
 }
 
-bool LineairDBClient::send_message(const std::string& serialized_request, std::string& serialized_response) {
+bool LineairDBProxy::send_message(const std::string& serialized_request, std::string& serialized_response) {
     if (!connected_) {
         LOG_ERROR("SEND_MESSAGE: Not connected to server");
         return false;
@@ -301,7 +301,7 @@ bool LineairDBClient::send_message(const std::string& serialized_request, std::s
 }
 
 template<typename RequestType, typename ResponseType>
-bool LineairDBClient::send_protobuf_message(const RequestType& request, ResponseType& response, MessageType message_type) {
+bool LineairDBProxy::send_protobuf_message(const RequestType& request, ResponseType& response, MessageType message_type) {
     LOG_DEBUG("PROTOBUF_MESSAGE: Starting protobuf message send");
     
     // serialize request
@@ -325,7 +325,7 @@ bool LineairDBClient::send_protobuf_message(const RequestType& request, Response
     return true;
 }
 
-bool LineairDBClient::send_message_with_header(const std::string& serialized_request, std::string& serialized_response, MessageType message_type) {
+bool LineairDBProxy::send_message_with_header(const std::string& serialized_request, std::string& serialized_response, MessageType message_type) {
     if (!connected_) {
         LOG_ERROR("SEND_MESSAGE: Not connected!");
         return false;

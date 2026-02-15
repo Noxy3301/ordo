@@ -3,7 +3,7 @@
 #include "sql/handler.h" /* handler */
 #include "mysql/plugin.h"
 #include "sql/sql_class.h"
-#include "lineairdb_client.hh"
+#include "lineairdb_proxy.hh"
 
 /**
  * @brief 
@@ -56,14 +56,14 @@ public:
 
 
   LineairDBTransaction(THD* thd, 
-                       LineairDBClient* lineairdb_client, 
+                       LineairDBProxy* lineairdb_proxy, 
                        handlerton* lineairdb_hton,
                        bool isFence);
   ~LineairDBTransaction() = default;
 
 private:
   int64_t tx_id;  // transaction id (instead of tx pointer), -1 means tx is not started
-  LineairDBClient* lineairdb_client;
+  LineairDBProxy* lineairdb_proxy;
   std::string db_table_key;
   THD* thread;
   bool isTransaction;

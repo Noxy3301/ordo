@@ -56,7 +56,7 @@
 
 #include "lineairdb_field.hh"
 #include "lineairdb_transaction.hh"
-#include "lineairdb_client.hh"
+#include "lineairdb_proxy.hh"
 
 /** @brief
   LineairDB_share is a class that will be shared among all open handlers.
@@ -77,7 +77,7 @@ class ha_lineairdb : public handler {
   THR_LOCK_DATA lock;            ///< MySQL lock
   LineairDB_share* share;        ///< Shared lock info
   LineairDB_share* get_share();  ///< Get the share
-  LineairDBClient* get_db_client();
+  LineairDBProxy* get_proxy();
 
  private:
   std::string db_table_name;

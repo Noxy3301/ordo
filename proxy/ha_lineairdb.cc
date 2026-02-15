@@ -115,7 +115,7 @@ static ulong srv_ordo_port = 9999;
 
 // THD-scoped context
 struct LineairDBThdCtx {
-  std::shared_ptr<LineairDBClient> client;
+  std::shared_ptr<LineairDBProxy> proxy;
   LineairDBTransaction* tx{nullptr};
 };
 
@@ -240,17 +240,17 @@ err:
   return tmp_share;
 }
 
-LineairDBClient* ha_lineairdb::get_db_client() {
+LineairDBProxy* ha_lineairdb::get_proxy() {
   // Use THD-scoped client
   LineairDBThdCtx*& ctx = *reinterpret_cast<LineairDBThdCtx**>(thd_ha_data(userThread, lineairdb_hton));
   if (ctx == nullptr) ctx = new LineairDBThdCtx();
-  if (!ctx->client) {
+  if (!ctx->proxy) {
     // Construct client using GLOBAL sysvars for target host/port
     std::string host = srv_ordo_host ? srv_ordo_host : std::string("127.0.0.1");
     int port = static_cast<int>(srv_ordo_port);
-    ctx->client = std::make_shared<LineairDBClient>(host, port);
+    ctx->proxy = std::make_shared<LineairDBProxy>(host, port);
   }
-  return ctx->client.get();
+  return ctx->proxy.get();
 }
 
 static PSI_memory_key csv_key_memory_blobroot;
@@ -758,13 +758,13 @@ int ha_lineairdb::start_stmt(THD *thd, thr_lock_type lock_type) {
 LineairDBTransaction*& ha_lineairdb::get_transaction(THD* thd) {
   LineairDBThdCtx*& ctx = *reinterpret_cast<LineairDBThdCtx**>(thd_ha_data(thd, lineairdb_hton));
   if (ctx == nullptr) ctx = new LineairDBThdCtx();
-  if (!ctx->client) {
+  if (!ctx->proxy) {
     std::string host = srv_ordo_host ? srv_ordo_host : std::string("127.0.0.1");
     int port = static_cast<int>(srv_ordo_port);
-    ctx->client = std::make_shared<LineairDBClient>(host, port);
+    ctx->proxy = std::make_shared<LineairDBProxy>(host, port);
   }
   if (ctx->tx == nullptr) {
-    ctx->tx = new LineairDBTransaction(thd, ctx->client.get(), lineairdb_hton, FENCE);
+    ctx->tx = new LineairDBTransaction(thd, ctx->proxy.get(), lineairdb_hton, FENCE);
   }
   return ctx->tx;
 }
@@ -817,10 +817,10 @@ static int lineairdb_close_connection(handlerton *hton, THD *thd) {
   LineairDBThdCtx* ctx = *ctx_slot;
   if (ctx == nullptr) return 0;
 
-  LOG_INFO("lineairdb_close_connection: thd=%p ctx=%p client=%p",
+  LOG_INFO("lineairdb_close_connection: thd=%p ctx=%p proxy=%p",
            static_cast<void*>(thd),
            static_cast<void*>(ctx),
-           ctx->client.get());
+           ctx->proxy.get());
 
   if (ctx->tx != nullptr) {
     LOG_INFO("lineairdb_close_connection: aborting pending tx=%p", ctx->tx);
@@ -829,10 +829,10 @@ static int lineairdb_close_connection(handlerton *hton, THD *thd) {
     ctx->tx = nullptr;
   }
 
-  if (ctx->client) {
-    LOG_INFO("lineairdb_close_connection: releasing client=%p", ctx->client.get());
+  if (ctx->proxy) {
+    LOG_INFO("lineairdb_close_connection: releasing proxy=%p", ctx->proxy.get());
   }
-  ctx->client.reset();
+  ctx->proxy.reset();
   delete ctx;
   *ctx_slot = nullptr;
   return 0;

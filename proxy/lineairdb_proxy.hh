@@ -1,5 +1,5 @@
-#ifndef LINEAIRDB_CLIENT_H
-#define LINEAIRDB_CLIENT_H
+#ifndef LINEAIRDB_PROXY_H
+#define LINEAIRDB_PROXY_H
 
 #include <cstdint>
 #include <string>
@@ -35,10 +35,18 @@ enum class MessageType : uint32_t {
     DB_END_TRANSACTION = 7
 };
 
-class LineairDBClient {
+/**
+ * RPC client that provides the same transactional API as LineairDB,
+ * but internally forwards all operations to a remote server via RPC over TCP.
+ * 
+ * In this disaggregated architecture, MySQL instances do not embed LineairDB
+ * directly; instead, each THD holds a LineairDBProxy that maintains a
+ * TCP connection to the remote LineairDB server. Managed via LineairDBThdCtx.
+ */
+class LineairDBProxy {
 public:
-    LineairDBClient(const std::string& host, int port);
-    ~LineairDBClient();
+    LineairDBProxy(const std::string& host, int port);
+    ~LineairDBProxy();
 
     // connection management
     bool connect(const std::string& host, int port);
@@ -70,4 +78,4 @@ private:
     int port_;
 };
 
-#endif // LINEAIRDB_CLIENT_H
+#endif // LINEAIRDB_PROXY_H

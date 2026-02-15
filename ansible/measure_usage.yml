@@ -64,17 +64,17 @@
       args:
         executable: /bin/bash
 
-    - name: Start Ordo pidstat sampling (lineairdb)
+    - name: Start server pidstat sampling (lineairdb)
       when: inventory_hostname in groups.get('lineairdb', [])
       shell: |
         mkdir -p {{ sample_dir }}
-        pid=$(pgrep -f '/build/server/ordo-server' | head -n1 || true)
+        pid=$(pgrep -f '/build/server/lineairdb-server' | head -n1 || true)
         if [ -z "$pid" ]; then
-          echo "ordo-server not running" > {{ sample_dir }}/pidstat-ordo-{{ run_id }}.log
+          echo "lineairdb-server not running" > {{ sample_dir }}/pidstat-server-{{ run_id }}.log
           exit 0
         fi
-        nohup pidstat -w -p "$pid" {{ sample_interval }} > {{ sample_dir }}/pidstat-ordo-{{ run_id }}.log 2>&1 &
-        echo $! > {{ sample_dir }}/pidstat-ordo-{{ run_id }}.pid
+        nohup pidstat -w -p "$pid" {{ sample_interval }} > {{ sample_dir }}/pidstat-server-{{ run_id }}.log 2>&1 &
+        echo $! > {{ sample_dir }}/pidstat-server-{{ run_id }}.pid
       args:
         executable: /bin/bash
 
@@ -193,11 +193,11 @@
       args:
         executable: /bin/bash
 
-    - name: Stop Ordo pidstat sampling (lineairdb)
+    - name: Stop server pidstat sampling (lineairdb)
       when: inventory_hostname in groups.get('lineairdb', [])
       shell: |
-        if [ -f {{ sample_dir }}/pidstat-ordo-{{ run_id }}.pid ]; then
-          kill "$(cat {{ sample_dir }}/pidstat-ordo-{{ run_id }}.pid)" || true
+        if [ -f {{ sample_dir }}/pidstat-server-{{ run_id }}.pid ]; then
+          kill "$(cat {{ sample_dir }}/pidstat-server-{{ run_id }}.pid)" || true
         fi
       args:
         executable: /bin/bash
@@ -334,49 +334,49 @@
         dest: "{{ playbook_dir }}/result/{{ machine_spec }}/lineairdb/{{ inventory_hostname }}/"
         flat: yes
 
-    - name: Fetch Ordo pidstat logs
+    - name: Fetch server pidstat logs
       when: inventory_hostname in groups['lineairdb']
       fetch:
-        src: "{{ sample_dir }}/pidstat-ordo-{{ run_id }}.log"
+        src: "{{ sample_dir }}/pidstat-server-{{ run_id }}.log"
         dest: "{{ playbook_dir }}/result/{{ machine_spec }}/lineairdb/{{ inventory_hostname }}/"
         flat: yes
 
-    - name: Fetch Ordo sar -w logs
+    - name: Fetch server sar -w logs
       when: inventory_hostname in groups['lineairdb']
       fetch:
         src: "{{ sample_dir }}/sar-w-{{ run_id }}.log"
         dest: "{{ playbook_dir }}/result/{{ machine_spec }}/lineairdb/{{ inventory_hostname }}/"
         flat: yes
 
-    - name: Fetch Ordo sar -n DEV logs
+    - name: Fetch server sar -n DEV logs
       when: inventory_hostname in groups['lineairdb']
       fetch:
         src: "{{ sample_dir }}/sar-dev-{{ run_id }}.log"
         dest: "{{ playbook_dir }}/result/{{ machine_spec }}/lineairdb/{{ inventory_hostname }}/"
         flat: yes
 
-    - name: Fetch Ordo sar -n SOFT logs
+    - name: Fetch server sar -n SOFT logs
       when: inventory_hostname in groups['lineairdb']
       fetch:
         src: "{{ sample_dir }}/sar-soft-{{ run_id }}.log"
         dest: "{{ playbook_dir }}/result/{{ machine_spec }}/lineairdb/{{ inventory_hostname }}/"
         flat: yes
 
-    - name: Fetch Ordo mpstat -I ALL logs
+    - name: Fetch server mpstat -I ALL logs
       when: inventory_hostname in groups['lineairdb']
       fetch:
         src: "{{ sample_dir }}/mpstat-irq-{{ run_id }}.log"
         dest: "{{ playbook_dir }}/result/{{ machine_spec }}/lineairdb/{{ inventory_hostname }}/"
         flat: yes
 
-    - name: Fetch Ordo softnet_stat logs
+    - name: Fetch server softnet_stat logs
       when: inventory_hostname in groups['lineairdb']
       fetch:
         src: "{{ sample_dir }}/softnet-{{ run_id }}.log"
         dest: "{{ playbook_dir }}/result/{{ machine_spec }}/lineairdb/{{ inventory_hostname }}/"
         flat: yes
 
-    - name: Fetch Ordo /proc/interrupts logs
+    - name: Fetch server /proc/interrupts logs
       when: inventory_hostname in groups['lineairdb']
       fetch:
         src: "{{ sample_dir }}/interrupts-{{ run_id }}.log"

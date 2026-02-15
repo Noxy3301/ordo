@@ -1,22 +1,22 @@
-#include "ordo_server.hh"
+#include "lineairdb_server.hh"
 #include "../common/log.h"
 #include "lineairdb.pb.h"
 #include "rpc/lineairdb_rpc.hh"
 
 #include <iostream>
 
-OrdoServer::OrdoServer() : TcpServer(9999) {}
+LineairDBServer::LineairDBServer() : TcpServer(9999) {}
 
-void OrdoServer::init() {
+void LineairDBServer::init() {
     // Initialize components in dependency order
     if (!db_manager_) {
         db_manager_ = std::make_shared<DatabaseManager>();
     }
 
-    LOG_INFO("Ordo server initialized successfully");
+    LOG_INFO("LineairDB server initialized successfully");
 }
 
-void OrdoServer::handle_client(int client_socket) {
+void LineairDBServer::handle_client(int client_socket) {
     LOG_INFO("Handling client connection fd=%d", client_socket);
     // Per-connection managers
     auto tx_manager = std::make_shared<TransactionManager>();

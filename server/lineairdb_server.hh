@@ -7,10 +7,10 @@
 #include "storage/database_manager.hh"
 #include "storage/transaction_manager.hh"
 
-class OrdoServer : public TcpServer {
+class LineairDBServer : public TcpServer {
 public:
-    OrdoServer();
-    ~OrdoServer() = default;
+    LineairDBServer();
+    ~LineairDBServer() = default;
     
     void init();
     

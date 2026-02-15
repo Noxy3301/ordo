@@ -21,7 +21,7 @@ set -euo pipefail
 usage() {
   cat <<USAGE
 Usage:
-  $0 --mysqld-port P --profile a --terminals T --time SEC --rate R --scalefactor S [--preserve-workdirs] [--ordo-host HOST] [--ordo-port PORT] [--mysql-host HOST] [--skip-setup] [--skip-load] [--skip-execute]
+  $0 --mysqld-port P --profile a --terminals T --time SEC --rate R --scalefactor S [--preserve-workdirs] [--server-host HOST] [--server-port PORT] [--mysql-host HOST] [--skip-setup] [--skip-load] [--skip-execute]
 
 Flags:
   --mysqld-port          MySQL port (default 3307)
@@ -32,8 +32,8 @@ Flags:
   --rate                 Requests/sec; 0 means unlimited (default 0)
   --scalefactor          YCSB scalefactor (default 100)
   --preserve-workdirs    Do not delete BenchBase workdirs after execute
-  --ordo-host            Ordo server host/IP (default 127.0.0.1)
-  --ordo-port            Ordo server port (default 9999)
+  --server-host            LineairDB server host/IP (default 127.0.0.1)
+  --server-port            LineairDB server port (default 9999)
   --skip-setup           Skip setup phase (config is still generated)
   --skip-load            Skip load phase
   --skip-execute         Skip execute phase
@@ -48,8 +48,8 @@ TERMINALS=4
 TIME_SEC=120
 RATE=0
 SCALEFACTOR=100
-ORDO_HOST=127.0.0.1
-ORDO_PORT=9999
+SERVER_HOST=127.0.0.1
+SERVER_PORT=9999
 SKIP_SETUP=false
 SKIP_LOAD=false
 SKIP_EXECUTE=false
@@ -65,8 +65,8 @@ while [[ $# -gt 0 ]]; do
     --rate)                RATE="$2"; shift 2;;
     --scalefactor)         SCALEFACTOR="$2"; shift 2;;
     --preserve-workdirs)   PRESERVE_WORKDIRS=true; shift;;
-    --ordo-host)           ORDO_HOST="$2"; shift 2;;
-    --ordo-port)           ORDO_PORT="$2"; shift 2;;
+    --server-host)           SERVER_HOST="$2"; shift 2;;
+    --server-port)           SERVER_PORT="$2"; shift 2;;
     --skip-setup)          SKIP_SETUP=true; shift;;
     --skip-load)           SKIP_LOAD=true; shift;;
     --skip-execute)        SKIP_EXECUTE=true; shift;;
@@ -132,7 +132,7 @@ else
 fi
 sed -i "s#<weights>.*</weights>#<weights>$WEIGHTS</weights>#" "$GEN_TEMPLATE"
 
-echo "Config: mysqld_port=$MYSQLD_PORT profile=$PROFILE terminals=$TERMINALS time=$TIME_SEC rate=$RATE scalefactor=$SCALEFACTOR ordo=${ORDO_HOST}:${ORDO_PORT}"
+echo "Config: mysqld_port=$MYSQLD_PORT profile=$PROFILE terminals=$TERMINALS time=$TIME_SEC rate=$RATE scalefactor=$SCALEFACTOR server=${SERVER_HOST}:${SERVER_PORT}"
 echo "MySQL host: $MYSQL_HOST"
 echo "Skip flags: setup=$SKIP_SETUP load=$SKIP_LOAD execute=$SKIP_EXECUTE"
 

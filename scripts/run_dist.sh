@@ -6,7 +6,7 @@ usage() {
   cat <<'USAGE'
 run_dist.sh [options]
 
-Distributed LineairDB/Ordo sweep runner (no local start/stop).
+Distributed LineairDB sweep runner (no local start/stop).
 Sweeps terminal counts, runs scripts/experimental/run_ycsb.sh for each,
 and aggregates the resulting aggregate.csv files under bench/results/_run_dist.
 
@@ -18,8 +18,8 @@ Options (can also be provided via env vars):
   --terminals "LIST"       (space/comma separated, e.g. "--terminals 4,8,16")
   --mysql-host HOST        (default: 127.0.0.1)
   --mysql-port PORT        (default: 3307)
-  --ordo-host HOST         (default: 127.0.0.1)
-  --ordo-port PORT         (default: 9999)
+  --server-host HOST         (default: 127.0.0.1)
+  --server-port PORT         (default: 9999)
   --do-sql-setup           Run bench/setup.sql during setup phase (default: false)
   --run-setup              Run setup phase (default: false; execute-only sweep)
   --run-load               Run load phase (default: false; execute-only sweep)
@@ -35,8 +35,8 @@ SCALEFACTOR=${SCALEFACTOR:-1}
 TERMINAL_SWEEP=${TERMINAL_SWEEP:-"1 2 4 8 16 24 32 40 48 56"}
 MYSQL_HOST=${MYSQL_HOST:-127.0.0.1}
 MYSQL_PORT=${MYSQL_PORT:-3307}
-ORDO_HOST=${ORDO_HOST:-127.0.0.1}
-ORDO_PORT=${ORDO_PORT:-9999}
+SERVER_HOST=${SERVER_HOST:-127.0.0.1}
+SERVER_PORT=${SERVER_PORT:-9999}
 DO_SQL_SETUP=${DO_SQL_SETUP:-false}
 RUN_SETUP=${RUN_SETUP:-false}
 RUN_LOAD=${RUN_LOAD:-false}
@@ -51,8 +51,8 @@ while [[ $# -gt 0 ]]; do
     --terminals)         TERMINAL_SWEEP="$2"; shift 2;;
     --mysql-host)        MYSQL_HOST="$2"; shift 2;;
     --mysql-port)        MYSQL_PORT="$2"; shift 2;;
-    --ordo-host)         ORDO_HOST="$2"; shift 2;;
-    --ordo-port)         ORDO_PORT="$2"; shift 2;;
+    --server-host)         SERVER_HOST="$2"; shift 2;;
+    --server-port)         SERVER_PORT="$2"; shift 2;;
     --do-sql-setup)      DO_SQL_SETUP=true; shift;;
     --run-setup)         RUN_SETUP=true; shift;;
     --run-load)          RUN_LOAD=true; shift;;
@@ -132,7 +132,7 @@ collect_results() {
 }
 
 log "Starting distributed sweep: profile=$PROFILE scalefactor=$SCALEFACTOR time=$TIME_SEC rate=$RATE"
-log "Targets: MySQL ${MYSQL_HOST}:${MYSQL_PORT}, Ordo ${ORDO_HOST}:${ORDO_PORT}"
+log "Targets: MySQL ${MYSQL_HOST}:${MYSQL_PORT}, Server ${SERVER_HOST}:${SERVER_PORT}"
 log "Results for this run will be stored under $RUN_SESSION_DIR"
 log "Phases: setup=$( [ "$RUN_SETUP" = true ] && echo on || echo off ) load=$( [ "$RUN_LOAD" = true ] && echo on || echo off ) execute=on"
 
@@ -147,8 +147,8 @@ for term in "${TERMINAL_COUNTS[@]}"; do
       --time "$TIME_SEC" \
       --rate "$RATE" \
       --scalefactor "$SCALEFACTOR" \
-      --ordo-host "$ORDO_HOST" \
-      --ordo-port "$ORDO_PORT" \
+      --server-host "$SERVER_HOST" \
+      --server-port "$SERVER_PORT" \
       $( [ "$RUN_SETUP" = true ] || echo "--skip-setup" ) \
       $( [ "$RUN_LOAD" = true ] || echo "--skip-load" )
   collect_results "$term"

@@ -18,7 +18,7 @@ struct KeyValue {
 
 // Message header for RPC communication (matching server implementation)
 struct MessageHeader {
-    uint64_t sender_id;      // client ID
+    uint64_t sender_id;      // sender ID
     uint32_t message_type;   // OpCode from protobuf
     uint32_t payload_size;   // size of the protobuf payload
 };

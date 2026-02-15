@@ -109,9 +109,9 @@
 #define BLOB_MEMROOT_ALLOC_SIZE (8192)
 #define FENCE false
 
-// Ordo server connection target (GLOBAL sysvars backing storage)
-static char* srv_ordo_host = nullptr;
-static ulong srv_ordo_port = 9999;
+// LineairDB server connection target (GLOBAL sysvars backing storage)
+static char* srv_server_host = nullptr;
+static ulong srv_server_port = 9999;
 
 // THD-scoped context
 struct LineairDBThdCtx {
@@ -241,13 +241,15 @@ err:
 }
 
 LineairDBProxy* ha_lineairdb::get_proxy() {
-  // Use THD-scoped client
+  // thd_ha_data provides a single void* slot per THD per storage engine.
+  // The original (embedded) plugin stores LineairDBTransaction* directly.
+  // We need LineairDBThdCtx to hold both the RPC proxy (replaces get_db()) and the transaction.
   LineairDBThdCtx*& ctx = *reinterpret_cast<LineairDBThdCtx**>(thd_ha_data(userThread, lineairdb_hton));
   if (ctx == nullptr) ctx = new LineairDBThdCtx();
   if (!ctx->proxy) {
-    // Construct client using GLOBAL sysvars for target host/port
-    std::string host = srv_ordo_host ? srv_ordo_host : std::string("127.0.0.1");
-    int port = static_cast<int>(srv_ordo_port);
+    // Construct RPC proxy using GLOBAL sysvars
+    std::string host = srv_server_host ? srv_server_host : std::string("127.0.0.1");
+    int port = static_cast<int>(srv_server_port);
     ctx->proxy = std::make_shared<LineairDBProxy>(host, port);
   }
   return ctx->proxy.get();
@@ -759,8 +761,8 @@ LineairDBTransaction*& ha_lineairdb::get_transaction(THD* thd) {
   LineairDBThdCtx*& ctx = *reinterpret_cast<LineairDBThdCtx**>(thd_ha_data(thd, lineairdb_hton));
   if (ctx == nullptr) ctx = new LineairDBThdCtx();
   if (!ctx->proxy) {
-    std::string host = srv_ordo_host ? srv_ordo_host : std::string("127.0.0.1");
-    int port = static_cast<int>(srv_ordo_port);
+    std::string host = srv_server_host ? srv_server_host : std::string("127.0.0.1");
+    int port = static_cast<int>(srv_server_port);
     ctx->proxy = std::make_shared<LineairDBProxy>(host, port);
   }
   if (ctx->tx == nullptr) {
@@ -1169,18 +1171,18 @@ static MYSQL_THDVAR_LONGLONG(signed_longlong_thdvar, PLUGIN_VAR_RQCMDARG,
                              "LLONG_MIN..LLONG_MAX", nullptr, nullptr, -10,
                              LLONG_MIN, LLONG_MAX, 0);
 
-// Ordo connection target sysvars
-static MYSQL_SYSVAR_STR(ordo_host, srv_ordo_host,
+// LineairDB server connection target sysvars
+static MYSQL_SYSVAR_STR(server_host, srv_server_host,
                         PLUGIN_VAR_RQCMDARG | PLUGIN_VAR_MEMALLOC,
-                        "Ordo server hostname/IP for LineairDB client.",
+                        "LineairDB server hostname or IP address.",
                         nullptr, nullptr, "127.0.0.1");
-static MYSQL_SYSVAR_ULONG(ordo_port, srv_ordo_port, PLUGIN_VAR_RQCMDARG,
-                          "Ordo server TCP port for LineairDB client.",
+static MYSQL_SYSVAR_ULONG(server_port, srv_server_port, PLUGIN_VAR_RQCMDARG,
+                          "LineairDB server TCP port.",
                           nullptr, nullptr, 9999, 1, 65535, 0);
 
 static SYS_VAR* lineairdb_system_variables[] = {
-    MYSQL_SYSVAR(ordo_host),
-    MYSQL_SYSVAR(ordo_port),
+    MYSQL_SYSVAR(server_host),
+    MYSQL_SYSVAR(server_port),
     MYSQL_SYSVAR(enum_var),
     MYSQL_SYSVAR(ulong_var),
     MYSQL_SYSVAR(double_var),

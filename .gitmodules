@@ -1,9 +1,9 @@
 [submodule "third_party/mysql-server"]
 	path = third_party/mysql-server
 	url = https://github.com/mysql/mysql-server.git
-	ignore = all
+	ignore = dirty
 [submodule "third_party/LineairDB"]
 	path = third_party/LineairDB
 	url = https://github.com/LineairDB/LineairDB.git
 	branch = main
-	ignore = all
+	ignore = dirty

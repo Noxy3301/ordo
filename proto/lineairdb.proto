@@ -2,46 +2,62 @@ syntax = "proto3";
 
 package LineairDB.Protocol;
 
-// identifies which RPC is being invoked
+// Identifies which RPC is being invoked.
 enum OpCode {
     UNKNOWN = 0;
     TX_BEGIN_TRANSACTION = 1;
     TX_ABORT = 2;
     TX_READ = 3;
     TX_WRITE = 4;
-    TX_SCAN = 5;
+    TX_SCAN = 5;    // [deprecated] Legacy scan API. Superseded by TX_SCAN_RANGE.
     DB_FENCE = 6;
     DB_END_TRANSACTION = 7;
+    TX_DELETE = 8;
+    TX_SCAN_RANGE = 9;
+    TX_READ_SECONDARY_INDEX = 10;
+    TX_WRITE_SECONDARY_INDEX = 11;
+    TX_DELETE_SECONDARY_INDEX = 12;
+    TX_UPDATE_SECONDARY_INDEX = 13;
+    TX_SCAN_SECONDARY_INDEX = 14;
+    DB_CREATE_TABLE = 15;
+    DB_SET_TABLE = 16;
+    DB_CREATE_SECONDARY_INDEX = 17;
 }
 
-// Tx Begin Transaction RPC
+// Shared key-value pair used across scan responses.
+message KeyValue {
+    string key = 1;
+    bytes value = 2;
+}
+
+// Secondary index entry: a secondary key and its associated primary keys.
+message SecondaryIndexEntry {
+    string secondary_key = 1;
+    repeated string primary_keys = 2;
+}
+
+// Begin a new transaction. Returns a server-assigned transaction ID.
 message TxBeginTransaction {
-    message Request {
-        // empty request - create new transaction
-    }
+    message Request {}
     message Response {
-        int64 transaction_id = 1;  // generated transaction ID
+        int64 transaction_id = 1;
     }
 }
 
-// Tx Abort RPC
+// Abort a transaction.
 message TxAbort {
     message Request {
         int64 transaction_id = 1;
     }
-    
-    message Response {
-        // empty response
-    }
+    message Response {}
 }
 
-// Tx Read RPC
+// Read a single value by primary key.
 message TxRead {
     message Request {
         int64 transaction_id = 1;
         string key = 2;
     }
-    
     message Response {
         bool found = 1;
         bytes value = 2;
@@ -49,58 +65,211 @@ message TxRead {
     }
 }
 
-// Tx Write RPC
+// Write a value by primary key.
 message TxWrite {
     message Request {
         int64 transaction_id = 1;
         string key = 2;
         bytes value = 3;
     }
-    
     message Response {
         bool success = 1;
         bool is_aborted = 2;
     }
 }
 
-// Tx Scan RPC
+// [deprecated] Legacy scan API. Superseded by TxScanRange.
 message TxScan {
     message Request {
         int64 transaction_id = 1;
         string db_table_key = 2;
         string first_key_part = 3;
     }
-
     message KeyValue {
         string key = 1;
         bytes value = 2;
     }
-
     message Response {
         repeated KeyValue key_values = 1;
         bool is_aborted = 2;
     }
 }
 
-// DB Fence RPC
+// Wait for all pending transactions to be durably committed.
 message DbFence {
-    message Request {
-        // empty request
-    }
-
-    message Response {
-        // empty response
-    }
+    message Request {}
+    message Response {}
 }
 
-// DB End Transaction RPC
+// Commit or abort a transaction.
+// @param fence  If true, block until the transaction is durably committed.
 message DbEndTransaction {
     message Request {
         int64 transaction_id = 1;
         bool fence = 2;
     }
-
     message Response {
         bool is_aborted = 1;
+    }
+}
+
+// Delete a value by primary key.
+message TxDelete {
+    message Request {
+        int64 transaction_id = 1;
+        string key = 2;
+    }
+    message Response {
+        bool success = 1;
+        bool is_aborted = 2;
+    }
+}
+
+// Unified range scan over primary keys.
+//
+// Covers the following SE methods:
+//   - get_matching_keys_in_range(start, end, exclusive_end)
+//   - get_matching_keys_and_values_in_range(start, end, exclusive_end)
+//   - get_matching_keys_and_values_from_prefix(prefix)
+//   - fetch_last_key_in_range(start, end, exclusive_end)       [reverse=true, limit=1]
+//   - fetch_first_key_with_prefix(prefix, prefix_end)          [limit=1]
+//   - fetch_next_key_with_prefix(last_key, prefix_end)         [after_key, limit=1]
+message TxScanRange {
+    message Request {
+        int64 transaction_id = 1;
+        string start_key = 2;          // Inclusive lower bound (empty = beginning).
+        string end_key = 3;            // Inclusive upper bound (empty = no upper bound).
+        string exclusive_end_key = 4;  // Exclusive upper bound (for HA_READ_BEFORE_KEY).
+        bool reverse = 5;              // Scan in descending order.
+        bool include_values = 6;       // Return key+value pairs instead of keys only.
+        uint32 limit = 7;              // Max results (0 = unlimited).
+        string after_key = 8;          // Cursor: start after this key (exclusive).
+    }
+    message Response {
+        repeated KeyValue results = 1;
+        bool is_aborted = 2;
+    }
+}
+
+// Read primary-key values associated with a secondary key.
+// @see LineairDBTransaction::read_secondary_index()
+message TxReadSecondaryIndex {
+    message Request {
+        int64 transaction_id = 1;
+        string index_name = 2;
+        string secondary_key = 3;
+    }
+    message Response {
+        repeated bytes values = 1;
+        bool is_aborted = 2;
+    }
+}
+
+// Write a primary-key entry into a secondary index.
+// @see LineairDBTransaction::write_secondary_index()
+message TxWriteSecondaryIndex {
+    message Request {
+        int64 transaction_id = 1;
+        string index_name = 2;
+        string secondary_key = 3;
+        bytes value = 4;              // Primary key data.
+    }
+    message Response {
+        bool success = 1;
+        bool is_aborted = 2;
+    }
+}
+
+// Remove a primary-key entry from a secondary index.
+// @see LineairDBTransaction::delete_secondary_index()
+message TxDeleteSecondaryIndex {
+    message Request {
+        int64 transaction_id = 1;
+        string index_name = 2;
+        string secondary_key = 3;
+        bytes value = 4;              // Primary key to remove from the posting list.
+    }
+    message Response {
+        bool success = 1;
+        bool is_aborted = 2;
+    }
+}
+
+// Atomically move a primary key from one secondary key to another.
+// @see LineairDBTransaction::update_secondary_index()
+message TxUpdateSecondaryIndex {
+    message Request {
+        int64 transaction_id = 1;
+        string index_name = 2;
+        string old_secondary_key = 3;
+        string new_secondary_key = 4;
+        bytes primary_key = 5;
+    }
+    message Response {
+        bool success = 1;
+        bool is_aborted = 2;
+    }
+}
+
+// Unified range scan over a secondary index.
+//
+// Covers the following SE methods:
+//   - get_matching_primary_keys_in_range(index, start, end, exclusive_end)
+//   - get_matching_primary_keys_from_prefix(index, prefix)
+//   - fetch_last_primary_key_in_secondary_range(index, start, end, exclusive_end)
+//   - fetch_last_secondary_entry_in_range(index, start, end, exclusive_end)
+message TxScanSecondaryIndex {
+    message Request {
+        int64 transaction_id = 1;
+        string index_name = 2;
+        string start_key = 3;
+        string end_key = 4;
+        string exclusive_end_key = 5;
+        bool reverse = 6;
+        uint32 limit = 7;
+        bool include_secondary_keys = 8;  // Return SecondaryIndexEntry with secondary keys.
+    }
+    message Response {
+        repeated SecondaryIndexEntry entries = 1;  // When include_secondary_keys=true.
+        repeated string primary_keys = 2;          // When include_secondary_keys=false.
+        bool is_aborted = 3;
+    }
+}
+
+// Create a new table in the database.
+// @see LineairDB::Database::CreateTable()
+message DbCreateTable {
+    message Request {
+        string table_name = 1;
+    }
+    message Response {
+        bool success = 1;
+    }
+}
+
+// Set the table context for a transaction. Subsequent operations
+// within this transaction will be scoped to the specified table.
+// @see LineairDB::Transaction::SetTable()
+message DbSetTable {
+    message Request {
+        int64 transaction_id = 1;
+        string table_name = 2;
+    }
+    message Response {
+        bool success = 1;
+    }
+}
+
+// Create a secondary index on a table.
+// @see LineairDB::Database::CreateSecondaryIndex()
+// @param index_type  0=kNone, 2=kDictUnique (LineairDB::Index::SecondaryIndexType)
+message DbCreateSecondaryIndex {
+    message Request {
+        string table_name = 1;
+        string index_name = 2;
+        uint32 index_type = 3;
+    }
+    message Response {
+        bool success = 1;
     }
 }

@@ -1,3 +1,6 @@
+#ifndef LINEAIRDB_FIELD_HH
+#define LINEAIRDB_FIELD_HH
+
 #include <climits>
 #include <string>
 #include <variant>
@@ -70,3 +73,5 @@ class LineairDBField {
     return num_bytes;
   }
 };
+
+#endif /* LINEAIRDB_FIELD_HH */

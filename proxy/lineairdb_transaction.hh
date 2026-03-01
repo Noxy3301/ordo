@@ -1,3 +1,6 @@
+#ifndef LINEAIRDB_TRANSACTION_HH
+#define LINEAIRDB_TRANSACTION_HH
+
 #include <optional>
 #include <unordered_map>
 
@@ -122,3 +125,5 @@ private:
   void register_transaction_to_mysql();
   void register_single_statement_to_mysql();
 };
+
+#endif /* LINEAIRDB_TRANSACTION_HH */

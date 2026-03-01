@@ -1,9 +1,12 @@
+#include <optional>
 #include <unordered_map>
 
 #include "sql/handler.h" /* handler */
 #include "mysql/plugin.h"
 #include "sql/sql_class.h"
 #include "lineairdb_proxy.hh"
+
+class LineairDB_share;
 
 /**
  * @brief 
@@ -25,9 +28,43 @@ public:
   const std::pair<const std::byte *const, const size_t> read(std::string key);
   std::vector<std::string> get_all_keys();
   std::vector<std::string> get_matching_keys(std::string key);
+  std::vector<std::string> get_matching_keys_in_range(std::string start_key, std::string end_key,
+                                                      const std::string &exclusive_end_key = "");
+  std::vector<std::pair<std::string, std::string>> get_matching_keys_and_values_in_range(
+      std::string start_key, std::string end_key,
+      const std::string &exclusive_end_key = "");
+  std::vector<std::pair<std::string, std::string>> get_matching_keys_and_values_from_prefix(
+      std::string prefix);
   bool write(std::string key, const std::string value);
+  bool write_secondary_index(std::string index_name, std::string secondary_key, const std::string primary_key);
+  std::vector<std::string> read_secondary_index(std::string index_name, std::string secondary_key);
+  std::vector<std::string> get_matching_primary_keys_in_range(
+      std::string index_name, std::string start_key, std::string end_key,
+      const std::string &exclusive_end_key = "");
+  std::vector<std::string> get_matching_primary_keys_from_prefix(
+      std::string index_name, std::string prefix);
+  std::optional<std::string> fetch_last_key_in_range(
+      const std::string &start_key, const std::string &end_key,
+      const std::string &exclusive_end_key = "");
+  std::optional<std::string> fetch_last_primary_key_in_secondary_range(
+      const std::string &index_name, const std::string &start_key,
+      const std::string &end_key,
+      const std::string &exclusive_end_key = "");
+  std::optional<SecondaryIndexEntry> fetch_last_secondary_entry_in_range(
+      const std::string &index_name, const std::string &start_key,
+      const std::string &end_key,
+      const std::string &exclusive_end_key = "");
+  std::optional<std::string> fetch_first_key_with_prefix(
+      const std::string &prefix, const std::string &prefix_end);
+  std::optional<std::string> fetch_next_key_with_prefix(
+      const std::string &last_key, const std::string &prefix_end);
+  bool update_secondary_index(
+      std::string index_name,
+      std::string old_secondary_key,
+      std::string new_secondary_key,
+      const std::string primary_key);
   bool delete_value(std::string key);
-
+  bool delete_secondary_index(std::string index_name, std::string secondary_key, const std::string primary_key);
 
   void begin_transaction();
   void set_status_to_abort();
@@ -54,6 +91,9 @@ public:
 
   inline bool is_a_single_statement() const { return !isTransaction; }
 
+  void add_rowcount_delta(LineairDB_share *share, int64_t delta);
+  int64_t peek_rowcount_delta(const LineairDB_share *share) const;
+
 
   LineairDBTransaction(THD* thd, 
                        LineairDBProxy* lineairdb_proxy, 
@@ -75,6 +115,8 @@ private:
 
   // transaction abort status (updated by RPC responses)
   bool is_aborted_;
+
+  std::vector<std::pair<LineairDB_share *, int64_t>> rowcount_deltas_;
 
   bool thd_is_transaction() const;
   void register_transaction_to_mysql();

@@ -363,11 +363,13 @@ void LineairDBRpc::handleTxGetMatchingKeysInRange(const std::string& message, st
 
         auto scan_result = tx->Scan(
             start_key, end_opt, [&response, &exclusive_end_key](auto key, auto) {
+                // Skip if key matches exclusive end key (HA_READ_BEFORE_KEY)
                 if (!exclusive_end_key.empty() && key == exclusive_end_key) { return false; }
                 response.add_keys(std::string(key));
                 return false;
             });
 
+        // Phantom detection: if Scan returns nullopt, the transaction is in an abort state
         if (!scan_result.has_value()) {
             tx->Abort();
             response.set_is_aborted(true);
@@ -403,7 +405,9 @@ void LineairDBRpc::handleTxGetMatchingKeysAndValuesInRange(const std::string& me
 
         auto scan_result = tx->Scan(
             start_key, end_opt, [&response, &exclusive_end_key](auto key, auto value) {
+                // Skip if key matches exclusive end key (HA_READ_BEFORE_KEY)
                 if (!exclusive_end_key.empty() && key == exclusive_end_key) { return false; }
+                // Skip tombstones
                 if (value.first == nullptr || value.second == 0) { return false; }
                 auto* kv = response.add_results();
                 kv->set_key(std::string(key));
@@ -411,6 +415,7 @@ void LineairDBRpc::handleTxGetMatchingKeysAndValuesInRange(const std::string& me
                 return false;
             });
 
+        // Phantom detection: if Scan returns nullopt, the transaction is in an abort state
         if (!scan_result.has_value()) {
             tx->Abort();
             response.set_is_aborted(true);
@@ -449,6 +454,7 @@ void LineairDBRpc::handleTxGetMatchingKeysAndValuesFromPrefix(const std::string&
                     std::string key_str(key);
                     if (!key_prefix_is_matching(prefix, key_str)) { prefix_miss = true; return true; }
                 }
+                // Skip tombstones
                 if (value.first == nullptr || value.second == 0) { return false; }
                 auto* kv = response.add_results();
                 kv->set_key(std::string(key));
@@ -456,6 +462,7 @@ void LineairDBRpc::handleTxGetMatchingKeysAndValuesFromPrefix(const std::string&
                 return false;
             });
 
+        // Phantom detection: if Scan returns nullopt, the transaction is in an abort state
         if (!scan_result.has_value()) {
             tx->Abort();
             response.set_is_aborted(true);
@@ -491,28 +498,29 @@ void LineairDBRpc::handleTxFetchLastKeyInRange(const std::string& message, std::
         std::optional<std::string_view> end_opt;
         if (!end_key.empty()) { end_opt = end_key; }
 
-        std::optional<std::string> found_key;
+        std::optional<std::string> result;
         auto scan_result = tx->ScanReverse(
-            start_key, end_opt, [&found_key, &exclusive_end_key](auto key, auto) {
+            start_key, end_opt, [&result, &exclusive_end_key](auto key, auto) {
                 if (!exclusive_end_key.empty() && key == exclusive_end_key) { return false; }
-                found_key = std::string(key);
+                result = std::string(key);
                 return true;
             });
 
+        // Phantom detection: if ScanReverse returns nullopt, the transaction is in an abort state
         if (!scan_result.has_value()) {
             tx->Abort();
             response.set_is_aborted(true);
             response.set_found(false);
         } else {
             response.set_is_aborted(tx->IsAborted());
-            if (found_key.has_value()) {
+            if (result.has_value()) {
                 response.set_found(true);
-                response.set_key(found_key.value());
+                response.set_key(result.value());
             } else {
                 response.set_found(false);
             }
         }
-        LOG_DEBUG("FetchLastKeyInRange tx=%ld: found=%s", tx_id, found_key.has_value() ? "true" : "false");
+        LOG_DEBUG("FetchLastKeyInRange tx=%ld: found=%s", tx_id, result.has_value() ? "true" : "false");
     } else {
         response.set_is_aborted(true);
         response.set_found(false);
@@ -539,30 +547,36 @@ void LineairDBRpc::handleTxFetchFirstKeyWithPrefix(const std::string& message, s
         std::optional<std::string_view> end_opt;
         if (!prefix_end.empty()) { end_opt = prefix_end; }
 
-        std::optional<std::string> found_key;
+        std::optional<std::string> result;
         auto scan_result = tx->Scan(
-            prefix, end_opt, [&found_key, &prefix_end](auto key, auto value) {
-                if (!prefix_end.empty() && key == prefix_end) { return true; }
-                if (value.first == nullptr || value.second == 0) { return false; }
-                found_key = std::string(key);
-                return true;
+            prefix, end_opt, [&result, &prefix_end](auto key, auto value) {
+                if (!prefix_end.empty() && key == prefix_end) {
+                    return true; // exclusive end
+                }
+                // Skip tombstones
+                if (value.first == nullptr || value.second == 0) {
+                    return false; // Continue scanning
+                }
+                result = std::string(key);
+                return true; // Stop after first valid key
             });
 
+        // Phantom detection: if Scan returns nullopt, the transaction is in an abort state
         if (!scan_result.has_value()) {
             tx->Abort();
             response.set_is_aborted(true);
             response.set_found(false);
         } else {
             response.set_is_aborted(tx->IsAborted());
-            if (found_key.has_value()) {
+            if (result.has_value()) {
                 response.set_found(true);
-                response.set_key(found_key.value());
+                response.set_key(result.value());
             } else {
                 response.set_found(false);
             }
         }
         LOG_DEBUG("FetchFirstKeyWithPrefix tx=%ld prefix='%s': found=%s",
-                  tx_id, prefix.c_str(), found_key.has_value() ? "true" : "false");
+                  tx_id, prefix.c_str(), result.has_value() ? "true" : "false");
     } else {
         response.set_is_aborted(true);
         response.set_found(false);
@@ -590,32 +604,42 @@ void LineairDBRpc::handleTxFetchNextKeyWithPrefix(const std::string& message, st
         std::optional<std::string_view> end_opt;
         if (!prefix_end.empty()) { end_opt = prefix_end; }
 
-        std::optional<std::string> found_key;
+        std::optional<std::string> result;
         auto scan_result = tx->Scan(
             last_key, end_opt,
-            [&found_key, &skip_first, &last_key, &prefix_end](auto key, auto value) {
-                if (skip_first && key == last_key) { skip_first = false; return false; }
-                if (!prefix_end.empty() && key == prefix_end) { return true; }
-                if (value.first == nullptr || value.second == 0) { return false; }
-                found_key = std::string(key);
-                return true;
+            [&result, &skip_first, &last_key, &prefix_end](auto key, auto value) {
+                // Skip the last_key itself (we want the next one)
+                if (skip_first && key == last_key) {
+                    skip_first = false;
+                    return false; // Continue scanning
+                }
+                if (!prefix_end.empty() && key == prefix_end) {
+                    return true; // exclusive end
+                }
+                // Skip tombstones
+                if (value.first == nullptr || value.second == 0) {
+                    return false; // Continue scanning
+                }
+                result = std::string(key);
+                return true; // Stop after first valid key
             });
 
+        // Phantom detection: if Scan returns nullopt, the transaction is in an abort state
         if (!scan_result.has_value()) {
             tx->Abort();
             response.set_is_aborted(true);
             response.set_found(false);
         } else {
             response.set_is_aborted(tx->IsAborted());
-            if (found_key.has_value()) {
+            if (result.has_value()) {
                 response.set_found(true);
-                response.set_key(found_key.value());
+                response.set_key(result.value());
             } else {
                 response.set_found(false);
             }
         }
         LOG_DEBUG("FetchNextKeyWithPrefix tx=%ld last_key='%s': found=%s",
-                  tx_id, last_key.c_str(), found_key.has_value() ? "true" : "false");
+                  tx_id, last_key.c_str(), result.has_value() ? "true" : "false");
     } else {
         response.set_is_aborted(true);
         response.set_found(false);
@@ -648,11 +672,13 @@ void LineairDBRpc::handleTxGetMatchingPrimaryKeysInRange(const std::string& mess
             index_name, start_key, end_opt,
             [&response, &exclusive_end_key](std::string_view secondary_key,
                                             const std::vector<std::string>& primary_keys) {
+                // Skip if secondary_key matches exclusive end key (HA_READ_BEFORE_KEY)
                 if (!exclusive_end_key.empty() && secondary_key == exclusive_end_key) { return false; }
                 for (const auto& pk : primary_keys) { response.add_primary_keys(pk); }
                 return false;
             });
 
+        // Phantom detection: ScanSecondaryIndex returns nullopt if aborted
         if (!scan_result.has_value()) {
             tx->Abort();
             response.set_is_aborted(true);
@@ -698,6 +724,7 @@ void LineairDBRpc::handleTxGetMatchingPrimaryKeysFromPrefix(const std::string& m
                 return false;
             });
 
+        // Phantom detection: ScanSecondaryIndex returns nullopt if aborted
         if (!scan_result.has_value()) {
             tx->Abort();
             response.set_is_aborted(true);
@@ -734,32 +761,33 @@ void LineairDBRpc::handleTxFetchLastPrimaryKeyInSecondaryRange(const std::string
         std::optional<std::string_view> end_opt;
         if (!end_key.empty()) { end_opt = end_key; }
 
-        std::optional<std::string> found_pk;
+        std::optional<std::string> result;
         auto scan_result = tx->ScanSecondaryIndexReverse(
             index_name, start_key, end_opt,
-            [&found_pk, &exclusive_end_key](std::string_view secondary_key,
+            [&result, &exclusive_end_key](std::string_view secondary_key,
                                             const std::vector<std::string>& primary_keys) {
                 if (!exclusive_end_key.empty() && secondary_key == exclusive_end_key) { return false; }
                 if (primary_keys.empty()) { return false; }
-                found_pk = primary_keys.back();
+                result = primary_keys.back();
                 return true;
             });
 
+        // Phantom detection: ScanSecondaryIndexReverse returns nullopt if aborted
         if (!scan_result.has_value()) {
             tx->Abort();
             response.set_is_aborted(true);
             response.set_found(false);
         } else {
             response.set_is_aborted(tx->IsAborted());
-            if (found_pk.has_value()) {
+            if (result.has_value()) {
                 response.set_found(true);
-                response.set_primary_key(found_pk.value());
+                response.set_primary_key(result.value());
             } else {
                 response.set_found(false);
             }
         }
         LOG_DEBUG("FetchLastPrimaryKeyInSecondaryRange tx=%ld index='%s': found=%s",
-                  tx_id, index_name.c_str(), found_pk.has_value() ? "true" : "false");
+                  tx_id, index_name.c_str(), result.has_value() ? "true" : "false");
     } else {
         response.set_is_aborted(true);
         response.set_found(false);
@@ -802,6 +830,7 @@ void LineairDBRpc::handleTxFetchLastSecondaryEntryInRange(const std::string& mes
                 return true;
             });
 
+        // Phantom detection: ScanSecondaryIndexReverse returns nullopt if aborted
         if (!scan_result.has_value()) {
             tx->Abort();
             response.set_is_aborted(true);

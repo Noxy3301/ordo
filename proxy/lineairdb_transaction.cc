@@ -1,4 +1,5 @@
 #include "lineairdb_transaction.hh"
+#include "storage/lineairdb/ha_lineairdb.hh"
 #include "../common/log.h"
 
 LineairDBTransaction::LineairDBTransaction(THD* thd, 
@@ -291,11 +292,33 @@ void LineairDBTransaction::set_status_to_abort() {
 
 bool LineairDBTransaction::end_transaction() {
   assert(tx_id != -1);
+  bool was_aborted = is_aborted_;
   bool committed = lineairdb_proxy->db_end_transaction(tx_id, isFence);
   if (!committed) {
     thd_mark_transaction_to_rollback(thread, 1);
   }
-  if (isFence) lineairdb_proxy->db_fence();
+
+  // Flush committed row-count deltas only when commit succeeds.
+  // Avoid touching shared counters on abort/rollback paths.
+  if (!was_aborted && committed && !rowcount_deltas_.empty()) {
+    const uint64_t tid = static_cast<uint64_t>(thread->thread_id());
+    const size_t shard =
+        static_cast<size_t>(tid) & (LineairDB_share::kRowCountShards - 1);
+
+    for (const auto &entry : rowcount_deltas_) {
+      LineairDB_share *share = entry.first;
+      const int64_t delta = entry.second;
+      if (share == nullptr || delta == 0)
+        continue;
+
+      share->rowcount_shards[shard].delta.fetch_add(
+          delta, std::memory_order_relaxed);
+    }
+  }
+
+  if (isFence && !was_aborted && committed) {
+    lineairdb_proxy->db_fence();
+  }
   delete this;
   return committed;
 }

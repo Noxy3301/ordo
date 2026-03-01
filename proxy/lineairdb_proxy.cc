@@ -30,7 +30,7 @@ bool LineairDBProxy::connect(const std::string& host, int port) {
     if (connected_) {
         disconnect();
     }
-    
+
     // create TCP socket
     socket_fd_ = socket(AF_INET, SOCK_STREAM, 0);
     if (socket_fd_ < 0) {
@@ -42,7 +42,7 @@ bool LineairDBProxy::connect(const std::string& host, int port) {
     memset(&server_addr, 0, sizeof(server_addr));
     server_addr.sin_family = AF_INET;
     server_addr.sin_port = htons(port);
-    
+
     if (inet_pton(AF_INET, host.c_str(), &server_addr.sin_addr) <= 0) {
         close(socket_fd_);
         socket_fd_ = -1;
@@ -55,7 +55,7 @@ bool LineairDBProxy::connect(const std::string& host, int port) {
         socket_fd_ = -1;
         return false;
     }
-    
+
     connected_ = true;
     host_ = host;
     port_ = port;
@@ -74,95 +74,6 @@ void LineairDBProxy::disconnect() {
 
 bool LineairDBProxy::is_connected() const {
     return connected_;
-}
-
-std::string LineairDBProxy::tx_read(LineairDBTransaction* tx, const std::string& key) {
-    int64_t tx_id = tx->get_tx_id();
-    LOG_DEBUG("CLIENT: tx_read called with tx_id=%ld, key=%s", tx_id, key.c_str());
-    if (!connected_) {
-        LOG_ERROR("RPC failed: Not connected to server");
-        return "";
-    }
-
-    LineairDB::Protocol::TxRead::Request request;
-    LineairDB::Protocol::TxRead::Response response;
-    
-    request.set_transaction_id(tx_id);
-    request.set_key(key);
-    LOG_DEBUG("CLIENT: Created read request");
-
-    if (!send_protobuf_message(request, response, MessageType::TX_READ)) {
-        LOG_ERROR("RPC failed: Failed to send message to server");
-        return "";
-    }
-
-    // Update transaction abort status
-    tx->set_aborted(response.is_aborted());
-
-    LOG_DEBUG("CLIENT: tx_read completed, found: %s", response.found() ? "true" : "false");
-    return response.found() ? response.value() : "";
-}
-
-bool LineairDBProxy::tx_write(LineairDBTransaction* tx, const std::string& key, const std::string& value) {
-    int64_t tx_id = tx->get_tx_id();
-    LOG_DEBUG("CLIENT: tx_write called with tx_id=%ld, key=%s, value=%s", tx_id, key.c_str(), value.c_str());
-    if (!connected_) {
-        LOG_ERROR("RPC failed: Not connected to server");
-        return false;
-    }
-
-    LineairDB::Protocol::TxWrite::Request request;
-    LineairDB::Protocol::TxWrite::Response response;
-    
-    request.set_transaction_id(tx_id);
-    request.set_key(key);
-    request.set_value(value);
-    LOG_DEBUG("CLIENT: Created write request");
-
-    if (!send_protobuf_message(request, response, MessageType::TX_WRITE)) {
-        LOG_ERROR("RPC failed: Failed to send message to server");
-        return false;
-    }
-
-    // Update transaction abort status
-    tx->set_aborted(response.is_aborted());
-
-    LOG_DEBUG("CLIENT: tx_write completed, success: %s", response.success() ? "true" : "false");
-    return response.success();
-}
-
-std::vector<KeyValue> LineairDBProxy::tx_scan(LineairDBTransaction* tx, const std::string& db_table_key, const std::string& first_key_part) {
-    int64_t tx_id = tx->get_tx_id();
-    LOG_DEBUG("CLIENT: tx_scan called with tx_id=%ld, table=%s, prefix=%s", tx_id, db_table_key.c_str(), first_key_part.c_str());
-    if (!connected_) {
-        LOG_ERROR("RPC failed: Not connected to server");
-        return {};
-    }
-
-    LineairDB::Protocol::TxScan::Request request;
-    LineairDB::Protocol::TxScan::Response response;
-    
-    request.set_transaction_id(tx_id);
-    request.set_db_table_key(db_table_key);
-    request.set_first_key_part(first_key_part);
-    LOG_DEBUG("CLIENT: Created scan request");
-
-    if (!send_protobuf_message(request, response, MessageType::TX_SCAN)) {
-        LOG_ERROR("RPC failed: Failed to send message to server");
-        return {};
-    }
-
-    // Update transaction abort status
-    tx->set_aborted(response.is_aborted());
-
-    std::vector<KeyValue> key_values;
-    for (const auto& kv : response.key_values()) {
-        key_values.emplace_back(KeyValue{kv.key(), kv.value()});
-        LOG_DEBUG("CLIENT: received key='%s', value_size=%zu", kv.key().c_str(), kv.value().size());
-    }
-    
-    LOG_DEBUG("CLIENT: tx_scan completed, found %zu key-value pairs", key_values.size());
-    return key_values;
 }
 
 int64_t LineairDBProxy::tx_begin_transaction() {
@@ -194,7 +105,7 @@ void LineairDBProxy::tx_abort(int64_t tx_id) {
 
     LineairDB::Protocol::TxAbort::Request request;
     LineairDB::Protocol::TxAbort::Response response;
-    
+
     request.set_transaction_id(tx_id);
     LOG_DEBUG("CLIENT: Created abort request");
 
@@ -206,6 +117,453 @@ void LineairDBProxy::tx_abort(int64_t tx_id) {
     LOG_DEBUG("CLIENT: tx_abort completed");
 }
 
+std::string LineairDBProxy::tx_read(LineairDBTransaction* tx, const std::string& key) {
+    int64_t tx_id = tx->get_tx_id();
+    LOG_DEBUG("CLIENT: tx_read called with tx_id=%ld, key=%s", tx_id, key.c_str());
+    if (!connected_) {
+        LOG_ERROR("RPC failed: Not connected to server");
+        return "";
+    }
+
+    LineairDB::Protocol::TxRead::Request request;
+    LineairDB::Protocol::TxRead::Response response;
+
+    request.set_transaction_id(tx_id);
+    request.set_key(key);
+    LOG_DEBUG("CLIENT: Created read request");
+
+    if (!send_protobuf_message(request, response, MessageType::TX_READ)) {
+        LOG_ERROR("RPC failed: Failed to send message to server");
+        return "";
+    }
+
+    // Update transaction abort status
+    tx->set_aborted(response.is_aborted());
+
+    LOG_DEBUG("CLIENT: tx_read completed, found: %s", response.found() ? "true" : "false");
+    return response.found() ? response.value() : "";
+}
+
+bool LineairDBProxy::tx_write(LineairDBTransaction* tx, const std::string& key, const std::string& value) {
+    int64_t tx_id = tx->get_tx_id();
+    LOG_DEBUG("CLIENT: tx_write called with tx_id=%ld, key=%s, value=%s", tx_id, key.c_str(), value.c_str());
+    if (!connected_) {
+        LOG_ERROR("RPC failed: Not connected to server");
+        return false;
+    }
+
+    LineairDB::Protocol::TxWrite::Request request;
+    LineairDB::Protocol::TxWrite::Response response;
+
+    request.set_transaction_id(tx_id);
+    request.set_key(key);
+    request.set_value(value);
+    LOG_DEBUG("CLIENT: Created write request");
+
+    if (!send_protobuf_message(request, response, MessageType::TX_WRITE)) {
+        LOG_ERROR("RPC failed: Failed to send message to server");
+        return false;
+    }
+
+    // Update transaction abort status
+    tx->set_aborted(response.is_aborted());
+
+    LOG_DEBUG("CLIENT: tx_write completed, success: %s", response.success() ? "true" : "false");
+    return response.success();
+}
+
+bool LineairDBProxy::tx_delete(LineairDBTransaction* tx, const std::string& key) {
+    int64_t tx_id = tx->get_tx_id();
+    LOG_DEBUG("CLIENT: tx_delete called with tx_id=%ld, key=%s", tx_id, key.c_str());
+    if (!connected_) {
+        LOG_ERROR("RPC failed: Not connected to server");
+        return false;
+    }
+
+    LineairDB::Protocol::TxDelete::Request request;
+    LineairDB::Protocol::TxDelete::Response response;
+
+    request.set_transaction_id(tx_id);
+    request.set_key(key);
+
+    if (!send_protobuf_message(request, response, MessageType::TX_DELETE)) {
+        LOG_ERROR("RPC failed: Failed to send message to server");
+        return false;
+    }
+
+    tx->set_aborted(response.is_aborted());
+
+    LOG_DEBUG("CLIENT: tx_delete completed, success: %s", response.success() ? "true" : "false");
+    return response.success();
+}
+
+std::vector<KeyValue> LineairDBProxy::tx_scan(LineairDBTransaction* tx, const std::string& db_table_key, const std::string& first_key_part) {
+    int64_t tx_id = tx->get_tx_id();
+    LOG_DEBUG("CLIENT: tx_scan called with tx_id=%ld, table=%s, prefix=%s", tx_id, db_table_key.c_str(), first_key_part.c_str());
+    if (!connected_) {
+        LOG_ERROR("RPC failed: Not connected to server");
+        return {};
+    }
+
+    LineairDB::Protocol::TxScan::Request request;
+    LineairDB::Protocol::TxScan::Response response;
+
+    request.set_transaction_id(tx_id);
+    request.set_db_table_key(db_table_key);
+    request.set_first_key_part(first_key_part);
+    LOG_DEBUG("CLIENT: Created scan request");
+
+    if (!send_protobuf_message(request, response, MessageType::TX_SCAN)) {
+        LOG_ERROR("RPC failed: Failed to send message to server");
+        return {};
+    }
+
+    // Update transaction abort status
+    tx->set_aborted(response.is_aborted());
+
+    std::vector<KeyValue> key_values;
+    for (const auto& kv : response.key_values()) {
+        key_values.emplace_back(KeyValue{kv.key(), kv.value()});
+        LOG_DEBUG("CLIENT: received key='%s', value_size=%zu", kv.key().c_str(), kv.value().size());
+    }
+
+    LOG_DEBUG("CLIENT: tx_scan completed, found %zu key-value pairs", key_values.size());
+    return key_values;
+}
+
+std::vector<KeyValue> LineairDBProxy::tx_scan_range(LineairDBTransaction* tx,
+                                                     const std::string& start_key,
+                                                     const std::string& end_key,
+                                                     const std::string& exclusive_end_key,
+                                                     bool reverse,
+                                                     bool include_values,
+                                                     uint32_t limit,
+                                                     const std::string& after_key) {
+    int64_t tx_id = tx->get_tx_id();
+    LOG_DEBUG("CLIENT: tx_scan_range called with tx_id=%ld, start=%s, end=%s, reverse=%d, limit=%u",
+              tx_id, start_key.c_str(), end_key.c_str(), reverse, limit);
+    if (!connected_) {
+        LOG_ERROR("RPC failed: Not connected to server");
+        return {};
+    }
+
+    LineairDB::Protocol::TxScanRange::Request request;
+    LineairDB::Protocol::TxScanRange::Response response;
+
+    request.set_transaction_id(tx_id);
+    request.set_start_key(start_key);
+    request.set_end_key(end_key);
+    request.set_exclusive_end_key(exclusive_end_key);
+    request.set_reverse(reverse);
+    request.set_include_values(include_values);
+    request.set_limit(limit);
+    request.set_after_key(after_key);
+
+    if (!send_protobuf_message(request, response, MessageType::TX_SCAN_RANGE)) {
+        LOG_ERROR("RPC failed: Failed to send message to server");
+        return {};
+    }
+
+    tx->set_aborted(response.is_aborted());
+
+    std::vector<KeyValue> results;
+    for (const auto& kv : response.results()) {
+        results.emplace_back(KeyValue{kv.key(), kv.value()});
+    }
+
+    LOG_DEBUG("CLIENT: tx_scan_range completed, found %zu results", results.size());
+    return results;
+}
+
+std::vector<std::string> LineairDBProxy::tx_read_secondary_index(LineairDBTransaction* tx,
+                                                                  const std::string& index_name,
+                                                                  const std::string& secondary_key) {
+    int64_t tx_id = tx->get_tx_id();
+    LOG_DEBUG("CLIENT: tx_read_secondary_index called with tx_id=%ld, index=%s, key=%s",
+              tx_id, index_name.c_str(), secondary_key.c_str());
+    if (!connected_) {
+        LOG_ERROR("RPC failed: Not connected to server");
+        return {};
+    }
+
+    LineairDB::Protocol::TxReadSecondaryIndex::Request request;
+    LineairDB::Protocol::TxReadSecondaryIndex::Response response;
+
+    request.set_transaction_id(tx_id);
+    request.set_index_name(index_name);
+    request.set_secondary_key(secondary_key);
+
+    if (!send_protobuf_message(request, response, MessageType::TX_READ_SECONDARY_INDEX)) {
+        LOG_ERROR("RPC failed: Failed to send message to server");
+        return {};
+    }
+
+    tx->set_aborted(response.is_aborted());
+
+    std::vector<std::string> values;
+    for (const auto& v : response.values()) {
+        values.emplace_back(v);
+    }
+
+    LOG_DEBUG("CLIENT: tx_read_secondary_index completed, found %zu values", values.size());
+    return values;
+}
+
+bool LineairDBProxy::tx_write_secondary_index(LineairDBTransaction* tx,
+                                               const std::string& index_name,
+                                               const std::string& secondary_key,
+                                               const std::string& primary_key) {
+    int64_t tx_id = tx->get_tx_id();
+    LOG_DEBUG("CLIENT: tx_write_secondary_index called with tx_id=%ld, index=%s, key=%s",
+              tx_id, index_name.c_str(), secondary_key.c_str());
+    if (!connected_) {
+        LOG_ERROR("RPC failed: Not connected to server");
+        return false;
+    }
+
+    LineairDB::Protocol::TxWriteSecondaryIndex::Request request;
+    LineairDB::Protocol::TxWriteSecondaryIndex::Response response;
+
+    request.set_transaction_id(tx_id);
+    request.set_index_name(index_name);
+    request.set_secondary_key(secondary_key);
+    request.set_primary_key(primary_key);
+
+    if (!send_protobuf_message(request, response, MessageType::TX_WRITE_SECONDARY_INDEX)) {
+        LOG_ERROR("RPC failed: Failed to send message to server");
+        return false;
+    }
+
+    tx->set_aborted(response.is_aborted());
+
+    LOG_DEBUG("CLIENT: tx_write_secondary_index completed, success: %s", response.success() ? "true" : "false");
+    return response.success();
+}
+
+bool LineairDBProxy::tx_delete_secondary_index(LineairDBTransaction* tx,
+                                                const std::string& index_name,
+                                                const std::string& secondary_key,
+                                                const std::string& primary_key) {
+    int64_t tx_id = tx->get_tx_id();
+    LOG_DEBUG("CLIENT: tx_delete_secondary_index called with tx_id=%ld, index=%s, key=%s",
+              tx_id, index_name.c_str(), secondary_key.c_str());
+    if (!connected_) {
+        LOG_ERROR("RPC failed: Not connected to server");
+        return false;
+    }
+
+    LineairDB::Protocol::TxDeleteSecondaryIndex::Request request;
+    LineairDB::Protocol::TxDeleteSecondaryIndex::Response response;
+
+    request.set_transaction_id(tx_id);
+    request.set_index_name(index_name);
+    request.set_secondary_key(secondary_key);
+    request.set_primary_key(primary_key);
+
+    if (!send_protobuf_message(request, response, MessageType::TX_DELETE_SECONDARY_INDEX)) {
+        LOG_ERROR("RPC failed: Failed to send message to server");
+        return false;
+    }
+
+    tx->set_aborted(response.is_aborted());
+
+    LOG_DEBUG("CLIENT: tx_delete_secondary_index completed, success: %s", response.success() ? "true" : "false");
+    return response.success();
+}
+
+bool LineairDBProxy::tx_update_secondary_index(LineairDBTransaction* tx,
+                                                const std::string& index_name,
+                                                const std::string& old_secondary_key,
+                                                const std::string& new_secondary_key,
+                                                const std::string& primary_key) {
+    int64_t tx_id = tx->get_tx_id();
+    LOG_DEBUG("CLIENT: tx_update_secondary_index called with tx_id=%ld, index=%s, old=%s, new=%s",
+              tx_id, index_name.c_str(), old_secondary_key.c_str(), new_secondary_key.c_str());
+    if (!connected_) {
+        LOG_ERROR("RPC failed: Not connected to server");
+        return false;
+    }
+
+    LineairDB::Protocol::TxUpdateSecondaryIndex::Request request;
+    LineairDB::Protocol::TxUpdateSecondaryIndex::Response response;
+
+    request.set_transaction_id(tx_id);
+    request.set_index_name(index_name);
+    request.set_old_secondary_key(old_secondary_key);
+    request.set_new_secondary_key(new_secondary_key);
+    request.set_primary_key(primary_key);
+
+    if (!send_protobuf_message(request, response, MessageType::TX_UPDATE_SECONDARY_INDEX)) {
+        LOG_ERROR("RPC failed: Failed to send message to server");
+        return false;
+    }
+
+    tx->set_aborted(response.is_aborted());
+
+    LOG_DEBUG("CLIENT: tx_update_secondary_index completed, success: %s", response.success() ? "true" : "false");
+    return response.success();
+}
+
+std::vector<std::string> LineairDBProxy::tx_scan_secondary_index(LineairDBTransaction* tx,
+                                                                  const std::string& index_name,
+                                                                  const std::string& start_key,
+                                                                  const std::string& end_key,
+                                                                  const std::string& exclusive_end_key,
+                                                                  bool reverse,
+                                                                  uint32_t limit) {
+    int64_t tx_id = tx->get_tx_id();
+    LOG_DEBUG("CLIENT: tx_scan_secondary_index called with tx_id=%ld, index=%s, start=%s, end=%s",
+              tx_id, index_name.c_str(), start_key.c_str(), end_key.c_str());
+    if (!connected_) {
+        LOG_ERROR("RPC failed: Not connected to server");
+        return {};
+    }
+
+    LineairDB::Protocol::TxScanSecondaryIndex::Request request;
+    LineairDB::Protocol::TxScanSecondaryIndex::Response response;
+
+    request.set_transaction_id(tx_id);
+    request.set_index_name(index_name);
+    request.set_start_key(start_key);
+    request.set_end_key(end_key);
+    request.set_exclusive_end_key(exclusive_end_key);
+    request.set_reverse(reverse);
+    request.set_limit(limit);
+    request.set_include_secondary_keys(false);
+
+    if (!send_protobuf_message(request, response, MessageType::TX_SCAN_SECONDARY_INDEX)) {
+        LOG_ERROR("RPC failed: Failed to send message to server");
+        return {};
+    }
+
+    tx->set_aborted(response.is_aborted());
+
+    std::vector<std::string> primary_keys;
+    for (const auto& pk : response.primary_keys()) {
+        primary_keys.emplace_back(pk);
+    }
+
+    LOG_DEBUG("CLIENT: tx_scan_secondary_index completed, found %zu keys", primary_keys.size());
+    return primary_keys;
+}
+
+std::vector<SecondaryIndexEntry> LineairDBProxy::tx_scan_secondary_index_with_keys(LineairDBTransaction* tx,
+                                                                                    const std::string& index_name,
+                                                                                    const std::string& start_key,
+                                                                                    const std::string& end_key,
+                                                                                    const std::string& exclusive_end_key,
+                                                                                    bool reverse,
+                                                                                    uint32_t limit) {
+    int64_t tx_id = tx->get_tx_id();
+    LOG_DEBUG("CLIENT: tx_scan_secondary_index_with_keys called with tx_id=%ld, index=%s",
+              tx_id, index_name.c_str());
+    if (!connected_) {
+        LOG_ERROR("RPC failed: Not connected to server");
+        return {};
+    }
+
+    LineairDB::Protocol::TxScanSecondaryIndex::Request request;
+    LineairDB::Protocol::TxScanSecondaryIndex::Response response;
+
+    request.set_transaction_id(tx_id);
+    request.set_index_name(index_name);
+    request.set_start_key(start_key);
+    request.set_end_key(end_key);
+    request.set_exclusive_end_key(exclusive_end_key);
+    request.set_reverse(reverse);
+    request.set_limit(limit);
+    request.set_include_secondary_keys(true);
+
+    if (!send_protobuf_message(request, response, MessageType::TX_SCAN_SECONDARY_INDEX)) {
+        LOG_ERROR("RPC failed: Failed to send message to server");
+        return {};
+    }
+
+    tx->set_aborted(response.is_aborted());
+
+    std::vector<SecondaryIndexEntry> entries;
+    for (const auto& entry : response.entries()) {
+        SecondaryIndexEntry e;
+        e.secondary_key = entry.secondary_key();
+        for (const auto& pk : entry.primary_keys()) {
+            e.primary_keys.emplace_back(pk);
+        }
+        entries.emplace_back(std::move(e));
+    }
+
+    LOG_DEBUG("CLIENT: tx_scan_secondary_index_with_keys completed, found %zu entries", entries.size());
+    return entries;
+}
+
+bool LineairDBProxy::db_create_table(const std::string& table_name) {
+    LOG_DEBUG("CLIENT: db_create_table called with table=%s", table_name.c_str());
+    if (!connected_) {
+        LOG_ERROR("RPC failed: Not connected to server");
+        return false;
+    }
+
+    LineairDB::Protocol::DbCreateTable::Request request;
+    LineairDB::Protocol::DbCreateTable::Response response;
+
+    request.set_table_name(table_name);
+
+    if (!send_protobuf_message(request, response, MessageType::DB_CREATE_TABLE)) {
+        LOG_ERROR("RPC failed: Failed to send message to server");
+        return false;
+    }
+
+    LOG_DEBUG("CLIENT: db_create_table completed, success: %s", response.success() ? "true" : "false");
+    return response.success();
+}
+
+bool LineairDBProxy::db_set_table(int64_t tx_id, const std::string& table_name) {
+    LOG_DEBUG("CLIENT: db_set_table called with tx_id=%ld, table=%s", tx_id, table_name.c_str());
+    if (!connected_) {
+        LOG_ERROR("RPC failed: Not connected to server");
+        return false;
+    }
+
+    LineairDB::Protocol::DbSetTable::Request request;
+    LineairDB::Protocol::DbSetTable::Response response;
+
+    request.set_transaction_id(tx_id);
+    request.set_table_name(table_name);
+
+    if (!send_protobuf_message(request, response, MessageType::DB_SET_TABLE)) {
+        LOG_ERROR("RPC failed: Failed to send message to server");
+        return false;
+    }
+
+    LOG_DEBUG("CLIENT: db_set_table completed, success: %s", response.success() ? "true" : "false");
+    return response.success();
+}
+
+bool LineairDBProxy::db_create_secondary_index(const std::string& table_name,
+                                                const std::string& index_name,
+                                                uint32_t index_type) {
+    LOG_DEBUG("CLIENT: db_create_secondary_index called with table=%s, index=%s, type=%u",
+              table_name.c_str(), index_name.c_str(), index_type);
+    if (!connected_) {
+        LOG_ERROR("RPC failed: Not connected to server");
+        return false;
+    }
+
+    LineairDB::Protocol::DbCreateSecondaryIndex::Request request;
+    LineairDB::Protocol::DbCreateSecondaryIndex::Response response;
+
+    request.set_table_name(table_name);
+    request.set_index_name(index_name);
+    request.set_index_type(index_type);
+
+    if (!send_protobuf_message(request, response, MessageType::DB_CREATE_SECONDARY_INDEX)) {
+        LOG_ERROR("RPC failed: Failed to send message to server");
+        return false;
+    }
+
+    LOG_DEBUG("CLIENT: db_create_secondary_index completed, success: %s", response.success() ? "true" : "false");
+    return response.success();
+}
+
 bool LineairDBProxy::db_end_transaction(int64_t tx_id, bool isFence) {
     LOG_DEBUG("CLIENT: db_end_transaction called with tx_id=%ld, fence=%s", tx_id, isFence ? "true" : "false");
     if (!connected_) {
@@ -215,7 +573,7 @@ bool LineairDBProxy::db_end_transaction(int64_t tx_id, bool isFence) {
 
     LineairDB::Protocol::DbEndTransaction::Request request;
     LineairDB::Protocol::DbEndTransaction::Response response;
-    
+
     request.set_transaction_id(tx_id);
     request.set_fence(isFence);
     LOG_DEBUG("CLIENT: Created end_transaction request");
@@ -253,13 +611,13 @@ bool LineairDBProxy::send_message(const std::string& serialized_request, std::st
         LOG_ERROR("SEND_MESSAGE: Not connected to server");
         return false;
     }
-    
+
     LOG_DEBUG("SEND_MESSAGE: Sending message of size %zu bytes", serialized_request.size());
-    
+
     // send message size first (4 bytes)
     uint32_t message_size = htonl(serialized_request.size());
     LOG_DEBUG("SEND_MESSAGE: Sending size header: %zu (network order: %u)", serialized_request.size(), message_size);
-    
+
     ssize_t size_sent = send(socket_fd_, &message_size, sizeof(message_size), 0);
     if (size_sent != sizeof(message_size)) {
         LOG_ERROR("SEND_MESSAGE: Failed to send size header, sent %zd bytes instead of %zu", size_sent, sizeof(message_size));
@@ -296,14 +654,14 @@ bool LineairDBProxy::send_message(const std::string& serialized_request, std::st
         return false;
     }
     LOG_DEBUG("SEND_MESSAGE: Response body received successfully");
-    
+
     return true;
 }
 
 template<typename RequestType, typename ResponseType>
 bool LineairDBProxy::send_protobuf_message(const RequestType& request, ResponseType& response, MessageType message_type) {
     LOG_DEBUG("PROTOBUF_MESSAGE: Starting protobuf message send");
-    
+
     // serialize request
     std::string serialized_request = request.SerializeAsString();
     LOG_DEBUG("PROTOBUF_MESSAGE: Request serialized successfully, size: %zu bytes", serialized_request.size());
@@ -320,40 +678,44 @@ bool LineairDBProxy::send_protobuf_message(const RequestType& request, ResponseT
         LOG_ERROR("PROTOBUF_MESSAGE: Failed to parse response");
         return false;
     }
-    
+
     LOG_DEBUG("PROTOBUF_MESSAGE: Successfully completed protobuf message exchange");
     return true;
 }
 
-bool LineairDBProxy::send_message_with_header(const std::string& serialized_request, std::string& serialized_response, MessageType message_type) {
+bool LineairDBProxy::send_message_with_header(const std::string& serialized_request, 
+                                              std::string& serialized_response, 
+                                              MessageType message_type) {
     if (!connected_) {
         LOG_ERROR("SEND_MESSAGE: Not connected!");
         return false;
     }
-    
-    LOG_DEBUG("SEND_MESSAGE: Sending message of size %zu bytes with message_type %u", serialized_request.size(), static_cast<uint32_t>(message_type));
+
+    LOG_DEBUG("SEND_MESSAGE: Sending message of size %zu bytes with message_type %u", 
+              serialized_request.size(), static_cast<uint32_t>(message_type));
 
     // prepare message header
     MessageHeader header;
     header.sender_id = htobe64(1);  // TODO: replace with actual sender ID
     header.message_type = htonl(static_cast<uint32_t>(message_type));
     header.payload_size = htonl(static_cast<uint32_t>(serialized_request.size()));
-    
-    LOG_DEBUG("SEND_MESSAGE: Prepared header: sender_id=1, message_type=%u, payload_size=%zu", static_cast<uint32_t>(message_type), serialized_request.size());
-    
+
+    LOG_DEBUG("SEND_MESSAGE: Prepared header: sender_id=1, message_type=%u, payload_size=%zu", 
+              static_cast<uint32_t>(message_type), serialized_request.size());
+
     // combine header and payload
     size_t total_size = sizeof(header) + serialized_request.size();
     std::vector<char> buffer(total_size);
     std::memcpy(buffer.data(), &header, sizeof(header));
     std::memcpy(buffer.data() + sizeof(header), serialized_request.c_str(), serialized_request.size());
-    
+
     // send
     ssize_t bytes_sent = send(socket_fd_, buffer.data(), total_size, 0);
     if (bytes_sent != static_cast<ssize_t>(total_size)) {
         LOG_ERROR("SEND_MESSAGE: Failed to send complete message, sent %zd bytes instead of %zu", bytes_sent, total_size);
         return false;
     }
-    
+
     LOG_DEBUG("SEND_MESSAGE: Successfully sent %zd bytes", bytes_sent);
 
     // receive response header
@@ -368,15 +730,17 @@ bool LineairDBProxy::send_message_with_header(const std::string& serialized_requ
     uint64_t response_sender_id = be64toh(response_header.sender_id);
     uint32_t response_message_type = ntohl(response_header.message_type);
     uint32_t response_payload_size = ntohl(response_header.payload_size);
-    
-    LOG_DEBUG("SEND_MESSAGE: Received response header: sender_id=%lu, message_type=%u, payload_size=%u", response_sender_id, response_message_type, response_payload_size);
+
+    LOG_DEBUG("SEND_MESSAGE: Received response header: sender_id=%lu, message_type=%u, payload_size=%u", 
+              response_sender_id, response_message_type, response_payload_size);
 
     // receive response payload
     if (response_payload_size > 0) {
         serialized_response.resize(response_payload_size);
         ssize_t payload_received = recv(socket_fd_, &serialized_response[0], response_payload_size, MSG_WAITALL);
         if (payload_received != static_cast<ssize_t>(response_payload_size)) {
-            LOG_ERROR("SEND_MESSAGE: Failed to receive response payload, received %zd bytes instead of %u", payload_received, response_payload_size);
+            LOG_ERROR("SEND_MESSAGE: Failed to receive response payload, received %zd bytes instead of %u", 
+                      payload_received, response_payload_size);
             return false;
         }
         LOG_DEBUG("SEND_MESSAGE: Successfully received response payload (%zd bytes)", payload_received);
@@ -384,7 +748,7 @@ bool LineairDBProxy::send_message_with_header(const std::string& serialized_requ
         LOG_DEBUG("SEND_MESSAGE: No response payload (empty response)");
         serialized_response.clear();
     }
-    
+
     LOG_DEBUG("SEND_MESSAGE: Message exchange completed successfully");
     return true;
 }

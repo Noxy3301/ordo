@@ -31,23 +31,42 @@ struct MessageHeader {
 // MessageType enum (corresponds to protobuf OpCode)
 enum class MessageType : uint32_t {
     UNKNOWN = 0,
+
+    // Transaction lifecycle
     TX_BEGIN_TRANSACTION = 1,
     TX_ABORT = 2,
+
+    // Primary key operations
     TX_READ = 3,
     TX_WRITE = 4,
-    TX_SCAN = 5,    // [deprecated] Legacy scan API. Superseded by TX_SCAN_RANGE.
-    DB_FENCE = 6,
-    DB_END_TRANSACTION = 7,
-    TX_DELETE = 8,
-    TX_SCAN_RANGE = 9,
-    TX_READ_SECONDARY_INDEX = 10,
-    TX_WRITE_SECONDARY_INDEX = 11,
-    TX_DELETE_SECONDARY_INDEX = 12,
-    TX_UPDATE_SECONDARY_INDEX = 13,
-    TX_SCAN_SECONDARY_INDEX = 14,
-    DB_CREATE_TABLE = 15,
-    DB_SET_TABLE = 16,
-    DB_CREATE_SECONDARY_INDEX = 17
+    TX_DELETE = 5,
+
+    // Secondary index operations
+    TX_READ_SECONDARY_INDEX = 6,
+    TX_WRITE_SECONDARY_INDEX = 7,
+    TX_DELETE_SECONDARY_INDEX = 8,
+    TX_UPDATE_SECONDARY_INDEX = 9,
+
+    // Primary key scan operations
+    TX_GET_MATCHING_KEYS_IN_RANGE = 10,
+    TX_GET_MATCHING_KEYS_AND_VALUES_IN_RANGE = 11,
+    TX_GET_MATCHING_KEYS_AND_VALUES_FROM_PREFIX = 12,
+    TX_FETCH_LAST_KEY_IN_RANGE = 13,
+    TX_FETCH_FIRST_KEY_WITH_PREFIX = 14,
+    TX_FETCH_NEXT_KEY_WITH_PREFIX = 15,
+
+    // Secondary index scan operations
+    TX_GET_MATCHING_PRIMARY_KEYS_IN_RANGE = 16,
+    TX_GET_MATCHING_PRIMARY_KEYS_FROM_PREFIX = 17,
+    TX_FETCH_LAST_PRIMARY_KEY_IN_SECONDARY_RANGE = 18,
+    TX_FETCH_LAST_SECONDARY_ENTRY_IN_RANGE = 19,
+
+    // Database operations
+    DB_FENCE = 20,
+    DB_END_TRANSACTION = 21,
+    DB_CREATE_TABLE = 22,
+    DB_SET_TABLE = 23,
+    DB_CREATE_SECONDARY_INDEX = 24
 };
 
 /**

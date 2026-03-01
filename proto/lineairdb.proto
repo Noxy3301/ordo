@@ -5,23 +5,42 @@ package LineairDB.Protocol;
 // Identifies which RPC is being invoked.
 enum OpCode {
     UNKNOWN = 0;
+
+    // Transaction lifecycle
     TX_BEGIN_TRANSACTION = 1;
     TX_ABORT = 2;
+
+    // Primary key operations
     TX_READ = 3;
     TX_WRITE = 4;
-    TX_SCAN = 5;    // [deprecated] Legacy scan API. Superseded by TX_SCAN_RANGE.
-    DB_FENCE = 6;
-    DB_END_TRANSACTION = 7;
-    TX_DELETE = 8;
-    TX_SCAN_RANGE = 9;
-    TX_READ_SECONDARY_INDEX = 10;
-    TX_WRITE_SECONDARY_INDEX = 11;
-    TX_DELETE_SECONDARY_INDEX = 12;
-    TX_UPDATE_SECONDARY_INDEX = 13;
-    TX_SCAN_SECONDARY_INDEX = 14;
-    DB_CREATE_TABLE = 15;
-    DB_SET_TABLE = 16;
-    DB_CREATE_SECONDARY_INDEX = 17;
+    TX_DELETE = 5;
+
+    // Secondary index operations
+    TX_READ_SECONDARY_INDEX = 6;
+    TX_WRITE_SECONDARY_INDEX = 7;
+    TX_DELETE_SECONDARY_INDEX = 8;
+    TX_UPDATE_SECONDARY_INDEX = 9;
+
+    // Primary key scan operations
+    TX_GET_MATCHING_KEYS_IN_RANGE = 10;
+    TX_GET_MATCHING_KEYS_AND_VALUES_IN_RANGE = 11;
+    TX_GET_MATCHING_KEYS_AND_VALUES_FROM_PREFIX = 12;
+    TX_FETCH_LAST_KEY_IN_RANGE = 13;
+    TX_FETCH_FIRST_KEY_WITH_PREFIX = 14;
+    TX_FETCH_NEXT_KEY_WITH_PREFIX = 15;
+
+    // Secondary index scan operations
+    TX_GET_MATCHING_PRIMARY_KEYS_IN_RANGE = 16;
+    TX_GET_MATCHING_PRIMARY_KEYS_FROM_PREFIX = 17;
+    TX_FETCH_LAST_PRIMARY_KEY_IN_SECONDARY_RANGE = 18;
+    TX_FETCH_LAST_SECONDARY_ENTRY_IN_RANGE = 19;
+
+    // Database operations
+    DB_FENCE = 20;
+    DB_END_TRANSACTION = 21;
+    DB_CREATE_TABLE = 22;
+    DB_SET_TABLE = 23;
+    DB_CREATE_SECONDARY_INDEX = 24;
 }
 
 // Shared key-value pair used across scan responses.
@@ -78,23 +97,6 @@ message TxWrite {
     }
 }
 
-// [deprecated] Legacy scan API. Superseded by TxScanRange.
-message TxScan {
-    message Request {
-        int64 transaction_id = 1;
-        string db_table_key = 2;
-        string first_key_part = 3;
-    }
-    message KeyValue {
-        string key = 1;
-        bytes value = 2;
-    }
-    message Response {
-        repeated KeyValue key_values = 1;
-        bool is_aborted = 2;
-    }
-}
-
 // Wait for all pending transactions to be durably committed.
 message DbFence {
     message Request {}
@@ -121,32 +123,6 @@ message TxDelete {
     }
     message Response {
         bool success = 1;
-        bool is_aborted = 2;
-    }
-}
-
-// Unified range scan over primary keys.
-//
-// Covers the following SE methods:
-//   - get_matching_keys_in_range(start, end, exclusive_end)
-//   - get_matching_keys_and_values_in_range(start, end, exclusive_end)
-//   - get_matching_keys_and_values_from_prefix(prefix)
-//   - fetch_last_key_in_range(start, end, exclusive_end)       [reverse=true, limit=1]
-//   - fetch_first_key_with_prefix(prefix, prefix_end)          [limit=1]
-//   - fetch_next_key_with_prefix(last_key, prefix_end)         [after_key, limit=1]
-message TxScanRange {
-    message Request {
-        int64 transaction_id = 1;
-        string start_key = 2;          // Inclusive lower bound (empty = beginning).
-        string end_key = 3;            // Inclusive upper bound (empty = no upper bound).
-        string exclusive_end_key = 4;  // Exclusive upper bound (for HA_READ_BEFORE_KEY).
-        bool reverse = 5;              // Scan in descending order.
-        bool include_values = 6;       // Return key+value pairs instead of keys only.
-        uint32 limit = 7;              // Max results (0 = unlimited).
-        string after_key = 8;          // Cursor: start after this key (exclusive).
-    }
-    message Response {
-        repeated KeyValue results = 1;
         bool is_aborted = 2;
     }
 }
@@ -211,31 +187,6 @@ message TxUpdateSecondaryIndex {
     }
 }
 
-// Unified range scan over a secondary index.
-//
-// Covers the following SE methods:
-//   - get_matching_primary_keys_in_range(index, start, end, exclusive_end)
-//   - get_matching_primary_keys_from_prefix(index, prefix)
-//   - fetch_last_primary_key_in_secondary_range(index, start, end, exclusive_end)
-//   - fetch_last_secondary_entry_in_range(index, start, end, exclusive_end)
-message TxScanSecondaryIndex {
-    message Request {
-        int64 transaction_id = 1;
-        string index_name = 2;
-        string start_key = 3;
-        string end_key = 4;
-        string exclusive_end_key = 5;
-        bool reverse = 6;
-        uint32 limit = 7;
-        bool include_secondary_keys = 8;  // Return SecondaryIndexEntry with secondary keys.
-    }
-    message Response {
-        repeated SecondaryIndexEntry entries = 1;  // When include_secondary_keys=true.
-        repeated string primary_keys = 2;          // When include_secondary_keys=false.
-        bool is_aborted = 3;
-    }
-}
-
 // Create a new table in the database.
 // @see LineairDB::Database::CreateTable()
 message DbCreateTable {
@@ -271,5 +222,164 @@ message DbCreateSecondaryIndex {
     }
     message Response {
         bool success = 1;
+    }
+}
+
+// Scan keys in [start_key, end_key] range, excluding exclusive_end_key.
+// @see LineairDBTransaction::get_matching_keys_in_range()
+message TxGetMatchingKeysInRange {
+    message Request {
+        int64 transaction_id = 1;
+        string start_key = 2;
+        string end_key = 3;
+        string exclusive_end_key = 4;
+    }
+    message Response {
+        repeated string keys = 1;
+        bool is_aborted = 2;
+    }
+}
+
+// Scan key-value pairs in [start_key, end_key] range, excluding exclusive_end_key.
+// Skips tombstones (null/zero-length values).
+// @see LineairDBTransaction::get_matching_keys_and_values_in_range()
+message TxGetMatchingKeysAndValuesInRange {
+    message Request {
+        int64 transaction_id = 1;
+        string start_key = 2;
+        string end_key = 3;
+        string exclusive_end_key = 4;
+    }
+    message Response {
+        repeated KeyValue results = 1;
+        bool is_aborted = 2;
+    }
+}
+
+// Scan key-value pairs matching a prefix.
+// Skips tombstones (null/zero-length values).
+// @see LineairDBTransaction::get_matching_keys_and_values_from_prefix()
+message TxGetMatchingKeysAndValuesFromPrefix {
+    message Request {
+        int64 transaction_id = 1;
+        string prefix = 2;
+    }
+    message Response {
+        repeated KeyValue results = 1;
+        bool is_aborted = 2;
+    }
+}
+
+// Reverse scan to find the last key in [start_key, end_key] range,
+// excluding exclusive_end_key.
+// @see LineairDBTransaction::fetch_last_key_in_range()
+message TxFetchLastKeyInRange {
+    message Request {
+        int64 transaction_id = 1;
+        string start_key = 2;
+        string end_key = 3;
+        string exclusive_end_key = 4;
+    }
+    message Response {
+        bool found = 1;
+        string key = 2;
+        bool is_aborted = 3;
+    }
+}
+
+// Find the first non-tombstone key in [prefix, prefix_end) range.
+// @see LineairDBTransaction::fetch_first_key_with_prefix()
+message TxFetchFirstKeyWithPrefix {
+    message Request {
+        int64 transaction_id = 1;
+        string prefix = 2;
+        string prefix_end = 3;
+    }
+    message Response {
+        bool found = 1;
+        string key = 2;
+        bool is_aborted = 3;
+    }
+}
+
+// Find the next non-tombstone key after last_key in [last_key, prefix_end) range.
+// @see LineairDBTransaction::fetch_next_key_with_prefix()
+message TxFetchNextKeyWithPrefix {
+    message Request {
+        int64 transaction_id = 1;
+        string last_key = 2;
+        string prefix_end = 3;
+    }
+    message Response {
+        bool found = 1;
+        string key = 2;
+        bool is_aborted = 3;
+    }
+}
+
+// Scan primary keys from a secondary index in [start_key, end_key] range,
+// excluding exclusive_end_key.
+// @see LineairDBTransaction::get_matching_primary_keys_in_range()
+message TxGetMatchingPrimaryKeysInRange {
+    message Request {
+        int64 transaction_id = 1;
+        string index_name = 2;
+        string start_key = 3;
+        string end_key = 4;
+        string exclusive_end_key = 5;
+    }
+    message Response {
+        repeated string primary_keys = 1;
+        bool is_aborted = 2;
+    }
+}
+
+// Scan primary keys from a secondary index matching a prefix.
+// @see LineairDBTransaction::get_matching_primary_keys_from_prefix()
+message TxGetMatchingPrimaryKeysFromPrefix {
+    message Request {
+        int64 transaction_id = 1;
+        string index_name = 2;
+        string prefix = 3;
+    }
+    message Response {
+        repeated string primary_keys = 1;
+        bool is_aborted = 2;
+    }
+}
+
+// Reverse scan to find the last primary key in a secondary index range
+// [start_key, end_key], excluding exclusive_end_key.
+// @see LineairDBTransaction::fetch_last_primary_key_in_secondary_range()
+message TxFetchLastPrimaryKeyInSecondaryRange {
+    message Request {
+        int64 transaction_id = 1;
+        string index_name = 2;
+        string start_key = 3;
+        string end_key = 4;
+        string exclusive_end_key = 5;
+    }
+    message Response {
+        bool found = 1;
+        string primary_key = 2;
+        bool is_aborted = 3;
+    }
+}
+
+// Reverse scan to find the last secondary index entry (secondary key + primary keys)
+// in [start_key, end_key] range, excluding exclusive_end_key.
+// @see LineairDBTransaction::fetch_last_secondary_entry_in_range()
+message TxFetchLastSecondaryEntryInRange {
+    message Request {
+        int64 transaction_id = 1;
+        string index_name = 2;
+        string start_key = 3;
+        string end_key = 4;
+        string exclusive_end_key = 5;
+    }
+    message Response {
+        bool found = 1;
+        SecondaryIndexEntry entry = 2;
+        bool is_aborted = 3;
     }
 }

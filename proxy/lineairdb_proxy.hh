@@ -2,6 +2,7 @@
 #define LINEAIRDB_PROXY_H
 
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -95,15 +96,6 @@ public:
     std::string tx_read(LineairDBTransaction* tx, const std::string& key);
     bool tx_write(LineairDBTransaction* tx, const std::string& key, const std::string& value);
     bool tx_delete(LineairDBTransaction* tx, const std::string& key);
-    std::vector<KeyValue> tx_scan(LineairDBTransaction* tx, const std::string& db_table_key, const std::string& first_key_part);
-    std::vector<KeyValue> tx_scan_range(LineairDBTransaction* tx,
-                                        const std::string& start_key,
-                                        const std::string& end_key,
-                                        const std::string& exclusive_end_key,
-                                        bool reverse,
-                                        bool include_values,
-                                        uint32_t limit,
-                                        const std::string& after_key);
 
     // secondary index operations
     std::vector<std::string> tx_read_secondary_index(LineairDBTransaction* tx,
@@ -122,20 +114,48 @@ public:
                                    const std::string& old_secondary_key,
                                    const std::string& new_secondary_key,
                                    const std::string& primary_key);
-    std::vector<std::string> tx_scan_secondary_index(LineairDBTransaction* tx,
-                                                     const std::string& index_name,
-                                                     const std::string& start_key,
-                                                     const std::string& end_key,
-                                                     const std::string& exclusive_end_key,
-                                                     bool reverse,
-                                                     uint32_t limit);
-    std::vector<SecondaryIndexEntry> tx_scan_secondary_index_with_keys(LineairDBTransaction* tx,
+
+    // primary key scan operations
+    std::vector<std::string> tx_get_matching_keys_in_range(LineairDBTransaction* tx,
+                                                           const std::string& start_key,
+                                                           const std::string& end_key,
+                                                           const std::string& exclusive_end_key);
+    std::vector<KeyValue> tx_get_matching_keys_and_values_in_range(LineairDBTransaction* tx,
+                                                                    const std::string& start_key,
+                                                                    const std::string& end_key,
+                                                                    const std::string& exclusive_end_key);
+    std::vector<KeyValue> tx_get_matching_keys_and_values_from_prefix(LineairDBTransaction* tx,
+                                                                       const std::string& prefix);
+    std::optional<std::string> tx_fetch_last_key_in_range(LineairDBTransaction* tx,
+                                                           const std::string& start_key,
+                                                           const std::string& end_key,
+                                                           const std::string& exclusive_end_key);
+    std::optional<std::string> tx_fetch_first_key_with_prefix(LineairDBTransaction* tx,
+                                                               const std::string& prefix,
+                                                               const std::string& prefix_end);
+    std::optional<std::string> tx_fetch_next_key_with_prefix(LineairDBTransaction* tx,
+                                                              const std::string& last_key,
+                                                              const std::string& prefix_end);
+
+    // secondary index scan operations
+    std::vector<std::string> tx_get_matching_primary_keys_in_range(LineairDBTransaction* tx,
+                                                                    const std::string& index_name,
+                                                                    const std::string& start_key,
+                                                                    const std::string& end_key,
+                                                                    const std::string& exclusive_end_key);
+    std::vector<std::string> tx_get_matching_primary_keys_from_prefix(LineairDBTransaction* tx,
                                                                        const std::string& index_name,
-                                                                       const std::string& start_key,
-                                                                       const std::string& end_key,
-                                                                       const std::string& exclusive_end_key,
-                                                                       bool reverse,
-                                                                       uint32_t limit);
+                                                                       const std::string& prefix);
+    std::optional<std::string> tx_fetch_last_primary_key_in_secondary_range(LineairDBTransaction* tx,
+                                                                             const std::string& index_name,
+                                                                             const std::string& start_key,
+                                                                             const std::string& end_key,
+                                                                             const std::string& exclusive_end_key);
+    std::optional<SecondaryIndexEntry> tx_fetch_last_secondary_entry_in_range(LineairDBTransaction* tx,
+                                                                               const std::string& index_name,
+                                                                               const std::string& start_key,
+                                                                               const std::string& end_key,
+                                                                               const std::string& exclusive_end_key);
 
     // table/index management (non-transactional)
     bool db_create_table(const std::string& table_name);

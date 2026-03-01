@@ -16,6 +16,11 @@ struct KeyValue {
     std::string value;
 };
 
+struct SecondaryIndexEntry {
+    std::string secondary_key;
+    std::vector<std::string> primary_keys;
+};
+
 // Message header for RPC communication (matching server implementation)
 struct MessageHeader {
     uint64_t sender_id;      // sender ID
@@ -30,15 +35,25 @@ enum class MessageType : uint32_t {
     TX_ABORT = 2,
     TX_READ = 3,
     TX_WRITE = 4,
-    TX_SCAN = 5,
+    TX_SCAN = 5,    // [deprecated] Legacy scan API. Superseded by TX_SCAN_RANGE.
     DB_FENCE = 6,
-    DB_END_TRANSACTION = 7
+    DB_END_TRANSACTION = 7,
+    TX_DELETE = 8,
+    TX_SCAN_RANGE = 9,
+    TX_READ_SECONDARY_INDEX = 10,
+    TX_WRITE_SECONDARY_INDEX = 11,
+    TX_DELETE_SECONDARY_INDEX = 12,
+    TX_UPDATE_SECONDARY_INDEX = 13,
+    TX_SCAN_SECONDARY_INDEX = 14,
+    DB_CREATE_TABLE = 15,
+    DB_SET_TABLE = 16,
+    DB_CREATE_SECONDARY_INDEX = 17
 };
 
 /**
  * RPC client that provides the same transactional API as LineairDB,
  * but internally forwards all operations to a remote server via RPC over TCP.
- * 
+ *
  * In this disaggregated architecture, MySQL instances do not embed LineairDB
  * directly; instead, each THD holds a LineairDBProxy that maintains a
  * TCP connection to the remote LineairDB server. Managed via LineairDBThdCtx.
@@ -57,12 +72,60 @@ public:
     int64_t tx_begin_transaction();
     void tx_abort(int64_t tx_id);
 
-    // transaction operations
+    // primary key operations
     std::string tx_read(LineairDBTransaction* tx, const std::string& key);
     bool tx_write(LineairDBTransaction* tx, const std::string& key, const std::string& value);
+    bool tx_delete(LineairDBTransaction* tx, const std::string& key);
     std::vector<KeyValue> tx_scan(LineairDBTransaction* tx, const std::string& db_table_key, const std::string& first_key_part);
+    std::vector<KeyValue> tx_scan_range(LineairDBTransaction* tx,
+                                        const std::string& start_key,
+                                        const std::string& end_key,
+                                        const std::string& exclusive_end_key,
+                                        bool reverse,
+                                        bool include_values,
+                                        uint32_t limit,
+                                        const std::string& after_key);
 
-    // database operations: returns true if committed, false if aborted
+    // secondary index operations
+    std::vector<std::string> tx_read_secondary_index(LineairDBTransaction* tx,
+                                                     const std::string& index_name,
+                                                     const std::string& secondary_key);
+    bool tx_write_secondary_index(LineairDBTransaction* tx,
+                                  const std::string& index_name,
+                                  const std::string& secondary_key,
+                                  const std::string& primary_key);
+    bool tx_delete_secondary_index(LineairDBTransaction* tx,
+                                   const std::string& index_name,
+                                   const std::string& secondary_key,
+                                   const std::string& primary_key);
+    bool tx_update_secondary_index(LineairDBTransaction* tx,
+                                   const std::string& index_name,
+                                   const std::string& old_secondary_key,
+                                   const std::string& new_secondary_key,
+                                   const std::string& primary_key);
+    std::vector<std::string> tx_scan_secondary_index(LineairDBTransaction* tx,
+                                                     const std::string& index_name,
+                                                     const std::string& start_key,
+                                                     const std::string& end_key,
+                                                     const std::string& exclusive_end_key,
+                                                     bool reverse,
+                                                     uint32_t limit);
+    std::vector<SecondaryIndexEntry> tx_scan_secondary_index_with_keys(LineairDBTransaction* tx,
+                                                                       const std::string& index_name,
+                                                                       const std::string& start_key,
+                                                                       const std::string& end_key,
+                                                                       const std::string& exclusive_end_key,
+                                                                       bool reverse,
+                                                                       uint32_t limit);
+
+    // table/index management (non-transactional)
+    bool db_create_table(const std::string& table_name);
+    bool db_set_table(int64_t tx_id, const std::string& table_name);
+    bool db_create_secondary_index(const std::string& table_name,
+                                   const std::string& index_name,
+                                   uint32_t index_type);
+
+    // database operations
     bool db_end_transaction(int64_t tx_id, bool isFence);
     void db_fence();
 

@@ -7,3 +7,6 @@
 	url = https://github.com/LineairDB/LineairDB.git
 	branch = main
 	ignore = dirty
+[submodule "third_party/benchbase"]
+	path = third_party/benchbase
+	url = https://github.com/cmu-db/benchbase.git

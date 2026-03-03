@@ -1520,6 +1520,10 @@ int ha_lineairdb::create(const char *table_name, TABLE *table, HA_CREATE_INFO *,
   DBUG_TRACE;
   db_table_name = std::string(table_name);
 
+  // create() is called without external_lock/start_stmt, so userThread may not
+  // be set yet. Use ha_thd() to ensure get_proxy() can find the THD context.
+  userThread = ha_thd();
+
   // Create table via RPC
   auto proxy = get_proxy();
   if (!proxy->db_create_table(db_table_name)) {
@@ -1569,6 +1573,7 @@ bool ha_lineairdb::inplace_alter_table(TABLE *altered_table [[maybe_unused]],
                                        [[maybe_unused]]) {
   DBUG_TRACE;
 
+  userThread = ha_thd();
   auto proxy = get_proxy();
 
   for (uint i = 0; i < ha_alter_info->index_add_count; i++) {

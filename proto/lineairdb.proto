@@ -45,14 +45,14 @@ enum OpCode {
 
 // Shared key-value pair used across scan responses.
 message KeyValue {
-    string key = 1;
+    bytes key = 1;
     bytes value = 2;
 }
 
 // Secondary index entry: a secondary key and its associated primary keys.
 message SecondaryIndexEntry {
-    string secondary_key = 1;
-    repeated string primary_keys = 2;
+    bytes secondary_key = 1;
+    repeated bytes primary_keys = 2;
 }
 
 // Begin a new transaction. Returns a server-assigned transaction ID.
@@ -75,7 +75,7 @@ message TxAbort {
 message TxRead {
     message Request {
         int64 transaction_id = 1;
-        string key = 2;
+        bytes key = 2;
     }
     message Response {
         bool found = 1;
@@ -88,7 +88,7 @@ message TxRead {
 message TxWrite {
     message Request {
         int64 transaction_id = 1;
-        string key = 2;
+        bytes key = 2;
         bytes value = 3;
     }
     message Response {
@@ -119,7 +119,7 @@ message DbEndTransaction {
 message TxDelete {
     message Request {
         int64 transaction_id = 1;
-        string key = 2;
+        bytes key = 2;
     }
     message Response {
         bool success = 1;
@@ -133,7 +133,7 @@ message TxReadSecondaryIndex {
     message Request {
         int64 transaction_id = 1;
         string index_name = 2;
-        string secondary_key = 3;
+        bytes secondary_key = 3;
     }
     message Response {
         repeated bytes values = 1;
@@ -147,7 +147,7 @@ message TxWriteSecondaryIndex {
     message Request {
         int64 transaction_id = 1;
         string index_name = 2;
-        string secondary_key = 3;
+        bytes secondary_key = 3;
         bytes primary_key = 4;
     }
     message Response {
@@ -162,7 +162,7 @@ message TxDeleteSecondaryIndex {
     message Request {
         int64 transaction_id = 1;
         string index_name = 2;
-        string secondary_key = 3;
+        bytes secondary_key = 3;
         bytes primary_key = 4;
     }
     message Response {
@@ -177,8 +177,8 @@ message TxUpdateSecondaryIndex {
     message Request {
         int64 transaction_id = 1;
         string index_name = 2;
-        string old_secondary_key = 3;
-        string new_secondary_key = 4;
+        bytes old_secondary_key = 3;
+        bytes new_secondary_key = 4;
         bytes primary_key = 5;
     }
     message Response {
@@ -230,12 +230,12 @@ message DbCreateSecondaryIndex {
 message TxGetMatchingKeysInRange {
     message Request {
         int64 transaction_id = 1;
-        string start_key = 2;
-        string end_key = 3;
-        string exclusive_end_key = 4;
+        bytes start_key = 2;
+        bytes end_key = 3;
+        bytes exclusive_end_key = 4;
     }
     message Response {
-        repeated string keys = 1;
+        repeated bytes keys = 1;
         bool is_aborted = 2;
     }
 }
@@ -246,9 +246,9 @@ message TxGetMatchingKeysInRange {
 message TxGetMatchingKeysAndValuesInRange {
     message Request {
         int64 transaction_id = 1;
-        string start_key = 2;
-        string end_key = 3;
-        string exclusive_end_key = 4;
+        bytes start_key = 2;
+        bytes end_key = 3;
+        bytes exclusive_end_key = 4;
     }
     message Response {
         repeated KeyValue results = 1;
@@ -262,7 +262,7 @@ message TxGetMatchingKeysAndValuesInRange {
 message TxGetMatchingKeysAndValuesFromPrefix {
     message Request {
         int64 transaction_id = 1;
-        string prefix = 2;
+        bytes prefix = 2;
     }
     message Response {
         repeated KeyValue results = 1;
@@ -276,13 +276,13 @@ message TxGetMatchingKeysAndValuesFromPrefix {
 message TxFetchLastKeyInRange {
     message Request {
         int64 transaction_id = 1;
-        string start_key = 2;
-        string end_key = 3;
-        string exclusive_end_key = 4;
+        bytes start_key = 2;
+        bytes end_key = 3;
+        bytes exclusive_end_key = 4;
     }
     message Response {
         bool found = 1;
-        string key = 2;
+        bytes key = 2;
         bool is_aborted = 3;
     }
 }
@@ -292,12 +292,12 @@ message TxFetchLastKeyInRange {
 message TxFetchFirstKeyWithPrefix {
     message Request {
         int64 transaction_id = 1;
-        string prefix = 2;
-        string prefix_end = 3;
+        bytes prefix = 2;
+        bytes prefix_end = 3;
     }
     message Response {
         bool found = 1;
-        string key = 2;
+        bytes key = 2;
         bool is_aborted = 3;
     }
 }
@@ -307,12 +307,12 @@ message TxFetchFirstKeyWithPrefix {
 message TxFetchNextKeyWithPrefix {
     message Request {
         int64 transaction_id = 1;
-        string last_key = 2;
-        string prefix_end = 3;
+        bytes last_key = 2;
+        bytes prefix_end = 3;
     }
     message Response {
         bool found = 1;
-        string key = 2;
+        bytes key = 2;
         bool is_aborted = 3;
     }
 }
@@ -324,12 +324,12 @@ message TxGetMatchingPrimaryKeysInRange {
     message Request {
         int64 transaction_id = 1;
         string index_name = 2;
-        string start_key = 3;
-        string end_key = 4;
-        string exclusive_end_key = 5;
+        bytes start_key = 3;
+        bytes end_key = 4;
+        bytes exclusive_end_key = 5;
     }
     message Response {
-        repeated string primary_keys = 1;
+        repeated bytes primary_keys = 1;
         bool is_aborted = 2;
     }
 }
@@ -340,10 +340,10 @@ message TxGetMatchingPrimaryKeysFromPrefix {
     message Request {
         int64 transaction_id = 1;
         string index_name = 2;
-        string prefix = 3;
+        bytes prefix = 3;
     }
     message Response {
-        repeated string primary_keys = 1;
+        repeated bytes primary_keys = 1;
         bool is_aborted = 2;
     }
 }
@@ -355,13 +355,13 @@ message TxFetchLastPrimaryKeyInSecondaryRange {
     message Request {
         int64 transaction_id = 1;
         string index_name = 2;
-        string start_key = 3;
-        string end_key = 4;
-        string exclusive_end_key = 5;
+        bytes start_key = 3;
+        bytes end_key = 4;
+        bytes exclusive_end_key = 5;
     }
     message Response {
         bool found = 1;
-        string primary_key = 2;
+        bytes primary_key = 2;
         bool is_aborted = 3;
     }
 }
@@ -373,9 +373,9 @@ message TxFetchLastSecondaryEntryInRange {
     message Request {
         int64 transaction_id = 1;
         string index_name = 2;
-        string start_key = 3;
-        string end_key = 4;
-        string exclusive_end_key = 5;
+        bytes start_key = 3;
+        bytes end_key = 4;
+        bytes exclusive_end_key = 5;
     }
     message Response {
         bool found = 1;

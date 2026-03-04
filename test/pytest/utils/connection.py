@@ -21,9 +21,10 @@ def get_connection(user: str = "root", password: str = "") -> mysql.connector.My
         connect_args["unix_socket"] = socket_path
         print(f"[connection] Using socket: {socket_path}")
     else:
-        # Fall back to localhost (will use default socket)
-        connect_args["host"] = "localhost"
-        print("[connection] Using host: localhost")
+        # Fall back to 127.0.0.1:3307 via TCP
+        connect_args["host"] = "127.0.0.1"
+        connect_args["port"] = 3307
+        print(f"[connection] Using host: 127.0.0.1:3307")
     
     return mysql.connector.connect(**connect_args)
 

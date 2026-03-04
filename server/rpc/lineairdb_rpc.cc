@@ -272,8 +272,6 @@ void LineairDBRpc::handleTxWriteSecondaryIndex(const std::string& message, std::
                                 reinterpret_cast<const std::byte*>(pk.c_str()), pk.size());
         response.set_is_aborted(tx->IsAborted());
         response.set_success(!tx->IsAborted());
-        LOG_DEBUG("WriteSecondaryIndex index='%s' key='%s' tx=%ld",
-                  request.index_name().c_str(), request.secondary_key().c_str(), tx_id);
     } else {
         response.set_success(false);
         response.set_is_aborted(true);
@@ -935,9 +933,6 @@ void LineairDBRpc::handleDbCreateSecondaryIndex(const std::string& message, std:
     bool success = db_manager_->get_database()->CreateSecondaryIndex(
         request.table_name(), request.index_name(), request.index_type());
     response.set_success(success);
-    LOG_DEBUG("CreateSecondaryIndex table='%s' index='%s' type=%u: %s",
-              request.table_name().c_str(), request.index_name().c_str(),
-              request.index_type(), success ? "success" : "failed");
 
     result = response.SerializeAsString();
 }

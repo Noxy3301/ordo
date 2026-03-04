@@ -2,6 +2,12 @@ import os
 import sys
 import glob
 import argparse
+import time
+
+SERVER_HOST = "127.0.0.1"
+MYSQLD_PORT = "3307"
+SERVER_PORT = "9999"
+
 
 # def CI(test_files):
 #   exit_value = 0
@@ -10,18 +16,32 @@ import argparse
 #     if os.system(f"python3 {f} --password root"): exit_value = 1
 #   sys.exit(exit_value)
 
+def restart_services():
+  """LineairDB Server + MySQL を再起動してクリーンな状態にする"""
+  os.system("./scripts/stop_mysql.sh")
+  os.system("./scripts/stop_server.sh")
+  time.sleep(1)
+  os.system("./scripts/start_server.sh")
+  time.sleep(2)
+  os.system(f"./scripts/start_mysql.sh --mysqld-port {MYSQLD_PORT} --server-host {SERVER_HOST} --server-port {SERVER_PORT}")
+
 def run_tests(test_files):
-  # os.system("sed -i \"s/#define FENCE.*/#define FENCE true/\" ha_lineairdb.cc")
-  # os.system("cd build; ninja")
+  os.system("sed -i \"s/#define FENCE.*/#define FENCE true/\" proxy/ha_lineairdb.cc")
+  os.system("./scripts/build_partial.sh")
+  exit_value = 0
   for f in test_files:
-    # os.system("LD_PRELOAD=/lib/x86_64-linux-gnu/libjemalloc.so.2 build/bin/mysqld --defaults-file=test/my.cnf --daemonize")
-    os.system(f"python3 {f}")
-    # os.system("pkill mysqld")
+    restart_services()
+    ret = os.system(f"python3 {f}")
+    if ret != 0:
+      exit_value = 1
+  os.system("./scripts/stop_mysql.sh")
+  os.system("./scripts/stop_server.sh")
+  return exit_value
 
 def main():
   # test
   is_ci = args.ci
-  
+
   # テストファイルの決定：引数で指定された場合はそれを使用、なければ全てのテストを実行
   if args.tests:
     test_files = []
@@ -42,19 +62,20 @@ def main():
   else:
     # 引数が指定されていない場合は全てのテストを実行
     test_files = glob.glob(os.path.join("test/pytest", "**", "*.py"), recursive=True)
-  
+
   if not test_files:
     print("Error: No test files found")
     sys.exit(1)
-    
+
   print(f"Running {len(test_files)} test(s):")
   for f in test_files:
     print(f"  - {f}")
   print()
-  
+
   # if is_ci: CI(test_files)
   # else: run_tests(test_files)
-  run_tests(test_files)
+  exit_value = run_tests(test_files)
+  sys.exit(exit_value)
 
 if __name__ == "__main__":
   parser = argparse.ArgumentParser(description='Connect to MySQL')

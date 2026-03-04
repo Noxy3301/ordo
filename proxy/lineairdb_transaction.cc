@@ -75,7 +75,7 @@ bool LineairDBTransaction::write(std::string key, const std::string value) {
 
 bool LineairDBTransaction::delete_value(std::string key) {
   if (table_is_not_chosen()) return false;
-  return lineairdb_proxy->tx_write(this, key, "");
+  return lineairdb_proxy->tx_delete(this, key);
 }
 
 // Secondary index operations

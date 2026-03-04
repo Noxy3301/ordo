@@ -88,7 +88,9 @@ public:
   }
 
   inline void set_aborted(bool aborted) {
-    is_aborted_ = aborted;
+    // Once aborted, stay aborted (matches LineairDB's irreversible Abort semantics).
+    // Prevents subsequent RPC responses from accidentally clearing the flag.
+    if (aborted) is_aborted_ = true;
   }
 
   inline bool is_a_single_statement() const { return !isTransaction; }

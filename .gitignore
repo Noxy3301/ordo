@@ -18,6 +18,10 @@ ansible/result
 .env
 scripts/aws/.env
 
+# Python bytecode
+__pycache__/
+*.pyc
+
 # AWS / SSH safety
 *.pem
 *.key

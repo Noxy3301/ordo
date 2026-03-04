@@ -121,7 +121,7 @@
 #define FENCE false
 
 // DICT_UNIQUE from InnoDB dict0mem.h — defined locally to avoid InnoDB dependency
-static constexpr uint DICT_UNIQUE = 1;
+static constexpr uint DICT_UNIQUE = 2;
 
 namespace {
 constexpr unsigned char kKeyMarkerNotNull = 0x00;

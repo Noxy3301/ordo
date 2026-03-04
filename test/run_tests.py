@@ -33,7 +33,11 @@ def run_tests(test_files):
   exit_value = 0
   for f in test_files:
     restart_services()
-    ret = os.system(f"python3 {f}")
+    # TPC-Cテストは--host/--portを受け付ける、コアテストは環境変数で接続
+    if "/tpc-c/" in f:
+      ret = os.system(f"python3 {f} --host {SERVER_HOST} --port {MYSQLD_PORT}")
+    else:
+      ret = os.system(f"python3 {f}")
     if ret != 0:
       exit_value = 1
   os.system(f"./scripts/stop_mysql.sh {QUIET}")

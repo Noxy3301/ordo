@@ -159,9 +159,9 @@ void LineairDBRpc::handleTxRead(const std::string& message, std::string& result)
     int64_t tx_id = request.transaction_id();
     auto* tx = tx_manager_->get_transaction(tx_id);
     if (tx) {
+        auto read_result = tx->Read(request.key());
         response.set_is_aborted(tx->IsAborted());
 
-        auto read_result = tx->Read(request.key());
         if (read_result.first != nullptr) {
             response.set_found(true);
             std::string value(reinterpret_cast<const char*>(read_result.first), read_result.second);
@@ -190,11 +190,10 @@ void LineairDBRpc::handleTxWrite(const std::string& message, std::string& result
     int64_t tx_id = request.transaction_id();
     auto* tx = tx_manager_->get_transaction(tx_id);
     if (tx) {
-        response.set_is_aborted(tx->IsAborted());
-
         const std::string& value_str = request.value();
         tx->Write(request.key(), reinterpret_cast<const std::byte*>(value_str.c_str()), value_str.size());
-        response.set_success(true);
+        response.set_is_aborted(tx->IsAborted());
+        response.set_success(!tx->IsAborted());
         LOG_DEBUG("Wrote key '%s' to transaction %ld", request.key().c_str(), tx_id);
     } else {
         response.set_success(false);
@@ -216,9 +215,9 @@ void LineairDBRpc::handleTxDelete(const std::string& message, std::string& resul
     int64_t tx_id = request.transaction_id();
     auto* tx = tx_manager_->get_transaction(tx_id);
     if (tx) {
-        response.set_is_aborted(tx->IsAborted());
         tx->Delete(request.key());
-        response.set_success(true);
+        response.set_is_aborted(tx->IsAborted());
+        response.set_success(!tx->IsAborted());
         LOG_DEBUG("Deleted key '%s' from transaction %ld", request.key().c_str(), tx_id);
     } else {
         response.set_success(false);
@@ -240,9 +239,9 @@ void LineairDBRpc::handleTxReadSecondaryIndex(const std::string& message, std::s
     int64_t tx_id = request.transaction_id();
     auto* tx = tx_manager_->get_transaction(tx_id);
     if (tx) {
+        auto results = tx->ReadSecondaryIndex(request.index_name(), request.secondary_key());
         response.set_is_aborted(tx->IsAborted());
 
-        auto results = tx->ReadSecondaryIndex(request.index_name(), request.secondary_key());
         for (const auto& [ptr, size] : results) {
             std::string value(reinterpret_cast<const char*>(ptr), size);
             response.add_values(value);
@@ -268,12 +267,11 @@ void LineairDBRpc::handleTxWriteSecondaryIndex(const std::string& message, std::
     int64_t tx_id = request.transaction_id();
     auto* tx = tx_manager_->get_transaction(tx_id);
     if (tx) {
-        response.set_is_aborted(tx->IsAborted());
-
         const std::string& pk = request.primary_key();
         tx->WriteSecondaryIndex(request.index_name(), request.secondary_key(),
                                 reinterpret_cast<const std::byte*>(pk.c_str()), pk.size());
-        response.set_success(true);
+        response.set_is_aborted(tx->IsAborted());
+        response.set_success(!tx->IsAborted());
         LOG_DEBUG("WriteSecondaryIndex index='%s' key='%s' tx=%ld",
                   request.index_name().c_str(), request.secondary_key().c_str(), tx_id);
     } else {
@@ -296,12 +294,11 @@ void LineairDBRpc::handleTxDeleteSecondaryIndex(const std::string& message, std:
     int64_t tx_id = request.transaction_id();
     auto* tx = tx_manager_->get_transaction(tx_id);
     if (tx) {
-        response.set_is_aborted(tx->IsAborted());
-
         const std::string& pk = request.primary_key();
         tx->DeleteSecondaryIndex(request.index_name(), request.secondary_key(),
                                  reinterpret_cast<const std::byte*>(pk.c_str()), pk.size());
-        response.set_success(true);
+        response.set_is_aborted(tx->IsAborted());
+        response.set_success(!tx->IsAborted());
         LOG_DEBUG("DeleteSecondaryIndex index='%s' key='%s' tx=%ld",
                   request.index_name().c_str(), request.secondary_key().c_str(), tx_id);
     } else {
@@ -324,13 +321,12 @@ void LineairDBRpc::handleTxUpdateSecondaryIndex(const std::string& message, std:
     int64_t tx_id = request.transaction_id();
     auto* tx = tx_manager_->get_transaction(tx_id);
     if (tx) {
-        response.set_is_aborted(tx->IsAborted());
-
         const std::string& pk = request.primary_key();
         tx->UpdateSecondaryIndex(request.index_name(),
                                  request.old_secondary_key(), request.new_secondary_key(),
                                  reinterpret_cast<const std::byte*>(pk.c_str()), pk.size());
-        response.set_success(true);
+        response.set_is_aborted(tx->IsAborted());
+        response.set_success(!tx->IsAborted());
         LOG_DEBUG("UpdateSecondaryIndex index='%s' old='%s' new='%s' tx=%ld",
                   request.index_name().c_str(), request.old_secondary_key().c_str(),
                   request.new_secondary_key().c_str(), tx_id);

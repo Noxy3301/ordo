@@ -68,6 +68,8 @@ def main():
   else:
     # 引数が指定されていない場合は全てのテストを実行
     test_files = glob.glob(os.path.join("test/pytest", "**", "*.py"), recursive=True)
+    # utils/は非テストファイルなので除外
+    test_files = [f for f in test_files if "/utils/" not in f]
 
   if not test_files:
     print("Error: No test files found")

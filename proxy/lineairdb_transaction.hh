@@ -2,7 +2,6 @@
 #define LINEAIRDB_TRANSACTION_HH
 
 #include <optional>
-#include <unordered_map>
 
 #include "sql/handler.h" /* handler */
 #include "mysql/plugin.h"
@@ -113,8 +112,8 @@ private:
   handlerton* hton;
   bool isFence;
 
-  // stores RPC read results to maintain data pointer validity until transaction ends
-  std::unordered_map<std::string, std::string> read_cache_;
+  // stores the last RPC read result to maintain data pointer validity
+  std::string last_read_value_;
 
   // transaction abort status (updated by RPC responses)
   bool is_aborted_;

@@ -30,47 +30,27 @@ bool LineairDBTransaction::table_is_not_chosen() {
   return false;
 }
 
-const std::pair<const std::byte *const, const size_t> 
+const std::pair<const std::byte *const, const size_t>
 LineairDBTransaction::read(std::string key) {
   if (table_is_not_chosen()) return std::pair<const std::byte *const, const size_t>{nullptr, 0};
 
-  // Check cache first
-  auto cache_it = read_cache_.find(key);
-  if (cache_it != read_cache_.end()) {
-    LOG_DEBUG("CACHE HIT: key='%s', value_size=%zu", key.c_str(), cache_it->second.size());
-    const std::string& cached_data = cache_it->second;
-    return {reinterpret_cast<const std::byte*>(cached_data.data()), cached_data.size()};
-  }
+  last_read_value_ = lineairdb_proxy->tx_read(this, key);
+  if (last_read_value_.empty()) return std::pair<const std::byte *const, const size_t>{nullptr, 0};
 
-  // Cache miss - fetch from server via RPC
-  LOG_DEBUG("CACHE MISS: key='%s', fetching via RPC", key.c_str());
-  std::string value = lineairdb_proxy->tx_read(this, db_table_key + key);
-  if (value.empty()) return std::pair<const std::byte *const, const size_t>{nullptr, 0};
-
-  // cache data to maintain pointer validity until transaction ends
-  read_cache_[key] = value;
-  const std::string& cached_data = read_cache_[key];
-  return {reinterpret_cast<const std::byte*>(cached_data.data()), cached_data.size()};
+  return {reinterpret_cast<const std::byte*>(last_read_value_.data()), last_read_value_.size()};
 }
 
 std::vector<std::string>
 LineairDBTransaction::get_all_keys() {
   if (table_is_not_chosen()) return {};
 
-  auto key_value_pairs = lineairdb_proxy->tx_get_matching_keys_and_values_from_prefix(this, db_table_key);
+  auto key_value_pairs = lineairdb_proxy->tx_get_matching_keys_and_values_from_prefix(this, "");
 
   std::vector<std::string> keyList;
   for (const auto& kv : key_value_pairs) {
     keyList.push_back(kv.key);
-
-    // Cache the value to avoid future RPC calls
-    if (!kv.value.empty()) {
-      read_cache_[kv.key] = kv.value;
-      LOG_DEBUG("CACHE: stored key='%s', value_size=%zu", kv.key.c_str(), kv.value.size());
-    }
   }
 
-  LOG_DEBUG("CACHE: stored %zu key-value pairs from full scan, returning %zu keys", key_value_pairs.size(), keyList.size());
   return keyList;
 }
 
@@ -78,40 +58,24 @@ std::vector<std::string>
 LineairDBTransaction::get_matching_keys(std::string first_key_part) {
   if (table_is_not_chosen()) return {};
 
-  auto key_value_pairs = lineairdb_proxy->tx_get_matching_keys_and_values_from_prefix(this, db_table_key + first_key_part);
+  auto key_value_pairs = lineairdb_proxy->tx_get_matching_keys_and_values_from_prefix(this, first_key_part);
 
   std::vector<std::string> keyList;
   for (const auto& kv : key_value_pairs) {
     keyList.push_back(kv.key);
-
-    // Cache the value to avoid future RPC calls
-    if (!kv.value.empty()) {
-      read_cache_[kv.key] = kv.value;
-      LOG_DEBUG("CACHE: stored key='%s', value_size=%zu", kv.key.c_str(), kv.value.size());
-    }
   }
 
-  LOG_DEBUG("CACHE: stored %zu key-value pairs, returning %zu keys", key_value_pairs.size(), keyList.size());
   return keyList;
 }
 
 bool LineairDBTransaction::write(std::string key, const std::string value) {
   if (table_is_not_chosen()) return false;
-  return lineairdb_proxy->tx_write(this, db_table_key + key, value);
+  return lineairdb_proxy->tx_write(this, key, value);
 }
 
 bool LineairDBTransaction::delete_value(std::string key) {
   if (table_is_not_chosen()) return false;
-
-  // If key already starts with db_table_key, don't add it again
-  std::string full_key;
-  if (key.find(db_table_key) == 0) {
-    full_key = key;  // key is already a full key
-  } else {
-    full_key = db_table_key + key;  // key needs db_table_key prefix
-  }
-
-  return lineairdb_proxy->tx_write(this, full_key, "");
+  return lineairdb_proxy->tx_write(this, key, "");
 }
 
 // Secondary index operations

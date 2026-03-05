@@ -11,6 +11,14 @@ PID_FILE="/tmp/lineairdb_server.pid"
 
 mkdir -p "$LOG_DIR"
 
+# jemalloc: use LD_PRELOAD to replace glibc malloc
+JEMALLOC="/lib/x86_64-linux-gnu/libjemalloc.so.2"
+if [ -f "$JEMALLOC" ]; then
+  export LD_PRELOAD="$JEMALLOC"
+else
+  echo "WARNING: jemalloc not found, using system malloc (apt install libjemalloc2)" >&2
+fi
+
 if [ ! -x "$BIN" ]; then
   echo "ERROR: binary not found: $BIN" >&2
   echo "Hint: build it via: bash scripts/build.sh (or build_partial.sh)" >&2

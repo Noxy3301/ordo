@@ -28,6 +28,14 @@ done
 
 cd "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/build"
 
+# jemalloc: use LD_PRELOAD to replace glibc malloc
+JEMALLOC="/lib/x86_64-linux-gnu/libjemalloc.so.2"
+if [ -f "$JEMALLOC" ]; then
+  export LD_PRELOAD="$JEMALLOC"
+else
+  echo "WARNING: jemalloc not found, using system malloc (apt install libjemalloc2)" >&2
+fi
+
 DATA_DIR="./data"
 SOCKET="/tmp/mysql.sock"
 PID_FILE="/tmp/mysql.pid"

@@ -182,10 +182,10 @@ def run_single(benchmark, config_path, terminals, mysql_host, mysql_port, result
 
 def main():
     parser = argparse.ArgumentParser(description="Ordo benchmark runner")
-    parser.add_argument("benchmark", choices=["tpcc", "ycsb"], help="Benchmark type")
+    parser.add_argument("benchmark", choices=["tpcc", "tpch", "ycsb"], help="Benchmark type")
     parser.add_argument("--terminals", type=int, default=64, help="Number of terminals (default: 64)")
     parser.add_argument("--sweep", type=str, help="Comma-separated thread counts to sweep (e.g. 1,4,16,64)")
-    parser.add_argument("--scalefactor", type=int, default=1, help="Scale factor (default: 1)")
+    parser.add_argument("--scalefactor", type=float, default=1, help="Scale factor (default: 1)")
     parser.add_argument("--time", type=int, default=60, help="Execute time in seconds (default: 60)")
     parser.add_argument("--profile", type=str, default="a", help="YCSB profile: a,b,c,e,f (default: a)")
     parser.add_argument("--mysql-host", type=str, default="127.0.0.1")

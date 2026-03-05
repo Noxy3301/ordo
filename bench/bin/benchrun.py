@@ -119,7 +119,7 @@ def collect_results(result_dir):
 
 def run_single(benchmark, config_path, terminals, mysql_host, mysql_port, result_base, **extra):
     """Run a single benchmark iteration: reset DB, create, load, execute."""
-    db_name = "ordo_bench"
+    db_name = "benchbase"
 
     print(f"\n{'='*50}")
     print(f"  {benchmark.upper()} | Terminals: {terminals}")

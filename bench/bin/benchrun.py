@@ -213,6 +213,15 @@ def main():
 
     # Update config
     update_xml(config_work, scalefactor=str(args.scalefactor), time=str(args.time))
+    if args.benchmark == "tpch":
+        # Use custom DDL that includes indexes upfront (no afterload reindex)
+        ddl_path = ROOT / "bench" / "config" / "tpch-ddl.sql"
+        text = config_work.read_text()
+        if "<ddlpath>" in text:
+            update_xml(config_work, ddlpath=str(ddl_path))
+        else:
+            text = text.replace("</parameters>", f"    <ddlpath>{ddl_path}</ddlpath>\n</parameters>")
+            config_work.write_text(text)
     if args.benchmark == "ycsb":
         weights = YCSB_PROFILES.get(args.profile)
         if not weights:

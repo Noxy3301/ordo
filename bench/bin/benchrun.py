@@ -190,6 +190,7 @@ def main():
     parser.add_argument("--profile", type=str, default="a", help="YCSB profile: a,b,c,e,f (default: a)")
     parser.add_argument("--mysql-host", type=str, default="127.0.0.1")
     parser.add_argument("--mysql-port", type=int, default=3307)
+    parser.add_argument("--loader-threads", type=int, default=1, help="Number of parallel loader threads (default: 1)")
     parser.add_argument("--restart-between", action="store_true", help="Restart Ordo server+MySQL between sweep iterations")
     args = parser.parse_args()
 
@@ -213,6 +214,13 @@ def main():
 
     # Update config
     update_xml(config_work, scalefactor=str(args.scalefactor), time=str(args.time))
+    if args.loader_threads > 1:
+        text = config_work.read_text()
+        if "<loaderThreads>" in text:
+            update_xml(config_work, loaderThreads=str(args.loader_threads))
+        else:
+            text = text.replace("</parameters>", f"    <loaderThreads>{args.loader_threads}</loaderThreads>\n</parameters>")
+            config_work.write_text(text)
     if args.benchmark == "tpch":
         # Use custom DDL that includes indexes upfront (no afterload reindex)
         ddl_path = ROOT / "bench" / "config" / "tpch-ddl.sql"

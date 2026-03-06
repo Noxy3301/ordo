@@ -1553,9 +1553,14 @@ enum_alter_inplace_result ha_lineairdb::check_if_supported_inplace_alter(
     TABLE *altered_table [[maybe_unused]], Alter_inplace_info *ha_alter_info) {
   DBUG_TRACE;
 
-  // Support ADD_INDEX and ADD_UNIQUE_INDEX operations
+  // Support ADD/DROP INDEX operations.
+  // DROP_INDEX is a no-op placeholder: the index data remains in LineairDB.
+  // It must be accepted because MySQL sends ADD_INDEX | DROP_INDEX together
+  // when replacing a foreign key auto-index with an explicit CREATE INDEX.
   Alter_inplace_info::HA_ALTER_FLAGS dominated_flags =
-      Alter_inplace_info::ADD_INDEX | Alter_inplace_info::ADD_UNIQUE_INDEX;
+      Alter_inplace_info::ADD_INDEX | Alter_inplace_info::DROP_INDEX |
+      Alter_inplace_info::ADD_UNIQUE_INDEX |
+      Alter_inplace_info::DROP_UNIQUE_INDEX;
 
   if (ha_alter_info->handler_flags & ~dominated_flags) {
     // Unsupported operation requested

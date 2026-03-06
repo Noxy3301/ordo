@@ -379,7 +379,8 @@ private:
 
   // Key conversion helpers
   static std::string encode_int_key(const uchar *data, size_t len);
-  static std::string encode_datetime_key(const uchar *data, size_t len);
+  static std::string encode_datetime_key(const uchar *data, size_t len,
+                                          enum_field_types mysql_type);
   static std::string encode_string_key(const uchar *data, size_t len);
 
   static unsigned char key_part_type_tag(LineairDBFieldType type);

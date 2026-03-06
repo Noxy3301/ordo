@@ -2285,7 +2285,7 @@ std::string ha_lineairdb::serialize_key_from_field(Field *field) {
       field->get_key_image(reinterpret_cast<uchar *>(raw.data()), field_len,
                            Field::itRAW);
       payload = encode_datetime_key(reinterpret_cast<const uchar *>(raw.data()),
-                                    field_len);
+                                    field_len, mysql_type);
       break;
     }
 
@@ -2528,15 +2528,19 @@ std::string ha_lineairdb::encode_int_key(const uchar *data, size_t len) {
 /**
  * @brief Encode DATETIME key from MySQL format to LineairDB format
  *
- * MySQL DATETIME is already stored in a sortable binary format,
- * so we just copy it as-is.
- *
- * @param data MySQL DATETIME binary data
- * @param len Key length (typically 5 or 8 bytes)
- * @return Binary string (unchanged)
+ * MYSQL_TYPE_DATE / MYSQL_TYPE_NEWDATE: 3 bytes stored in little-endian.
+ * Must be converted to big-endian for correct lexicographic sorting.
+ * DATETIME2, TIMESTAMP2, TIME2: already in big-endian sortable format.
  */
-std::string ha_lineairdb::encode_datetime_key(const uchar *data, size_t len) {
-  // MySQL DATETIME2 is already in sortable format, just copy it
+std::string ha_lineairdb::encode_datetime_key(const uchar *data, size_t len,
+                                              enum_field_types mysql_type) {
+  if (mysql_type == MYSQL_TYPE_DATE || mysql_type == MYSQL_TYPE_NEWDATE) {
+    char buf[3];
+    buf[0] = static_cast<char>(data[2]);
+    buf[1] = static_cast<char>(data[1]);
+    buf[2] = static_cast<char>(data[0]);
+    return std::string(buf, 3);
+  }
   return std::string(reinterpret_cast<const char *>(data), len);
 }
 
@@ -2634,7 +2638,7 @@ std::string ha_lineairdb::convert_key_to_ldbformat(const uchar *key,
       break;
 
     case LineairDBFieldType::LINEAIRDB_DATETIME:
-      payload = encode_datetime_key(data_ptr, data_len);
+      payload = encode_datetime_key(data_ptr, data_len, mysql_type);
       break;
 
     case LineairDBFieldType::LINEAIRDB_STRING:

@@ -47,6 +47,7 @@
 #include <array>
 #include <atomic>
 #include <cstdint>
+#include <unordered_map>
 #include <vector>
 
 #include "lineairdb_field_types.h"
@@ -111,6 +112,14 @@ private:
   uint current_position_in_index_;
   std::vector<std::string> scanned_keys_;
   std::vector<std::vector<std::byte>> scanned_values_;
+  // Local row cache, serving the same role as InnoDB's Buffer Pool for re-reads.
+  // When MySQL sorts results (ORDER BY), it scans all rows via rnd_next(), then
+  // re-reads them in sorted order via rnd_pos(). In InnoDB, the second read hits
+  // the Buffer Pool (in-memory page cache) so it's nearly free. Since we access
+  // LineairDB via RPC, there is no such cache — without this, every rnd_pos()
+  // would trigger a network round-trip.
+  // Populated during rnd_next()/fetch_next_batch(), cleared on next rnd_init().
+  std::unordered_map<std::string, size_t> scan_cache_;  // primary key -> index in scanned_values_
   std::vector<std::string> secondary_index_results_;
   std::vector<std::string> secondary_index_payloads_;
   std::string last_fetched_primary_key_;

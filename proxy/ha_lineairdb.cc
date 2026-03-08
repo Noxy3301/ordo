@@ -808,6 +808,7 @@ int ha_lineairdb::rnd_init(bool) {
   DBUG_ENTER("ha_lineairdb::rnd_init");
   scanned_keys_.clear();
   scanned_values_.clear();
+  scan_cache_.clear();
   buffer_position_ = 0;
   last_batch_key_.clear();
   scan_exhausted_ = false;
@@ -831,10 +832,11 @@ int ha_lineairdb::rnd_init(bool) {
 
 int ha_lineairdb::rnd_end() {
   DBUG_TRACE;
-  scanned_keys_.clear();
-  scanned_keys_.shrink_to_fit();
-  scanned_values_.clear();
-  scanned_values_.shrink_to_fit();
+  // NOTE: Do NOT clear scan_cache_ / scanned_values_ here.
+  // MySQL calls rnd_end() after scanning, then rnd_pos() to re-read rows in
+  // sorted order. In InnoDB the re-read hits the Buffer Pool, but we need our
+  // own cache (scan_cache_) since re-reads would otherwise require RPCs.
+  // Cleared at the start of the next rnd_init() instead.
   buffer_position_ = 0;
   last_batch_key_.clear();
   scan_exhausted_ = false;
@@ -869,11 +871,14 @@ bool ha_lineairdb::fetch_next_batch() {
     // skip tombstones
     if (kv.second.empty()) continue;
 
+    // Store row data and build scan_cache_ so rnd_pos() can reuse it later.
+    size_t idx = scanned_keys_.size();
     scanned_keys_.push_back(kv.first);
     const auto &val = kv.second;
     scanned_values_.emplace_back(
         reinterpret_cast<const std::byte *>(val.data()),
         reinterpret_cast<const std::byte *>(val.data()) + val.size());
+    scan_cache_[kv.first] = idx;
   }
 
   // Check if tx was aborted during RPC
@@ -998,6 +1003,18 @@ int ha_lineairdb::rnd_pos(uchar *buf, uchar *pos) {
 
   if (primary_key.empty()) {
     return HA_ERR_KEY_NOT_FOUND;
+  }
+
+  // Return from scan_cache_ if available (equivalent of hitting InnoDB's Buffer
+  // Pool). Without this, every re-read would be a separate RPC to LineairDB.
+  auto cache_it = scan_cache_.find(primary_key);
+  if (cache_it != scan_cache_.end()) {
+    auto &value = scanned_values_[cache_it->second];
+    if (set_fields_from_lineairdb(buf, value.data(), value.size())) {
+      return HA_ERR_OUT_OF_MEM;
+    }
+    last_fetched_primary_key_ = primary_key;
+    return 0;
   }
 
   auto tx = get_transaction(ha_thd());

@@ -4,7 +4,7 @@
     <!-- Connection details -->
     <type>MYSQL</type>
     <driver>com.mysql.cj.jdbc.Driver</driver>
-    <url>jdbc:mysql://localhost:3307/benchbase?rewriteBatchedStatements=true&amp;allowLoadLocalInfile=true&amp;allowPublicKeyRetrieval=true&amp;sslMode=DISABLED&amp;sessionVariables=optimizer_switch='batched_key_access=on,mrr_cost_based=off,subquery_to_derived=on',join_buffer_size=1073741824</url>
+    <url>jdbc:mysql://localhost:3307/benchbase?rewriteBatchedStatements=true&amp;allowLoadLocalInfile=true&amp;allowPublicKeyRetrieval=true&amp;sslMode=DISABLED</url>
     <username>root</username>
     <password></password>
     <reconnectOnConnectionFailure>true</reconnectOnConnectionFailure>

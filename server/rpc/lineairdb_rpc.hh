@@ -26,6 +26,8 @@ private:
 
     // Primary key operations
     void handleTxRead(const std::string& message, std::string& result);
+    void handleTxBatchRead(const std::string& message, std::string& result);
+    void handleTxBatchWrite(const std::string& message, std::string& result);
     void handleTxWrite(const std::string& message, std::string& result);
     void handleTxDelete(const std::string& message, std::string& result);
 

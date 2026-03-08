@@ -770,6 +770,7 @@ int ha_lineairdb::index_last(uchar *buf) {
   } else {
     secondary_index_results_ =
         tx->get_matching_primary_keys_in_range(current_index_name, "", "", "");
+    batch_fetch_secondary_payloads(tx);
   }
 
   if (tx->is_aborted()) {
@@ -2037,6 +2038,7 @@ int ha_lineairdb::execute_index_first(uchar *buf, LineairDBTransaction *tx) {
     secondary_index_results_ = tx->get_matching_primary_keys_in_range(
         current_index_name, start_key, end_key,
         current_plan_.exclusive_end_key_serialized);
+    batch_fetch_secondary_payloads(tx);
   }
 
   // phantom detection check
@@ -2098,6 +2100,7 @@ int ha_lineairdb::execute_unique_point(uchar *buf, LineairDBTransaction *tx) {
       return HA_ERR_KEY_NOT_FOUND;
     }
 
+    batch_fetch_secondary_payloads(tx);
     return fetch_and_set_current_result(buf, tx);
   }
 }
@@ -2133,6 +2136,7 @@ int ha_lineairdb::execute_same_key_materialize(uchar *buf,
 
   secondary_index_results_ = tx->get_matching_primary_keys_in_range(
       current_index_name, prefix, prefix_end, prefix_end);
+  batch_fetch_secondary_payloads(tx);
 
   if (tx->is_aborted()) {
     thd_mark_transaction_to_rollback(ha_thd(), 1);
@@ -2180,6 +2184,7 @@ int ha_lineairdb::execute_prefix_first(uchar *buf, LineairDBTransaction *tx) {
   // rows.
   secondary_index_results_ = tx->get_matching_primary_keys_in_range(
       current_index_name, prefix, prefix_end, prefix_end);
+  batch_fetch_secondary_payloads(tx);
 
   if (tx->is_aborted()) {
     thd_mark_transaction_to_rollback(ha_thd(), 1);
@@ -2219,6 +2224,7 @@ int ha_lineairdb::execute_range_materialize(uchar *buf,
     secondary_index_results_ = tx->get_matching_primary_keys_in_range(
         current_index_name, effective_start, effective_end,
         current_plan_.exclusive_end_key_serialized);
+    batch_fetch_secondary_payloads(tx);
   }
 
   // phantom detection check
@@ -2253,6 +2259,7 @@ int ha_lineairdb::execute_prev_key(uchar *buf, LineairDBTransaction *tx) {
   } else {
     secondary_index_results_ = tx->get_matching_primary_keys_in_range(
         current_index_name, "", target_key, exclusive_end);
+    batch_fetch_secondary_payloads(tx);
   }
 
   if (tx->is_aborted()) {
@@ -2295,6 +2302,7 @@ int ha_lineairdb::execute_prefix_last(uchar *buf, LineairDBTransaction *tx) {
         secondary_index_results_ = tx->get_matching_primary_keys_in_range(
             current_index_name, "", prefix, prefix);
       }
+      batch_fetch_secondary_payloads(tx);
     }
 
     if (tx->is_aborted()) {
@@ -2325,6 +2333,7 @@ int ha_lineairdb::execute_prefix_last(uchar *buf, LineairDBTransaction *tx) {
         current_index_name, current_plan_.same_group_prefix_serialized,
         current_plan_.same_group_end_serialized,
         current_plan_.same_group_end_serialized);
+    batch_fetch_secondary_payloads(tx);
   }
 
   if (tx->is_aborted()) {
@@ -2339,6 +2348,31 @@ int ha_lineairdb::execute_prefix_last(uchar *buf, LineairDBTransaction *tx) {
   // get the last element
   current_position_in_index_ = secondary_index_results_.size() - 1;
   return fetch_and_set_current_result(buf, tx);
+}
+
+/**
+ * @brief Pre-fetch all row data for a secondary index scan result in one RPC.
+ *
+ * A secondary index query is a two-step process:
+ *   1) Index scan → returns a list of primary keys (secondary_index_results_)
+ *   2) Row fetch  → read each row by primary key
+ * Without this, step 2 would issue one READ RPC per row (N rows = N RPCs).
+ * This method does step 2 in bulk: it sends all primary keys in a single
+ * batch_read RPC and stores the results in secondary_index_payloads_.
+ * When fetch_and_set_current_result() later returns rows one by one,
+ * the data is already in memory — no further RPCs needed.
+ */
+void ha_lineairdb::batch_fetch_secondary_payloads(LineairDBTransaction *tx) {
+  if (secondary_index_results_.empty()) return;
+
+  auto results = tx->batch_read(secondary_index_results_);
+
+  secondary_index_payloads_.clear();
+  secondary_index_payloads_.reserve(results.size());
+  for (auto &r : results) {
+    secondary_index_payloads_.push_back(
+        r.first ? std::move(r.second) : std::string());
+  }
 }
 
 /**

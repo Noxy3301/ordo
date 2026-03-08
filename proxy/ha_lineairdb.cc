@@ -393,6 +393,9 @@ int ha_lineairdb::index_init(uint idx, bool sorted [[maybe_unused]]) {
 int ha_lineairdb::index_end() {
   DBUG_TRACE;
   active_index = MAX_KEY;
+  mrr_use_batch_ = false;
+  mrr_buffer_.clear();
+  mrr_buffer_pos_ = 0;
   return 0;
 }
 
@@ -1591,25 +1594,153 @@ bool ha_lineairdb::inplace_alter_table(TABLE *altered_table [[maybe_unused]],
   return false;
 }
 
+/**
+ * @brief Advertise custom MRR for primary key lookups.
+ *
+ * When MySQL considers using MRR (e.g. for BKA joins), it calls this method
+ * to ask the storage engine for cost estimates. We clear HA_MRR_USE_DEFAULT_IMPL
+ * for PK lookups so that multi_range_read_init() receives our custom batch path,
+ * which sends all keys in a single RPC instead of one RPC per key.
+ */
 ha_rows ha_lineairdb::multi_range_read_info_const(
     uint keyno, RANGE_SEQ_IF *seq, void *seq_init_param, uint n_ranges,
     uint *bufsz, uint *flags, bool *force_default_mrr, Cost_estimate *cost) {
-  /* See comments in ha_myisam::multi_range_read_info_const */
-  m_ds_mrr.init(table);
+  ha_rows rows = handler::multi_range_read_info_const(
+      keyno, seq, seq_init_param, n_ranges, bufsz, flags, force_default_mrr,
+      cost);
+  if (rows == HA_POS_ERROR) return rows;
 
-  return (m_ds_mrr.dsmrr_info_const(keyno, seq, seq_init_param, n_ranges, bufsz,
-                                    flags, cost));
+  // Use custom batch MRR for PK point lookups (BKA JOINs).
+  // Range scans on secondary indexes must use the default path.
+  // Set cost=1 since batch_read sends all keys in a single RPC.
+  if (keyno == table->s->primary_key) {
+    *flags &= ~HA_MRR_USE_DEFAULT_IMPL;
+    *bufsz = 0;
+    if (cost) {
+      cost->reset();
+      cost->add_io(1.0);
+    }
+  }
+  return rows;
 }
 
+ha_rows ha_lineairdb::multi_range_read_info(uint keyno, uint n_ranges,
+                                            uint keys, uint *bufsz,
+                                            uint *flags,
+                                            Cost_estimate *cost) {
+  ha_rows rows = handler::multi_range_read_info(keyno, n_ranges, keys, bufsz,
+                                                flags, cost);
+  // Use custom batch MRR for PK point lookups (BKA JOINs).
+  if (keyno == table->s->primary_key) {
+    *flags &= ~HA_MRR_USE_DEFAULT_IMPL;
+    *bufsz = 0;
+    if (cost) {
+      cost->reset();
+      cost->add_io(1.0);
+    }
+  }
+  return rows;
+}
+
+/**
+ * @brief Initialize custom MRR: validate ranges and batch-read all keys.
+ *
+ * Iterates the range sequence to verify every range is a full-key point lookup
+ * (EQ_RANGE with all PK columns specified). If any range is a partial-key match
+ * or an inequality scan, falls back to MySQL's default MRR — because batch_read
+ * only supports exact full-key lookups against LineairDB's KV store.
+ *
+ * On success, all keys are sent in a single batch_read RPC and results are
+ * buffered in mrr_buffer_ for retrieval by multi_range_read_next().
+ */
 int ha_lineairdb::multi_range_read_init(RANGE_SEQ_IF *seq, void *seq_init_param,
                                         uint n_ranges, uint mode,
                                         HANDLER_BUFFER *buf) {
-  m_ds_mrr.init(table);
-  return m_ds_mrr.dsmrr_init(seq, seq_init_param, n_ranges, mode, buf);
+  if (mode & HA_MRR_USE_DEFAULT_IMPL) {
+    mrr_use_batch_ = false;
+    m_ds_mrr.init(table);
+    return m_ds_mrr.dsmrr_init(seq, seq_init_param, n_ranges, mode, buf);
+  }
+
+  // Collect all lookup keys from the range sequence
+  range_seq_t seq_ctx = seq->init(seq_init_param, n_ranges, mode);
+  KEY_MULTI_RANGE range;
+  std::vector<std::string> batch_keys;
+  std::vector<char *> range_infos;
+
+  // Determine the full-key keypart_map for the active index
+  const uint pk_parts = table->key_info[active_index].user_defined_key_parts;
+  const key_part_map full_key_map =
+      (pk_parts < sizeof(key_part_map) * 8)
+          ? ((static_cast<key_part_map>(1) << pk_parts) - 1)
+          : ~static_cast<key_part_map>(0);
+
+  while (seq->next(seq_ctx, &range) == 0) {
+    // Only batch full-key point lookups (EQ_RANGE with all PK parts).
+    // Partial-key ranges (e.g. 3 of 4 PK cols) or range scans (e.g. id > 15)
+    // cannot be converted to individual key lookups — fall back to default.
+    if (!(range.range_flag & EQ_RANGE) ||
+        (range.start_key.keypart_map & full_key_map) != full_key_map) {
+      mrr_use_batch_ = false;
+      m_ds_mrr.init(table);
+      return m_ds_mrr.dsmrr_init(seq, seq_init_param, n_ranges,
+                                 mode | HA_MRR_USE_DEFAULT_IMPL, buf);
+    }
+    std::string ldb_key =
+        convert_key_to_ldbformat(range.start_key.key, range.start_key.keypart_map);
+    batch_keys.push_back(ldb_key);
+    range_infos.push_back(range.ptr);
+  }
+
+  mrr_use_batch_ = true;
+  mrr_buffer_.clear();
+  mrr_buffer_pos_ = 0;
+
+  auto tx = get_transaction(ha_thd());
+  if (!tx || tx->is_aborted()) {
+    thd_mark_transaction_to_rollback(ha_thd(), 1);
+    return HA_ERR_LOCK_DEADLOCK;
+  }
+  tx->choose_table(db_table_name);
+
+  if (batch_keys.empty()) return 0;
+
+  // Send all keys in a single batch RPC
+  auto results = tx->batch_read(batch_keys);
+
+  if (tx->is_aborted()) {
+    thd_mark_transaction_to_rollback(ha_thd(), 1);
+    return HA_ERR_LOCK_DEADLOCK;
+  }
+
+  // Buffer results for multi_range_read_next()
+  for (size_t i = 0; i < results.size(); i++) {
+    if (results[i].first) {
+      mrr_buffer_.push_back({std::move(results[i].second), range_infos[i]});
+    }
+  }
+
+  return 0;
 }
 
 int ha_lineairdb::multi_range_read_next(char **range_info) {
-  return m_ds_mrr.dsmrr_next(range_info);
+  if (!mrr_use_batch_) {
+    return m_ds_mrr.dsmrr_next(range_info);
+  }
+
+  if (mrr_buffer_pos_ >= mrr_buffer_.size()) {
+    return HA_ERR_END_OF_FILE;
+  }
+
+  auto &row = mrr_buffer_[mrr_buffer_pos_++];
+
+  const std::byte *ptr = reinterpret_cast<const std::byte *>(row.value.data());
+  if (set_fields_from_lineairdb(table->record[0], ptr, row.value.size())) {
+    return HA_ERR_OUT_OF_MEM;
+  }
+
+  *range_info = row.range_info;
+  return 0;
 }
 
 int ha_lineairdb::read_range_first(const key_range *start_key,

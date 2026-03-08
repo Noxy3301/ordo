@@ -362,6 +362,9 @@ public:
                                       void *seq_init_param, uint n_ranges,
                                       uint *bufsz, uint *flags, bool *force_default_mrr,
                                       Cost_estimate *cost) override;
+  ha_rows multi_range_read_info(uint keyno, uint n_ranges, uint keys,
+                                uint *bufsz, uint *flags,
+                                Cost_estimate *cost) override;
   int multi_range_read_init(RANGE_SEQ_IF *seq, void *seq_init_param,
                             uint n_ranges, uint mode,
                             HANDLER_BUFFER *buf) override;
@@ -374,6 +377,15 @@ public:
 private:
   /** The multi range read session object */
   DsMrr_impl m_ds_mrr;
+
+  // MRR batch state
+  struct MrrBufferedRow {
+    std::string value;
+    char *range_info;
+  };
+  std::vector<MrrBufferedRow> mrr_buffer_;
+  size_t mrr_buffer_pos_ = 0;
+  bool mrr_use_batch_ = false;
   LineairDBTransaction *&
   get_transaction(THD *thd);
 

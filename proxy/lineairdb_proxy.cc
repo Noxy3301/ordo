@@ -1,5 +1,6 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
+#include <netinet/tcp.h>
 #include <arpa/inet.h>
 #include <unistd.h>
 #include <errno.h>
@@ -55,6 +56,10 @@ bool LineairDBProxy::connect(const std::string& host, int port) {
         socket_fd_ = -1;
         return false;
     }
+
+    // Disable Nagle's algorithm for low-latency RPC
+    int flag = 1;
+    setsockopt(socket_fd_, IPPROTO_TCP, TCP_NODELAY, &flag, sizeof(flag));
 
     connected_ = true;
     host_ = host;

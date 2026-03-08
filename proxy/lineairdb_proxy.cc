@@ -837,11 +837,8 @@ bool LineairDBProxy::send_message(const std::string& serialized_request, std::st
 
 template<typename RequestType, typename ResponseType>
 bool LineairDBProxy::send_protobuf_message(const RequestType& request, ResponseType& response, MessageType message_type) {
-    LOG_DEBUG("PROTOBUF_MESSAGE: Starting protobuf message send");
-
     // serialize request
     std::string serialized_request = request.SerializeAsString();
-    LOG_DEBUG("PROTOBUF_MESSAGE: Request serialized successfully, size: %zu bytes", serialized_request.size());
 
     // send message with header
     std::string serialized_response;
@@ -856,7 +853,6 @@ bool LineairDBProxy::send_protobuf_message(const RequestType& request, ResponseT
         return false;
     }
 
-    LOG_DEBUG("PROTOBUF_MESSAGE: Successfully completed protobuf message exchange");
     return true;
 }
 

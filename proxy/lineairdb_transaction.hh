@@ -79,6 +79,8 @@ public:
                                      const std::string& index_name,
                                      const std::string& secondary_key,
                                      const std::string& primary_key);
+  // Flush buffered writes to LineairDB so that subsequent reads can see them.
+  // Must be called before any read/scan RPC to ensure read-your-own-writes.
   bool flush_write_buffer();
 
   void begin_transaction();

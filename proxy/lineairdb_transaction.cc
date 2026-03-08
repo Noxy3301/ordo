@@ -34,6 +34,7 @@ bool LineairDBTransaction::table_is_not_chosen() {
 const std::pair<const std::byte *const, const size_t>
 LineairDBTransaction::read(std::string key) {
   if (table_is_not_chosen()) return std::pair<const std::byte *const, const size_t>{nullptr, 0};
+  flush_write_buffer();
 
   last_read_value_ = lineairdb_proxy->tx_read(this, key);
   if (last_read_value_.empty()) return std::pair<const std::byte *const, const size_t>{nullptr, 0};
@@ -44,6 +45,7 @@ LineairDBTransaction::read(std::string key) {
 std::vector<std::pair<bool, std::string>>
 LineairDBTransaction::batch_read(const std::vector<std::string>& keys) {
   if (table_is_not_chosen()) return {};
+  flush_write_buffer();
 
   auto results = lineairdb_proxy->tx_batch_read(this, keys);
   std::vector<std::pair<bool, std::string>> pairs;
@@ -64,6 +66,7 @@ bool LineairDBTransaction::batch_write(
 std::vector<std::string>
 LineairDBTransaction::get_all_keys() {
   if (table_is_not_chosen()) return {};
+  flush_write_buffer();
 
   auto key_value_pairs = lineairdb_proxy->tx_get_matching_keys_and_values_from_prefix(this, "");
 
@@ -78,6 +81,7 @@ LineairDBTransaction::get_all_keys() {
 std::vector<std::string>
 LineairDBTransaction::get_matching_keys(std::string first_key_part) {
   if (table_is_not_chosen()) return {};
+  flush_write_buffer();
 
   auto key_value_pairs = lineairdb_proxy->tx_get_matching_keys_and_values_from_prefix(this, first_key_part);
 
@@ -107,6 +111,7 @@ std::vector<std::string>
 LineairDBTransaction::read_secondary_index(std::string index_name,
                                            std::string secondary_key) {
   if (table_is_not_chosen()) return {};
+  flush_write_buffer();
 
   return lineairdb_proxy->tx_read_secondary_index(this, index_name, secondary_key);
 }
@@ -143,6 +148,7 @@ LineairDBTransaction::get_matching_keys_in_range(std::string start_key,
                                                  std::string end_key,
                                                  const std::string &exclusive_end_key) {
   if (table_is_not_chosen()) return {};
+  flush_write_buffer();
 
   return lineairdb_proxy->tx_get_matching_keys_in_range(this, start_key, end_key, exclusive_end_key);
 }
@@ -152,6 +158,7 @@ LineairDBTransaction::get_matching_keys_and_values_in_range(std::string start_ke
                                                             std::string end_key,
                                                             const std::string &exclusive_end_key) {
   if (table_is_not_chosen()) return {};
+  flush_write_buffer();
 
   auto results = lineairdb_proxy->tx_get_matching_keys_and_values_in_range(this, start_key, end_key, exclusive_end_key);
 
@@ -165,6 +172,7 @@ LineairDBTransaction::get_matching_keys_and_values_in_range(std::string start_ke
 std::vector<std::pair<std::string, std::string>>
 LineairDBTransaction::get_matching_keys_and_values_from_prefix(std::string prefix) {
   if (table_is_not_chosen()) return {};
+  flush_write_buffer();
 
   auto results = lineairdb_proxy->tx_get_matching_keys_and_values_from_prefix(this, prefix);
 
@@ -180,6 +188,7 @@ LineairDBTransaction::fetch_last_key_in_range(const std::string &start_key,
                                               const std::string &end_key,
                                               const std::string &exclusive_end_key) {
   if (table_is_not_chosen()) return std::nullopt;
+  flush_write_buffer();
 
   return lineairdb_proxy->tx_fetch_last_key_in_range(this, start_key, end_key, exclusive_end_key);
 }
@@ -188,6 +197,7 @@ std::optional<std::string>
 LineairDBTransaction::fetch_first_key_with_prefix(const std::string &prefix,
                                                   const std::string &prefix_end) {
   if (table_is_not_chosen()) return std::nullopt;
+  flush_write_buffer();
 
   return lineairdb_proxy->tx_fetch_first_key_with_prefix(this, prefix, prefix_end);
 }
@@ -196,6 +206,7 @@ std::optional<std::string>
 LineairDBTransaction::fetch_next_key_with_prefix(const std::string &last_key,
                                                  const std::string &prefix_end) {
   if (table_is_not_chosen()) return std::nullopt;
+  flush_write_buffer();
 
   return lineairdb_proxy->tx_fetch_next_key_with_prefix(this, last_key, prefix_end);
 }
@@ -208,6 +219,7 @@ LineairDBTransaction::get_matching_primary_keys_in_range(std::string index_name,
                                                          std::string end_key,
                                                          const std::string &exclusive_end_key) {
   if (table_is_not_chosen()) return {};
+  flush_write_buffer();
 
   return lineairdb_proxy->tx_get_matching_primary_keys_in_range(this, index_name, start_key, end_key, exclusive_end_key);
 }
@@ -216,6 +228,7 @@ std::vector<std::string>
 LineairDBTransaction::get_matching_primary_keys_from_prefix(std::string index_name,
                                                             std::string prefix) {
   if (table_is_not_chosen()) return {};
+  flush_write_buffer();
 
   return lineairdb_proxy->tx_get_matching_primary_keys_from_prefix(this, index_name, prefix);
 }
@@ -226,6 +239,7 @@ LineairDBTransaction::fetch_last_primary_key_in_secondary_range(const std::strin
                                                                 const std::string &end_key,
                                                                 const std::string &exclusive_end_key) {
   if (table_is_not_chosen()) return std::nullopt;
+  flush_write_buffer();
 
   return lineairdb_proxy->tx_fetch_last_primary_key_in_secondary_range(this, index_name, start_key, end_key, exclusive_end_key);
 }
@@ -236,6 +250,7 @@ LineairDBTransaction::fetch_last_secondary_entry_in_range(const std::string &ind
                                                           const std::string &end_key,
                                                           const std::string &exclusive_end_key) {
   if (table_is_not_chosen()) return std::nullopt;
+  flush_write_buffer();
 
   return lineairdb_proxy->tx_fetch_last_secondary_entry_in_range(this, index_name, start_key, end_key, exclusive_end_key);
 }

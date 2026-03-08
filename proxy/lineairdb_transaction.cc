@@ -254,6 +254,43 @@ LineairDBTransaction::peek_rowcount_delta(const LineairDB_share *share) const {
   return 0;
 }
 
+void LineairDBTransaction::buffer_write(const std::string& table_name,
+                                        const std::string& key,
+                                        const std::string& value) {
+  // If table changed, flush the current buffer first
+  if (!write_buffer_ops_.empty() && write_buffer_table_ != table_name) {
+    flush_write_buffer();
+  }
+  write_buffer_table_ = table_name;
+  write_buffer_ops_.push_back({key, value});
+
+  if (write_buffer_ops_.size() >= WRITE_BATCH_SIZE) {
+    flush_write_buffer();
+  }
+}
+
+void LineairDBTransaction::buffer_write_secondary_index(const std::string& table_name,
+                                                        const std::string& index_name,
+                                                        const std::string& secondary_key,
+                                                        const std::string& primary_key) {
+  write_buffer_si_ops_.push_back({index_name, secondary_key, primary_key});
+}
+
+bool LineairDBTransaction::flush_write_buffer() {
+  if (write_buffer_ops_.empty() && write_buffer_si_ops_.empty()) return true;
+  if (is_aborted_) {
+    write_buffer_ops_.clear();
+    write_buffer_si_ops_.clear();
+    return false;
+  }
+
+  bool ok = lineairdb_proxy->tx_batch_write(
+      this, write_buffer_table_, write_buffer_ops_, write_buffer_si_ops_);
+  write_buffer_ops_.clear();
+  write_buffer_si_ops_.clear();
+  return ok;
+}
+
 void LineairDBTransaction::begin_transaction() {
   assert(is_not_started());
   tx_id = lineairdb_proxy->tx_begin_transaction();
@@ -277,6 +314,7 @@ void LineairDBTransaction::set_status_to_abort() {
 
 bool LineairDBTransaction::end_transaction() {
   assert(tx_id != -1);
+  flush_write_buffer();
   bool was_aborted = is_aborted_;
   bool committed = lineairdb_proxy->db_end_transaction(tx_id, isFence);
   if (!committed) {

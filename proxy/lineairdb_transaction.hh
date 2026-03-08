@@ -72,6 +72,15 @@ public:
   bool delete_value(std::string key);
   bool delete_secondary_index(std::string index_name, std::string secondary_key, const std::string primary_key);
 
+  // Write buffering for batch operations
+  void buffer_write(const std::string& table_name,
+                    const std::string& key, const std::string& value);
+  void buffer_write_secondary_index(const std::string& table_name,
+                                     const std::string& index_name,
+                                     const std::string& secondary_key,
+                                     const std::string& primary_key);
+  bool flush_write_buffer();
+
   void begin_transaction();
   void set_status_to_abort();
   bool end_transaction();
@@ -125,6 +134,12 @@ private:
   bool is_aborted_;
 
   std::vector<std::pair<LineairDB_share *, int64_t>> rowcount_deltas_;
+
+  // Write buffer for batch write operations
+  static constexpr size_t WRITE_BATCH_SIZE = 100;
+  std::string write_buffer_table_;
+  std::vector<LineairDBProxy::BatchWriteOp> write_buffer_ops_;
+  std::vector<LineairDBProxy::BatchSecondaryIndexOp> write_buffer_si_ops_;
 
   bool thd_is_transaction() const;
   void register_transaction_to_mysql();

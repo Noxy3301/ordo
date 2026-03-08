@@ -19,7 +19,7 @@ cd build
 ### Running Ordo Server
 
 ```bash
-./build/server/ordo-server
+./scripts/start_server.sh
 ```
 
 ### Connect to MySQL and Install LineairDB Plugin
@@ -58,23 +58,16 @@ SELECT * FROM test WHERE id = 1;
 ## Benchmark
 
 ```bash
+# Build
 ./scripts/build.sh
 
-or
+# Start servers
+./scripts/start_server.sh
+./scripts/start_mysql.sh --mysqld-port 3307 --server-host 127.0.0.1 --server-port 9999
 
-./scripts/build_partial.sh
-```
+# Patch BenchBase (first time only)
+python3 bench/bin/patch_benchbase.py
 
-```bash
-build/server/ordo-server
-```
-
-```bash
-scripts/start_mysql.sh --mysqld-port 3307 --ordo-host 127.0.0.1 --ordo-port 9999
-```
-
-```bash
-scripts/experimental/phase_setup.sh 3307
-scripts/experimental/phase_load.sh 3307
-scripts/experimental/phase_execute.sh 3307
+# Run benchmark (TPC-C example)
+python3 bench/bin/benchrun.py tpcc --terminals 64
 ```

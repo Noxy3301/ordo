@@ -1,27 +1,29 @@
-# Ordo Benchmarking
+# Benchmark
 
 ## Quick Start
 
-
-### 1. Setup Benchbase
+### 1. Start servers
 
 ```bash
-./bench/setup_benchbase.sh
+./scripts/start_server.sh
+./scripts/start_mysql.sh --mysqld-port 3307 --server-host 127.0.0.1 --server-port 9999
 ```
 
-### 2. Start servers
+### 2. Patch BenchBase (first time only)
+
 ```bash
-./scripts/start_mysql.sh
-cd build/server && ./ordo_server
+python3 bench/bin/patch_benchbase.py
 ```
 
-### 3. Install plugin and create DB
-```bash
-./build/runtime_output_directory/mysql -u root --socket=/tmp/mysql.sock --port=3307 < bench/setup.sql
-```
+### 3. Run benchmark
 
-### 4. Run YCSB benchmark
 ```bash
-cd bench/benchbase/benchbase-mysql
-java -jar benchbase.jar -b ycsb -c /home/noxy/work/ordo/bench/config/ycsb.xml --create=true --load=true --execute=true
+# TPC-C
+python3 bench/bin/benchrun.py tpcc --terminals 64
+
+# YCSB
+python3 bench/bin/benchrun.py ycsb --profile a --terminals 8 --scalefactor 100
+
+# TPC-H
+python3 bench/bin/benchrun.py tpch --terminals 1 --scalefactor 0.1 --time 300
 ```

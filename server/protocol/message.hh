@@ -47,5 +47,9 @@ enum class MessageType : uint32_t {
     DB_END_TRANSACTION = 21,
     DB_CREATE_TABLE = 22,
     DB_SET_TABLE = 23,
-    DB_CREATE_SECONDARY_INDEX = 24
+    DB_CREATE_SECONDARY_INDEX = 24,
+
+    // Batch operations
+    TX_BATCH_READ = 25,
+    TX_BATCH_WRITE = 26
 };

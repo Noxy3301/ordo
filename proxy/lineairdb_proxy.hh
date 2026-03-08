@@ -67,7 +67,11 @@ enum class MessageType : uint32_t {
     DB_END_TRANSACTION = 21,
     DB_CREATE_TABLE = 22,
     DB_SET_TABLE = 23,
-    DB_CREATE_SECONDARY_INDEX = 24
+    DB_CREATE_SECONDARY_INDEX = 24,
+
+    // Batch operations
+    TX_BATCH_READ = 25,
+    TX_BATCH_WRITE = 26
 };
 
 /**
@@ -96,6 +100,27 @@ public:
     std::string tx_read(LineairDBTransaction* tx, const std::string& key);
     bool tx_write(LineairDBTransaction* tx, const std::string& key, const std::string& value);
     bool tx_delete(LineairDBTransaction* tx, const std::string& key);
+
+    // batch operations
+    struct BatchReadResult {
+        bool found;
+        std::string value;
+    };
+    std::vector<BatchReadResult> tx_batch_read(LineairDBTransaction* tx,
+                                                const std::vector<std::string>& keys);
+    struct BatchWriteOp {
+        std::string key;
+        std::string value;
+    };
+    struct BatchSecondaryIndexOp {
+        std::string index_name;
+        std::string secondary_key;
+        std::string primary_key;
+    };
+    bool tx_batch_write(LineairDBTransaction* tx,
+                        const std::string& table_name,
+                        const std::vector<BatchWriteOp>& writes,
+                        const std::vector<BatchSecondaryIndexOp>& si_writes);
 
     // secondary index operations
     std::vector<std::string> tx_read_secondary_index(LineairDBTransaction* tx,

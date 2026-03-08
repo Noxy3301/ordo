@@ -64,11 +64,16 @@ bool MessageHandler::send_response(int socket, uint64_t sender_id,
     std::memcpy(response_buffer.data(), &response_header, sizeof(response_header));
     std::memcpy(response_buffer.data() + sizeof(response_header), payload.c_str(), payload.size());
 
-    // Send response
-    ssize_t bytes_sent = send(socket, response_buffer.data(), response_total_size, 0);
-    if (bytes_sent != static_cast<ssize_t>(response_total_size)) {
-        LOG_ERROR("Failed to send response");
-        return false;
+    // Send response (handle partial writes for large messages)
+    size_t total_sent = 0;
+    while (total_sent < response_total_size) {
+        ssize_t bytes_sent = send(socket, response_buffer.data() + total_sent,
+                                  response_total_size - total_sent, 0);
+        if (bytes_sent <= 0) {
+            LOG_ERROR("Failed to send response (sent %zu/%zu bytes)", total_sent, response_total_size);
+            return false;
+        }
+        total_sent += bytes_sent;
     }
     
     LOG_DEBUG("Response sent successfully");

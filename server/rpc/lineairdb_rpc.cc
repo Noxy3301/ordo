@@ -28,6 +28,12 @@ void LineairDBRpc::handle_rpc(uint64_t sender_id, MessageType message_type,
         case MessageType::TX_READ:
             handleTxRead(message, result);
             return;
+        case MessageType::TX_BATCH_READ:
+            handleTxBatchRead(message, result);
+            return;
+        case MessageType::TX_BATCH_WRITE:
+            handleTxBatchWrite(message, result);
+            return;
         case MessageType::TX_WRITE:
             handleTxWrite(message, result);
             return;
@@ -169,11 +175,82 @@ void LineairDBRpc::handleTxRead(const std::string& message, std::string& result)
         } else {
             response.set_found(false);
         }
+
         LOG_DEBUG("Read key '%s' from transaction %ld: %s", request.key().c_str(), tx_id, (read_result.first != nullptr ? "found" : "not found"));
     } else {
         response.set_found(false);
         response.set_is_aborted(true);
         LOG_WARNING("Transaction not found for read: %ld", tx_id);
+    }
+
+    result = response.SerializeAsString();
+}
+
+void LineairDBRpc::handleTxBatchRead(const std::string& message, std::string& result) {
+    LineairDB::Protocol::TxBatchRead::Request request;
+    LineairDB::Protocol::TxBatchRead::Response response;
+
+    request.ParseFromString(message);
+
+    int64_t tx_id = request.transaction_id();
+    auto* tx = tx_manager_->get_transaction(tx_id);
+    if (tx) {
+        for (int i = 0; i < request.keys_size(); i++) {
+            auto* read_result = response.add_results();
+            auto pair = tx->Read(request.keys(i));
+            if (pair.first != nullptr) {
+                read_result->set_found(true);
+                read_result->set_value(
+                    reinterpret_cast<const char*>(pair.first), pair.second);
+            } else {
+                read_result->set_found(false);
+            }
+        }
+        response.set_is_aborted(tx->IsAborted());
+    } else {
+        response.set_is_aborted(true);
+        LOG_WARNING("Transaction not found for batch_read: %ld", tx_id);
+    }
+
+    result = response.SerializeAsString();
+}
+
+void LineairDBRpc::handleTxBatchWrite(const std::string& message, std::string& result) {
+    LineairDB::Protocol::TxBatchWrite::Request request;
+    LineairDB::Protocol::TxBatchWrite::Response response;
+
+    request.ParseFromString(message);
+
+    int64_t tx_id = request.transaction_id();
+    auto* tx = tx_manager_->get_transaction(tx_id);
+    if (tx) {
+        if (!request.table_name().empty()) {
+            tx->SetTable(request.table_name());
+        }
+
+        for (int i = 0; i < request.writes_size(); i++) {
+            const auto& op = request.writes(i);
+            const std::string& value_str = op.value();
+            tx->Write(op.key(), reinterpret_cast<const std::byte*>(value_str.c_str()), value_str.size());
+            if (tx->IsAborted()) break;
+        }
+
+        if (!tx->IsAborted()) {
+            for (int i = 0; i < request.secondary_index_writes_size(); i++) {
+                const auto& si = request.secondary_index_writes(i);
+                const std::string& pk = si.primary_key();
+                tx->WriteSecondaryIndex(si.index_name(), si.secondary_key(),
+                                        reinterpret_cast<const std::byte*>(pk.c_str()), pk.size());
+                if (tx->IsAborted()) break;
+            }
+        }
+
+        response.set_success(!tx->IsAborted());
+        response.set_is_aborted(tx->IsAborted());
+    } else {
+        response.set_success(false);
+        response.set_is_aborted(true);
+        LOG_WARNING("Transaction not found for batch_write: %ld", tx_id);
     }
 
     result = response.SerializeAsString();

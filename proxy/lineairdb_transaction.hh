@@ -28,6 +28,10 @@ public:
   bool table_is_not_chosen();
 
   const std::pair<const std::byte *const, const size_t> read(std::string key);
+  std::vector<std::pair<bool, std::string>> batch_read(const std::vector<std::string>& keys);
+  bool batch_write(const std::string& table_name,
+                   const std::vector<LineairDBProxy::BatchWriteOp>& writes,
+                   const std::vector<LineairDBProxy::BatchSecondaryIndexOp>& si_writes);
   std::vector<std::string> get_all_keys();
   std::vector<std::string> get_matching_keys(std::string key);
   std::vector<std::string> get_matching_keys_in_range(std::string start_key, std::string end_key,
@@ -67,6 +71,17 @@ public:
       const std::string primary_key);
   bool delete_value(std::string key);
   bool delete_secondary_index(std::string index_name, std::string secondary_key, const std::string primary_key);
+
+  // Write buffering for batch operations
+  void buffer_write(const std::string& table_name,
+                    const std::string& key, const std::string& value);
+  void buffer_write_secondary_index(const std::string& table_name,
+                                     const std::string& index_name,
+                                     const std::string& secondary_key,
+                                     const std::string& primary_key);
+  // Flush buffered writes to LineairDB so that subsequent reads can see them.
+  // Must be called before any read/scan RPC to ensure read-your-own-writes.
+  bool flush_write_buffer();
 
   void begin_transaction();
   void set_status_to_abort();
@@ -121,6 +136,12 @@ private:
   bool is_aborted_;
 
   std::vector<std::pair<LineairDB_share *, int64_t>> rowcount_deltas_;
+
+  // Write buffer for batch write operations
+  static constexpr size_t WRITE_BATCH_SIZE = 100;
+  std::string write_buffer_table_;
+  std::vector<LineairDBProxy::BatchWriteOp> write_buffer_ops_;
+  std::vector<LineairDBProxy::BatchSecondaryIndexOp> write_buffer_si_ops_;
 
   bool thd_is_transaction() const;
   void register_transaction_to_mysql();

@@ -1,43 +1,49 @@
 # Ordo
 
+## Prerequisites
+
+```bash
+# Build tools and libraries
+sudo apt-get update && sudo apt-get install -y \
+    build-essential cmake ninja-build \
+    protobuf-compiler libprotobuf-dev \
+    libssl-dev pkg-config libncurses-dev \
+    libnuma-dev libtirpc-dev \
+    bison flex \
+    libjemalloc2 \
+    unzip maven
+
+# Java 23 (required by BenchBase)
+curl -s "https://get.sdkman.io" | bash
+source "$HOME/.sdkman/bin/sdkman-init.sh"
+sdk install java 23-open
+```
+
 ## Quick Start
 
 ```bash
 git clone --recursive https://github.com/Noxy3301/ordo.git
 cd ordo
-./build.sh
+./scripts/build.sh
 ```
 
-### Initialize and Start MySQL Server
+### Start Servers
 
 ```bash
-cd build
-./runtime_output_directory/mysqld --initialize-insecure --user=$USER --datadir=./data
-./runtime_output_directory/mysqld --datadir=./data --socket=/tmp/mysql.sock --port=3307 &
+# Terminal 1: Start Ordo Server
+./scripts/start_server.sh
+
+# Terminal 2: Start MySQL (auto-initializes data directory and installs LineairDB plugin)
+./scripts/start_mysql.sh --mysqld-port 3307 --server-host 127.0.0.1 --server-port 9999
 ```
 
-### Running Ordo Server
+### Simple Example
 
 ```bash
-./build/server/ordo-server
+./build/runtime_output_directory/mysql -u root --protocol=TCP -h 127.0.0.1 -P 3307
 ```
 
-### Connect to MySQL and Install LineairDB Plugin
-
-```bash
-./build/runtime_output_directory/mysql -u root --socket=/tmp/mysql.sock --port=3307
-```
-
-Then run the following SQL command:
 ```sql
-INSTALL PLUGIN lineairdb SONAME 'ha_lineairdb_storage_engine.so';
-```
-
-#### Simple Example: Using MySQL with Ordo Server
-
-```bash
-SHOW ENGINES;
-
 DROP DATABASE IF EXISTS lineairdb_test;
 CREATE DATABASE lineairdb_test;
 USE lineairdb_test;
@@ -51,30 +57,21 @@ INSERT INTO test VALUES (1, 'hello');
 INSERT INTO test VALUES (2, 'world');
 
 SELECT * FROM test;
-
 SELECT * FROM test WHERE id = 1;
 ```
 
 ## Benchmark
 
 ```bash
-./scripts/build.sh
+# Patch BenchBase (first time only)
+python3 bench/bin/patch_benchbase.py
 
-or
+# TPC-C
+python3 bench/bin/benchrun.py tpcc --terminals 64
 
-./scripts/build_partial.sh
-```
+# YCSB
+python3 bench/bin/benchrun.py ycsb --profile a --terminals 8 --scalefactor 100
 
-```bash
-build/server/ordo-server
-```
-
-```bash
-scripts/start_mysql.sh --mysqld-port 3307 --ordo-host 127.0.0.1 --ordo-port 9999
-```
-
-```bash
-scripts/experimental/phase_setup.sh 3307
-scripts/experimental/phase_load.sh 3307
-scripts/experimental/phase_execute.sh 3307
+# TPC-H
+python3 bench/bin/benchrun.py tpch --terminals 1 --scalefactor 0.1 --time 300
 ```

@@ -1,5 +1,6 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
+#include <netinet/tcp.h>
 #include <arpa/inet.h>
 #include <unistd.h>
 #include <errno.h>
@@ -10,6 +11,7 @@
 #include "lineairdb_proxy.hh"
 #include "lineairdb_transaction.hh"
 #include "../common/log.h"
+
 
 LineairDBProxy::LineairDBProxy(const std::string& host, int port)
     : socket_fd_(-1), connected_(false), host_(host), port_(port) {
@@ -55,6 +57,10 @@ bool LineairDBProxy::connect(const std::string& host, int port) {
         socket_fd_ = -1;
         return false;
     }
+
+    // Disable Nagle's algorithm for low-latency RPC
+    int flag = 1;
+    setsockopt(socket_fd_, IPPROTO_TCP, TCP_NODELAY, &flag, sizeof(flag));
 
     connected_ = true;
     host_ = host;
@@ -194,6 +200,76 @@ bool LineairDBProxy::tx_delete(LineairDBTransaction* tx, const std::string& key)
     tx->set_aborted(response.is_aborted());
 
     LOG_DEBUG("CLIENT: tx_delete completed, success: %s", response.success() ? "true" : "false");
+    return response.success();
+}
+
+std::vector<LineairDBProxy::BatchReadResult> LineairDBProxy::tx_batch_read(
+    LineairDBTransaction* tx, const std::vector<std::string>& keys) {
+    int64_t tx_id = tx->get_tx_id();
+    if (!connected_) {
+        LOG_ERROR("RPC failed: Not connected to server");
+        return {};
+    }
+
+    LineairDB::Protocol::TxBatchRead::Request request;
+    LineairDB::Protocol::TxBatchRead::Response response;
+
+    request.set_transaction_id(tx_id);
+    for (const auto& key : keys) {
+        request.add_keys(key);
+    }
+
+    if (!send_protobuf_message(request, response, MessageType::TX_BATCH_READ)) {
+        LOG_ERROR("RPC failed: Failed to send batch_read message to server");
+        return {};
+    }
+
+    tx->set_aborted(response.is_aborted());
+
+    std::vector<BatchReadResult> results;
+    results.reserve(response.results_size());
+    for (const auto& r : response.results()) {
+        results.push_back({r.found(), r.found() ? r.value() : ""});
+    }
+
+    return results;
+}
+
+bool LineairDBProxy::tx_batch_write(LineairDBTransaction* tx,
+                                    const std::string& table_name,
+                                    const std::vector<BatchWriteOp>& writes,
+                                    const std::vector<BatchSecondaryIndexOp>& si_writes) {
+    int64_t tx_id = tx->get_tx_id();
+    if (!connected_) {
+        LOG_ERROR("RPC failed: Not connected to server");
+        return false;
+    }
+
+    LineairDB::Protocol::TxBatchWrite::Request request;
+    LineairDB::Protocol::TxBatchWrite::Response response;
+
+    request.set_transaction_id(tx_id);
+    request.set_table_name(table_name);
+
+    for (const auto& w : writes) {
+        auto* op = request.add_writes();
+        op->set_key(w.key);
+        op->set_value(w.value);
+    }
+
+    for (const auto& si : si_writes) {
+        auto* op = request.add_secondary_index_writes();
+        op->set_index_name(si.index_name);
+        op->set_secondary_key(si.secondary_key);
+        op->set_primary_key(si.primary_key);
+    }
+
+    if (!send_protobuf_message(request, response, MessageType::TX_BATCH_WRITE)) {
+        LOG_ERROR("RPC failed: Failed to send batch_write message to server");
+        return false;
+    }
+
+    tx->set_aborted(response.is_aborted());
     return response.success();
 }
 
@@ -832,11 +908,8 @@ bool LineairDBProxy::send_message(const std::string& serialized_request, std::st
 
 template<typename RequestType, typename ResponseType>
 bool LineairDBProxy::send_protobuf_message(const RequestType& request, ResponseType& response, MessageType message_type) {
-    LOG_DEBUG("PROTOBUF_MESSAGE: Starting protobuf message send");
-
     // serialize request
     std::string serialized_request = request.SerializeAsString();
-    LOG_DEBUG("PROTOBUF_MESSAGE: Request serialized successfully, size: %zu bytes", serialized_request.size());
 
     // send message with header
     std::string serialized_response;
@@ -851,7 +924,6 @@ bool LineairDBProxy::send_protobuf_message(const RequestType& request, ResponseT
         return false;
     }
 
-    LOG_DEBUG("PROTOBUF_MESSAGE: Successfully completed protobuf message exchange");
     return true;
 }
 
@@ -881,11 +953,16 @@ bool LineairDBProxy::send_message_with_header(const std::string& serialized_requ
     std::memcpy(buffer.data(), &header, sizeof(header));
     std::memcpy(buffer.data() + sizeof(header), serialized_request.c_str(), serialized_request.size());
 
-    // send
-    ssize_t bytes_sent = send(socket_fd_, buffer.data(), total_size, 0);
-    if (bytes_sent != static_cast<ssize_t>(total_size)) {
-        LOG_ERROR("SEND_MESSAGE: Failed to send complete message, sent %zd bytes instead of %zu", bytes_sent, total_size);
-        return false;
+    // send (handle partial writes for large messages)
+    size_t total_sent = 0;
+    while (total_sent < total_size) {
+        ssize_t bytes_sent = send(socket_fd_, buffer.data() + total_sent,
+                                  total_size - total_sent, 0);
+        if (bytes_sent <= 0) {
+            LOG_ERROR("SEND_MESSAGE: Failed to send message, sent %zu/%zu bytes", total_sent, total_size);
+            return false;
+        }
+        total_sent += bytes_sent;
     }
 
     LOG_DEBUG("SEND_MESSAGE: Successfully sent %zd bytes", bytes_sent);

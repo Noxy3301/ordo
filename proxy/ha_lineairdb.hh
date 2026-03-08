@@ -47,6 +47,7 @@
 #include <array>
 #include <atomic>
 #include <cstdint>
+#include <unordered_map>
 #include <vector>
 
 #include "lineairdb_field_types.h"
@@ -111,6 +112,14 @@ private:
   uint current_position_in_index_;
   std::vector<std::string> scanned_keys_;
   std::vector<std::vector<std::byte>> scanned_values_;
+  // Local row cache, serving the same role as InnoDB's Buffer Pool for re-reads.
+  // When MySQL sorts results (ORDER BY), it scans all rows via rnd_next(), then
+  // re-reads them in sorted order via rnd_pos(). In InnoDB, the second read hits
+  // the Buffer Pool (in-memory page cache) so it's nearly free. Since we access
+  // LineairDB via RPC, there is no such cache — without this, every rnd_pos()
+  // would trigger a network round-trip.
+  // Populated during rnd_next()/fetch_next_batch(), cleared on next rnd_init().
+  std::unordered_map<std::string, size_t> scan_cache_;  // primary key -> index in scanned_values_
   std::vector<std::string> secondary_index_results_;
   std::vector<std::string> secondary_index_payloads_;
   std::string last_fetched_primary_key_;
@@ -362,6 +371,9 @@ public:
                                       void *seq_init_param, uint n_ranges,
                                       uint *bufsz, uint *flags, bool *force_default_mrr,
                                       Cost_estimate *cost) override;
+  ha_rows multi_range_read_info(uint keyno, uint n_ranges, uint keys,
+                                uint *bufsz, uint *flags,
+                                Cost_estimate *cost) override;
   int multi_range_read_init(RANGE_SEQ_IF *seq, void *seq_init_param,
                             uint n_ranges, uint mode,
                             HANDLER_BUFFER *buf) override;
@@ -374,6 +386,15 @@ public:
 private:
   /** The multi range read session object */
   DsMrr_impl m_ds_mrr;
+
+  // MRR batch state
+  struct MrrBufferedRow {
+    std::string value;
+    char *range_info;
+  };
+  std::vector<MrrBufferedRow> mrr_buffer_;
+  size_t mrr_buffer_pos_ = 0;
+  bool mrr_use_batch_ = false;
   LineairDBTransaction *&
   get_transaction(THD *thd);
 
@@ -404,6 +425,7 @@ private:
   int execute_range_materialize(uchar *buf, LineairDBTransaction *tx);
   int execute_prev_key(uchar *buf, LineairDBTransaction *tx);
   int execute_prefix_last(uchar *buf, LineairDBTransaction *tx);
+  void batch_fetch_secondary_payloads(LineairDBTransaction *tx);
 
   std::string convert_key_to_ldbformat(const uchar *key, key_part_map keypart_map);
   std::string serialize_key_from_field(Field *field);

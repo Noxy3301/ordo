@@ -132,6 +132,12 @@ def run_single(benchmark, config_path, terminals, mysql_host, mysql_port, result
     print("  Resetting database...")
     mysql_cmd(mysql_port, mysql_host, f"DROP DATABASE IF EXISTS {db_name}; CREATE DATABASE {db_name};")
 
+    # TPC-H optimizer settings for hash join + subquery optimization
+    if benchmark == "tpch":
+        mysql_cmd(mysql_port, mysql_host,
+                  "SET GLOBAL optimizer_switch='batched_key_access=on,mrr_cost_based=off,subquery_to_derived=on';"
+                  "SET GLOBAL join_buffer_size=1073741824;")
+
     # Create + Load
     print("  Creating schema + Loading data...")
     result = run_benchbase(benchmark, config_path, create=True, load=True, execute=False)
@@ -220,15 +226,6 @@ def main():
             update_xml(config_work, loaderThreads=str(args.loader_threads))
         else:
             text = text.replace("</parameters>", f"    <loaderThreads>{args.loader_threads}</loaderThreads>\n</parameters>")
-            config_work.write_text(text)
-    if args.benchmark == "tpch":
-        # Use custom DDL that includes indexes upfront (no afterload reindex)
-        ddl_path = ROOT / "bench" / "config" / "tpch-ddl.sql"
-        text = config_work.read_text()
-        if "<ddlpath>" in text:
-            update_xml(config_work, ddlpath=str(ddl_path))
-        else:
-            text = text.replace("</parameters>", f"    <ddlpath>{ddl_path}</ddlpath>\n</parameters>")
             config_work.write_text(text)
     if args.benchmark == "ycsb":
         weights = YCSB_PROFILES.get(args.profile)

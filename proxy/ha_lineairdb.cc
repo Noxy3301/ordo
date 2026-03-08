@@ -393,6 +393,9 @@ int ha_lineairdb::index_init(uint idx, bool sorted [[maybe_unused]]) {
 int ha_lineairdb::index_end() {
   DBUG_TRACE;
   active_index = MAX_KEY;
+  mrr_use_batch_ = false;
+  mrr_buffer_.clear();
+  mrr_buffer_pos_ = 0;
   return 0;
 }
 
@@ -461,31 +464,44 @@ int ha_lineairdb::write_row(uchar *buf) {
     return HA_ERR_LOCK_DEADLOCK;
   }
 
-  tx->choose_table(db_table_name);
-  bool is_successful = tx->write(key, write_buffer_);
-  if (!is_successful)
-    return HA_ERR_LOCK_DEADLOCK;
+  // buffer_write appends to a local buffer (no RPC yet), so no error check needed.
+  // The actual RPC is sent at flush time (buffer full, table change, or commit).
+  tx->buffer_write(db_table_name, key, write_buffer_);
+
+  // Write secondary index entries.
+  // Non-UNIQUE indexes are buffered (batched) for performance, just like PK writes.
+  // UNIQUE indexes (HA_NOSAME) need special handling: the server must check for
+  // duplicates at INSERT time, not at COMMIT. For example:
+  //   INSERT (1, 'a@example.com')  -- buffered, not yet on server
+  //   INSERT (2, 'a@example.com')  -- UNIQUE violation, must detect NOW
+  // If we buffered the UNIQUE write too, the server wouldn't know about row 1
+  // when checking row 2, and the duplicate would slip through until COMMIT.
+  for (uint i = 0; i < table->s->keys; i++) {
+    auto key_info = table->key_info[i];
+    if (i == table->s->primary_key) continue;
+
+    std::string secondary_key = build_secondary_key_from_row(buf, key_info);
+
+    if (key_info.flags & HA_NOSAME) {
+      // Step 1: flush all pending buffered writes so the server has up-to-date
+      // data (otherwise it can't reliably detect duplicates).
+      // Step 2: send this UNIQUE index write immediately via RPC.
+      tx->flush_write_buffer();
+      tx->choose_table(db_table_name);
+      bool ok = tx->write_secondary_index(key_info.name, secondary_key, key);
+      if (!ok || tx->is_aborted()) {
+        thd_mark_transaction_to_rollback(ha_thd(), 1);
+        return HA_ERR_LOCK_DEADLOCK;
+      }
+    } else {
+      tx->buffer_write_secondary_index(db_table_name, key_info.name,
+                                        secondary_key, key);
+    }
+  }
 
   if (tx->is_aborted()) {
     thd_mark_transaction_to_rollback(ha_thd(), 1);
     return HA_ERR_LOCK_DEADLOCK;
-  }
-
-  for (uint i = 0; i < table->s->keys; i++) {
-    auto key_info = table->key_info[i];
-    if (i != table->s->primary_key) {
-      std::string secondary_key = build_secondary_key_from_row(buf, key_info);
-
-      bool is_successful =
-          tx->write_secondary_index(key_info.name, secondary_key, key);
-      if (!is_successful)
-        return HA_ERR_LOCK_DEADLOCK;
-
-      if (tx->is_aborted()) {
-        thd_mark_transaction_to_rollback(ha_thd(), 1);
-        return HA_ERR_LOCK_DEADLOCK;
-      }
-    }
   }
 
   tx->add_rowcount_delta(share, +1);
@@ -754,6 +770,7 @@ int ha_lineairdb::index_last(uchar *buf) {
   } else {
     secondary_index_results_ =
         tx->get_matching_primary_keys_in_range(current_index_name, "", "", "");
+    batch_fetch_secondary_payloads(tx);
   }
 
   if (tx->is_aborted()) {
@@ -792,6 +809,7 @@ int ha_lineairdb::rnd_init(bool) {
   DBUG_ENTER("ha_lineairdb::rnd_init");
   scanned_keys_.clear();
   scanned_values_.clear();
+  scan_cache_.clear();
   buffer_position_ = 0;
   last_batch_key_.clear();
   scan_exhausted_ = false;
@@ -815,10 +833,11 @@ int ha_lineairdb::rnd_init(bool) {
 
 int ha_lineairdb::rnd_end() {
   DBUG_TRACE;
-  scanned_keys_.clear();
-  scanned_keys_.shrink_to_fit();
-  scanned_values_.clear();
-  scanned_values_.shrink_to_fit();
+  // NOTE: Do NOT clear scan_cache_ / scanned_values_ here.
+  // MySQL calls rnd_end() after scanning, then rnd_pos() to re-read rows in
+  // sorted order. In InnoDB the re-read hits the Buffer Pool, but we need our
+  // own cache (scan_cache_) since re-reads would otherwise require RPCs.
+  // Cleared at the start of the next rnd_init() instead.
   buffer_position_ = 0;
   last_batch_key_.clear();
   scan_exhausted_ = false;
@@ -853,11 +872,14 @@ bool ha_lineairdb::fetch_next_batch() {
     // skip tombstones
     if (kv.second.empty()) continue;
 
+    // Store row data and build scan_cache_ so rnd_pos() can reuse it later.
+    size_t idx = scanned_keys_.size();
     scanned_keys_.push_back(kv.first);
     const auto &val = kv.second;
     scanned_values_.emplace_back(
         reinterpret_cast<const std::byte *>(val.data()),
         reinterpret_cast<const std::byte *>(val.data()) + val.size());
+    scan_cache_[kv.first] = idx;
   }
 
   // Check if tx was aborted during RPC
@@ -982,6 +1004,18 @@ int ha_lineairdb::rnd_pos(uchar *buf, uchar *pos) {
 
   if (primary_key.empty()) {
     return HA_ERR_KEY_NOT_FOUND;
+  }
+
+  // Return from scan_cache_ if available (equivalent of hitting InnoDB's Buffer
+  // Pool). Without this, every re-read would be a separate RPC to LineairDB.
+  auto cache_it = scan_cache_.find(primary_key);
+  if (cache_it != scan_cache_.end()) {
+    auto &value = scanned_values_[cache_it->second];
+    if (set_fields_from_lineairdb(buf, value.data(), value.size())) {
+      return HA_ERR_OUT_OF_MEM;
+    }
+    last_fetched_primary_key_ = primary_key;
+    return 0;
   }
 
   auto tx = get_transaction(ha_thd());
@@ -1599,25 +1633,153 @@ bool ha_lineairdb::inplace_alter_table(TABLE *altered_table [[maybe_unused]],
   return false;
 }
 
+/**
+ * @brief Advertise custom MRR for primary key lookups.
+ *
+ * When MySQL considers using MRR (e.g. for BKA joins), it calls this method
+ * to ask the storage engine for cost estimates. We clear HA_MRR_USE_DEFAULT_IMPL
+ * for PK lookups so that multi_range_read_init() receives our custom batch path,
+ * which sends all keys in a single RPC instead of one RPC per key.
+ */
 ha_rows ha_lineairdb::multi_range_read_info_const(
     uint keyno, RANGE_SEQ_IF *seq, void *seq_init_param, uint n_ranges,
     uint *bufsz, uint *flags, bool *force_default_mrr, Cost_estimate *cost) {
-  /* See comments in ha_myisam::multi_range_read_info_const */
-  m_ds_mrr.init(table);
+  ha_rows rows = handler::multi_range_read_info_const(
+      keyno, seq, seq_init_param, n_ranges, bufsz, flags, force_default_mrr,
+      cost);
+  if (rows == HA_POS_ERROR) return rows;
 
-  return (m_ds_mrr.dsmrr_info_const(keyno, seq, seq_init_param, n_ranges, bufsz,
-                                    flags, cost));
+  // Use custom batch MRR for PK point lookups (BKA JOINs).
+  // Range scans on secondary indexes must use the default path.
+  // Set cost=1 since batch_read sends all keys in a single RPC.
+  if (keyno == table->s->primary_key) {
+    *flags &= ~HA_MRR_USE_DEFAULT_IMPL;
+    *bufsz = 0;
+    if (cost) {
+      cost->reset();
+      cost->add_io(1.0);
+    }
+  }
+  return rows;
 }
 
+ha_rows ha_lineairdb::multi_range_read_info(uint keyno, uint n_ranges,
+                                            uint keys, uint *bufsz,
+                                            uint *flags,
+                                            Cost_estimate *cost) {
+  ha_rows rows = handler::multi_range_read_info(keyno, n_ranges, keys, bufsz,
+                                                flags, cost);
+  // Use custom batch MRR for PK point lookups (BKA JOINs).
+  if (keyno == table->s->primary_key) {
+    *flags &= ~HA_MRR_USE_DEFAULT_IMPL;
+    *bufsz = 0;
+    if (cost) {
+      cost->reset();
+      cost->add_io(1.0);
+    }
+  }
+  return rows;
+}
+
+/**
+ * @brief Initialize custom MRR: validate ranges and batch-read all keys.
+ *
+ * Iterates the range sequence to verify every range is a full-key point lookup
+ * (EQ_RANGE with all PK columns specified). If any range is a partial-key match
+ * or an inequality scan, falls back to MySQL's default MRR — because batch_read
+ * only supports exact full-key lookups against LineairDB's KV store.
+ *
+ * On success, all keys are sent in a single batch_read RPC and results are
+ * buffered in mrr_buffer_ for retrieval by multi_range_read_next().
+ */
 int ha_lineairdb::multi_range_read_init(RANGE_SEQ_IF *seq, void *seq_init_param,
                                         uint n_ranges, uint mode,
                                         HANDLER_BUFFER *buf) {
-  m_ds_mrr.init(table);
-  return m_ds_mrr.dsmrr_init(seq, seq_init_param, n_ranges, mode, buf);
+  if (mode & HA_MRR_USE_DEFAULT_IMPL) {
+    mrr_use_batch_ = false;
+    m_ds_mrr.init(table);
+    return m_ds_mrr.dsmrr_init(seq, seq_init_param, n_ranges, mode, buf);
+  }
+
+  // Collect all lookup keys from the range sequence
+  range_seq_t seq_ctx = seq->init(seq_init_param, n_ranges, mode);
+  KEY_MULTI_RANGE range;
+  std::vector<std::string> batch_keys;
+  std::vector<char *> range_infos;
+
+  // Determine the full-key keypart_map for the active index
+  const uint pk_parts = table->key_info[active_index].user_defined_key_parts;
+  const key_part_map full_key_map =
+      (pk_parts < sizeof(key_part_map) * 8)
+          ? ((static_cast<key_part_map>(1) << pk_parts) - 1)
+          : ~static_cast<key_part_map>(0);
+
+  while (seq->next(seq_ctx, &range) == 0) {
+    // Only batch full-key point lookups (EQ_RANGE with all PK parts).
+    // Partial-key ranges (e.g. 3 of 4 PK cols) or range scans (e.g. id > 15)
+    // cannot be converted to individual key lookups — fall back to default.
+    if (!(range.range_flag & EQ_RANGE) ||
+        (range.start_key.keypart_map & full_key_map) != full_key_map) {
+      mrr_use_batch_ = false;
+      m_ds_mrr.init(table);
+      return m_ds_mrr.dsmrr_init(seq, seq_init_param, n_ranges,
+                                 mode | HA_MRR_USE_DEFAULT_IMPL, buf);
+    }
+    std::string ldb_key =
+        convert_key_to_ldbformat(range.start_key.key, range.start_key.keypart_map);
+    batch_keys.push_back(ldb_key);
+    range_infos.push_back(range.ptr);
+  }
+
+  mrr_use_batch_ = true;
+  mrr_buffer_.clear();
+  mrr_buffer_pos_ = 0;
+
+  auto tx = get_transaction(ha_thd());
+  if (!tx || tx->is_aborted()) {
+    thd_mark_transaction_to_rollback(ha_thd(), 1);
+    return HA_ERR_LOCK_DEADLOCK;
+  }
+  tx->choose_table(db_table_name);
+
+  if (batch_keys.empty()) return 0;
+
+  // Send all keys in a single batch RPC
+  auto results = tx->batch_read(batch_keys);
+
+  if (tx->is_aborted()) {
+    thd_mark_transaction_to_rollback(ha_thd(), 1);
+    return HA_ERR_LOCK_DEADLOCK;
+  }
+
+  // Buffer results for multi_range_read_next()
+  for (size_t i = 0; i < results.size(); i++) {
+    if (results[i].first) {
+      mrr_buffer_.push_back({std::move(results[i].second), range_infos[i]});
+    }
+  }
+
+  return 0;
 }
 
 int ha_lineairdb::multi_range_read_next(char **range_info) {
-  return m_ds_mrr.dsmrr_next(range_info);
+  if (!mrr_use_batch_) {
+    return m_ds_mrr.dsmrr_next(range_info);
+  }
+
+  if (mrr_buffer_pos_ >= mrr_buffer_.size()) {
+    return HA_ERR_END_OF_FILE;
+  }
+
+  auto &row = mrr_buffer_[mrr_buffer_pos_++];
+
+  const std::byte *ptr = reinterpret_cast<const std::byte *>(row.value.data());
+  if (set_fields_from_lineairdb(table->record[0], ptr, row.value.size())) {
+    return HA_ERR_OUT_OF_MEM;
+  }
+
+  *range_info = row.range_info;
+  return 0;
 }
 
 int ha_lineairdb::read_range_first(const key_range *start_key,
@@ -1876,6 +2038,7 @@ int ha_lineairdb::execute_index_first(uchar *buf, LineairDBTransaction *tx) {
     secondary_index_results_ = tx->get_matching_primary_keys_in_range(
         current_index_name, start_key, end_key,
         current_plan_.exclusive_end_key_serialized);
+    batch_fetch_secondary_payloads(tx);
   }
 
   // phantom detection check
@@ -1937,6 +2100,7 @@ int ha_lineairdb::execute_unique_point(uchar *buf, LineairDBTransaction *tx) {
       return HA_ERR_KEY_NOT_FOUND;
     }
 
+    batch_fetch_secondary_payloads(tx);
     return fetch_and_set_current_result(buf, tx);
   }
 }
@@ -1972,6 +2136,7 @@ int ha_lineairdb::execute_same_key_materialize(uchar *buf,
 
   secondary_index_results_ = tx->get_matching_primary_keys_in_range(
       current_index_name, prefix, prefix_end, prefix_end);
+  batch_fetch_secondary_payloads(tx);
 
   if (tx->is_aborted()) {
     thd_mark_transaction_to_rollback(ha_thd(), 1);
@@ -2019,6 +2184,7 @@ int ha_lineairdb::execute_prefix_first(uchar *buf, LineairDBTransaction *tx) {
   // rows.
   secondary_index_results_ = tx->get_matching_primary_keys_in_range(
       current_index_name, prefix, prefix_end, prefix_end);
+  batch_fetch_secondary_payloads(tx);
 
   if (tx->is_aborted()) {
     thd_mark_transaction_to_rollback(ha_thd(), 1);
@@ -2058,6 +2224,7 @@ int ha_lineairdb::execute_range_materialize(uchar *buf,
     secondary_index_results_ = tx->get_matching_primary_keys_in_range(
         current_index_name, effective_start, effective_end,
         current_plan_.exclusive_end_key_serialized);
+    batch_fetch_secondary_payloads(tx);
   }
 
   // phantom detection check
@@ -2092,6 +2259,7 @@ int ha_lineairdb::execute_prev_key(uchar *buf, LineairDBTransaction *tx) {
   } else {
     secondary_index_results_ = tx->get_matching_primary_keys_in_range(
         current_index_name, "", target_key, exclusive_end);
+    batch_fetch_secondary_payloads(tx);
   }
 
   if (tx->is_aborted()) {
@@ -2134,6 +2302,7 @@ int ha_lineairdb::execute_prefix_last(uchar *buf, LineairDBTransaction *tx) {
         secondary_index_results_ = tx->get_matching_primary_keys_in_range(
             current_index_name, "", prefix, prefix);
       }
+      batch_fetch_secondary_payloads(tx);
     }
 
     if (tx->is_aborted()) {
@@ -2164,6 +2333,7 @@ int ha_lineairdb::execute_prefix_last(uchar *buf, LineairDBTransaction *tx) {
         current_index_name, current_plan_.same_group_prefix_serialized,
         current_plan_.same_group_end_serialized,
         current_plan_.same_group_end_serialized);
+    batch_fetch_secondary_payloads(tx);
   }
 
   if (tx->is_aborted()) {
@@ -2178,6 +2348,31 @@ int ha_lineairdb::execute_prefix_last(uchar *buf, LineairDBTransaction *tx) {
   // get the last element
   current_position_in_index_ = secondary_index_results_.size() - 1;
   return fetch_and_set_current_result(buf, tx);
+}
+
+/**
+ * @brief Pre-fetch all row data for a secondary index scan result in one RPC.
+ *
+ * A secondary index query is a two-step process:
+ *   1) Index scan → returns a list of primary keys (secondary_index_results_)
+ *   2) Row fetch  → read each row by primary key
+ * Without this, step 2 would issue one READ RPC per row (N rows = N RPCs).
+ * This method does step 2 in bulk: it sends all primary keys in a single
+ * batch_read RPC and stores the results in secondary_index_payloads_.
+ * When fetch_and_set_current_result() later returns rows one by one,
+ * the data is already in memory — no further RPCs needed.
+ */
+void ha_lineairdb::batch_fetch_secondary_payloads(LineairDBTransaction *tx) {
+  if (secondary_index_results_.empty()) return;
+
+  auto results = tx->batch_read(secondary_index_results_);
+
+  secondary_index_payloads_.clear();
+  secondary_index_payloads_.reserve(results.size());
+  for (auto &r : results) {
+    secondary_index_payloads_.push_back(
+        r.first ? std::move(r.second) : std::string());
+  }
 }
 
 /**

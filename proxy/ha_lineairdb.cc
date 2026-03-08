@@ -1558,22 +1558,20 @@ int ha_lineairdb::create(const char *table_name, TABLE *table, HA_CREATE_INFO *,
   // be set yet. Use ha_thd() to ensure get_proxy() can find the THD context.
   userThread = ha_thd();
 
-  // Create table via RPC
+  // Create table via RPC.
+  // In a disaggregated setup, multiple MySQL nodes share the same LineairDB
+  // storage. The table may already exist from another node's CREATE TABLE.
+  // Ignore "already exists" — MySQL-side metadata still needs to be created.
   auto proxy = get_proxy();
-  if (!proxy->db_create_table(db_table_name)) {
-    return HA_ERR_TABLE_EXIST;
-  }
+  proxy->db_create_table(db_table_name);
 
-  // Create secondary indexes
+  // Create secondary indexes (also ignore "already exists")
   for (uint i = 0; i < table->s->keys; i++) {
     auto key_info = table->key_info[i];
     uint index_type = (key_info.flags & HA_NOSAME) ? DICT_UNIQUE : 0;
     if (i != table->s->primary_key) {
-      bool is_successful = proxy->db_create_secondary_index(
+      proxy->db_create_secondary_index(
           db_table_name, std::string(key_info.name), index_type);
-      if (!is_successful) {
-        return HA_ERR_TABLE_EXIST;
-      }
     }
   }
   return 0;

@@ -468,11 +468,32 @@ int ha_lineairdb::write_row(uchar *buf) {
   // The actual RPC is sent at flush time (buffer full, table change, or commit).
   tx->buffer_write(db_table_name, key, write_buffer_);
 
-  // Buffer secondary index writes
+  // Write secondary index entries.
+  // Non-UNIQUE indexes are buffered (batched) for performance, just like PK writes.
+  // UNIQUE indexes (HA_NOSAME) need special handling: the server must check for
+  // duplicates at INSERT time, not at COMMIT. For example:
+  //   INSERT (1, 'a@example.com')  -- buffered, not yet on server
+  //   INSERT (2, 'a@example.com')  -- UNIQUE violation, must detect NOW
+  // If we buffered the UNIQUE write too, the server wouldn't know about row 1
+  // when checking row 2, and the duplicate would slip through until COMMIT.
   for (uint i = 0; i < table->s->keys; i++) {
     auto key_info = table->key_info[i];
-    if (i != table->s->primary_key) {
-      std::string secondary_key = build_secondary_key_from_row(buf, key_info);
+    if (i == table->s->primary_key) continue;
+
+    std::string secondary_key = build_secondary_key_from_row(buf, key_info);
+
+    if (key_info.flags & HA_NOSAME) {
+      // Step 1: flush all pending buffered writes so the server has up-to-date
+      // data (otherwise it can't reliably detect duplicates).
+      // Step 2: send this UNIQUE index write immediately via RPC.
+      tx->flush_write_buffer();
+      tx->choose_table(db_table_name);
+      bool ok = tx->write_secondary_index(key_info.name, secondary_key, key);
+      if (!ok || tx->is_aborted()) {
+        thd_mark_transaction_to_rollback(ha_thd(), 1);
+        return HA_ERR_LOCK_DEADLOCK;
+      }
+    } else {
       tx->buffer_write_secondary_index(db_table_name, key_info.name,
                                         secondary_key, key);
     }

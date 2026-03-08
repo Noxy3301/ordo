@@ -7,9 +7,9 @@
     - name: Start LineairDB-Server
       shell: |
         cd ~/ordo
-        ./scripts/stop_ordo.sh
+        ./scripts/stop_server.sh
         ./scripts/build_partial.sh
         ulimit -n {{ lineairdb_nofile_limit }}
-        ./scripts/start_ordo.sh
+        ./scripts/start_server.sh
       args:
         executable: /bin/bash

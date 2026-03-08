@@ -8,8 +8,8 @@ EXECUTE stmt;
 DEALLOCATE PREPARE stmt;
 
 -- Create benchmark database
-DROP DATABASE IF EXISTS ordo_bench;
-CREATE DATABASE ordo_bench;
+DROP DATABASE IF EXISTS benchbase;
+CREATE DATABASE benchbase;
 
 -- Show available engines
 SHOW ENGINES;

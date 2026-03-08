@@ -1,4 +1,7 @@
 .vscode
+.claude
+CLAUDE.md
+
 build
 boost
 
@@ -14,6 +17,10 @@ ansible/result
 # Local environment
 .env
 scripts/aws/.env
+
+# Python bytecode
+__pycache__/
+*.pyc
 
 # AWS / SSH safety
 *.pem

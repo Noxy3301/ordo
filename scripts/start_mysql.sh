@@ -2,14 +2,14 @@
 
 set -euo pipefail
 
-ORDO_HOST="127.0.0.1"
-ORDO_PORT=9999
+SERVER_HOST="127.0.0.1"
+SERVER_PORT=9999
 MYSQLD_PORT=3307
 
 usage() {
   cat <<USAGE
-Usage: $0 [--mysqld-port N] [--ordo-host HOST] [--ordo-port PORT]
-Defaults: mysqld-port=3307, ordo=127.0.0.1:9999
+Usage: $0 [--mysqld-port N] [--server-host HOST] [--server-port PORT]
+Defaults: mysqld-port=3307, server=127.0.0.1:9999
 Data dir / socket are derived from mysqld-port (3307 -> data,/tmp/mysql.sock; others -> data_PORT,/tmp/mysql_PORT.sock)
 USAGE
 }
@@ -17,8 +17,8 @@ USAGE
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --mysqld-port) MYSQLD_PORT="$2"; shift 2;;
-    --ordo-host) ORDO_HOST="$2"; shift 2;;
-    --ordo-port) ORDO_PORT="$2"; shift 2;;
+    --server-host) SERVER_HOST="$2"; shift 2;;
+    --server-port) SERVER_PORT="$2"; shift 2;;
     --help|-h) usage; exit 0;;
     --) shift; break;;
     -*) echo "Unknown option: $1" >&2; usage; exit 2;;
@@ -27,6 +27,14 @@ while [[ $# -gt 0 ]]; do
 done
 
 cd "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/build"
+
+# jemalloc: use LD_PRELOAD to replace glibc malloc
+JEMALLOC="/lib/x86_64-linux-gnu/libjemalloc.so.2"
+if [ -f "$JEMALLOC" ]; then
+  export LD_PRELOAD="$JEMALLOC"
+else
+  echo "WARNING: jemalloc not found, using system malloc (apt install libjemalloc2)" >&2
+fi
 
 DATA_DIR="./data"
 SOCKET="/tmp/mysql.sock"
@@ -77,11 +85,11 @@ until ./runtime_output_directory/mysqladmin ping -u root --socket="$SOCKET" --po
 done
 
 ./runtime_output_directory/mysql -u root --socket="$SOCKET" --port="$MYSQLD_PORT" \
-  -e "SET GLOBAL lineairdb_ordo_host='${ORDO_HOST}'; SET GLOBAL lineairdb_ordo_port=${ORDO_PORT};" >/dev/null
+  -e "SET GLOBAL lineairdb_server_host='${SERVER_HOST}'; SET GLOBAL lineairdb_server_port=${SERVER_PORT};" >/dev/null
 
 echo "MySQL running with LineairDB"
 echo "PID       : $MYSQL_PID"
 echo "Port      : $MYSQLD_PORT"
 echo "Data dir  : $DATA_DIR"
 echo "Socket    : $SOCKET"
-echo "Ordo      : ${ORDO_HOST}:${ORDO_PORT}"
+echo "Server    : ${SERVER_HOST}:${SERVER_PORT}"

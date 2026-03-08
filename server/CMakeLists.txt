@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(ordo-server)
+project(lineairdb-server)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -38,8 +38,8 @@ add_subdirectory(${LINEAIRDB_ROOT} ${CMAKE_CURRENT_BINARY_DIR}/LineairDB)
 set(SOURCES
     # Core
     main.cc
-    ordo_server.cc
-    ordo_server.hh
+    lineairdb_server.cc
+    lineairdb_server.hh
     
     # Network layer
     network/tcp_server.cc
@@ -65,17 +65,17 @@ set(SOURCES
 )
 
 # Create executable
-add_executable(ordo-server ${SOURCES})
+add_executable(lineairdb-server ${SOURCES})
 
 # Link libraries
-target_link_libraries(ordo-server
+target_link_libraries(lineairdb-server
     lineairdb
     ${Protobuf_LIBRARIES}
     pthread
 )
 
 # Additional include directories for generated files
-target_include_directories(ordo-server PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
+target_include_directories(lineairdb-server PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
 
 # Compiler flags to suppress warnings
-target_compile_options(ordo-server PRIVATE -O3 -Wno-error -Wno-unused-parameter)
+target_compile_options(lineairdb-server PRIVATE -O3 -Wno-error -Wno-unused-parameter)

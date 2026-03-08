@@ -9,8 +9,8 @@
         ./scripts/build_partial.sh
         ./scripts/start_mysql.sh \
           --mysqld-port 3307 \
-          --ordo-host {{ hostvars['lineairdb-1'].private_ip }} \
-          --ordo-port 9999
+          --server-host {{ hostvars['lineairdb-1'].private_ip }} \
+          --server-port 9999
       args:
         executable: /bin/bash
 

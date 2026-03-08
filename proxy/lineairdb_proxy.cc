@@ -886,11 +886,16 @@ bool LineairDBProxy::send_message_with_header(const std::string& serialized_requ
     std::memcpy(buffer.data(), &header, sizeof(header));
     std::memcpy(buffer.data() + sizeof(header), serialized_request.c_str(), serialized_request.size());
 
-    // send
-    ssize_t bytes_sent = send(socket_fd_, buffer.data(), total_size, 0);
-    if (bytes_sent != static_cast<ssize_t>(total_size)) {
-        LOG_ERROR("SEND_MESSAGE: Failed to send complete message, sent %zd bytes instead of %zu", bytes_sent, total_size);
-        return false;
+    // send (handle partial writes for large messages)
+    size_t total_sent = 0;
+    while (total_sent < total_size) {
+        ssize_t bytes_sent = send(socket_fd_, buffer.data() + total_sent,
+                                  total_size - total_sent, 0);
+        if (bytes_sent <= 0) {
+            LOG_ERROR("SEND_MESSAGE: Failed to send message, sent %zu/%zu bytes", total_sent, total_size);
+            return false;
+        }
+        total_sent += bytes_sent;
     }
 
     LOG_DEBUG("SEND_MESSAGE: Successfully sent %zd bytes", bytes_sent);

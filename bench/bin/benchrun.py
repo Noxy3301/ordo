@@ -132,6 +132,12 @@ def run_single(benchmark, config_path, terminals, mysql_host, mysql_port, result
     print("  Resetting database...")
     mysql_cmd(mysql_port, mysql_host, f"DROP DATABASE IF EXISTS {db_name}; CREATE DATABASE {db_name};")
 
+    # TPC-H optimizer settings for hash join + subquery optimization
+    if benchmark == "tpch":
+        mysql_cmd(mysql_port, mysql_host,
+                  "SET GLOBAL optimizer_switch='batched_key_access=on,mrr_cost_based=off,subquery_to_derived=on';"
+                  "SET GLOBAL join_buffer_size=1073741824;")
+
     # Create + Load
     print("  Creating schema + Loading data...")
     result = run_benchbase(benchmark, config_path, create=True, load=True, execute=False)

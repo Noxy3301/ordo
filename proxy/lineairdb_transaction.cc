@@ -41,6 +41,26 @@ LineairDBTransaction::read(std::string key) {
   return {reinterpret_cast<const std::byte*>(last_read_value_.data()), last_read_value_.size()};
 }
 
+std::vector<std::pair<bool, std::string>>
+LineairDBTransaction::batch_read(const std::vector<std::string>& keys) {
+  if (table_is_not_chosen()) return {};
+
+  auto results = lineairdb_proxy->tx_batch_read(this, keys);
+  std::vector<std::pair<bool, std::string>> pairs;
+  pairs.reserve(results.size());
+  for (auto& r : results) {
+    pairs.emplace_back(r.found, std::move(r.value));
+  }
+  return pairs;
+}
+
+bool LineairDBTransaction::batch_write(
+    const std::string& table_name,
+    const std::vector<LineairDBProxy::BatchWriteOp>& writes,
+    const std::vector<LineairDBProxy::BatchSecondaryIndexOp>& si_writes) {
+  return lineairdb_proxy->tx_batch_write(this, table_name, writes, si_writes);
+}
+
 std::vector<std::string>
 LineairDBTransaction::get_all_keys() {
   if (table_is_not_chosen()) return {};

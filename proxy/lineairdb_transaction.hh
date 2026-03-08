@@ -28,6 +28,10 @@ public:
   bool table_is_not_chosen();
 
   const std::pair<const std::byte *const, const size_t> read(std::string key);
+  std::vector<std::pair<bool, std::string>> batch_read(const std::vector<std::string>& keys);
+  bool batch_write(const std::string& table_name,
+                   const std::vector<LineairDBProxy::BatchWriteOp>& writes,
+                   const std::vector<LineairDBProxy::BatchSecondaryIndexOp>& si_writes);
   std::vector<std::string> get_all_keys();
   std::vector<std::string> get_matching_keys(std::string key);
   std::vector<std::string> get_matching_keys_in_range(std::string start_key, std::string end_key,

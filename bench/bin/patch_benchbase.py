@@ -233,6 +233,152 @@ def patch_loader_stock_retry():
     print("  patched TPCCLoader.java (loadStock batch retry)")
 
 
+def patch_tpch_hash_join():
+    """Add USE INDEX () to TPC-H queries to force hash join over NLJ.
+
+    In Ordo's RPC-based architecture, hash join (1 RPC per table scan) is
+    vastly faster than NLJ with PK lookups (1 RPC per row probe).  MySQL's
+    optimizer doesn't model RPC cost, so it always prefers eq_ref (PK lookup).
+    Adding USE INDEX () disables all index access, forcing hash join.
+
+    Also fixes Q19's implicit join with OR conditions to use explicit JOIN ON,
+    preventing cross join.
+    """
+    TPCH_TABLES = [
+        'lineitem', 'orders', 'customer', 'supplier',
+        'partsupp', 'part', 'nation', 'region',
+    ]
+
+    procedures_dir = (
+        BENCHBASE_SRC
+        / "src/main/java/com/oltpbenchmark/benchmarks/tpch/procedures"
+    )
+
+    # --- Q19 fix: implicit join with OR -> explicit JOIN ON ---
+    q19 = procedures_dir / "Q19.java"
+    q19_text = q19.read_text()
+    if "JOIN part" not in q19_text:
+        q19_old = (
+            "               lineitem,\n"
+            "               part\n"
+            "            WHERE\n"
+            "               (\n"
+            "                  p_partkey = l_partkey\n"
+            "                  AND p_brand = ?"
+        )
+        q19_new = (
+            "               lineitem\n"
+            "               JOIN part ON p_partkey = l_partkey\n"
+            "            WHERE\n"
+            "               (\n"
+            "                  p_brand = ?"
+        )
+        if q19_old in q19_text:
+            q19_text = q19_text.replace(q19_old, q19_new)
+            # Remove duplicate p_partkey = l_partkey from other OR branches
+            q19_text = q19_text.replace(
+                "                  p_partkey = l_partkey\n"
+                "                  AND p_brand = ?",
+                "                  p_brand = ?",
+            )
+            q19.write_text(q19_text)
+            print("  patched Q19.java (JOIN ON fix)")
+        else:
+            print("  WARNING: Q19.java anchor not found", file=sys.stderr)
+    else:
+        print("  Q19.java JOIN ON already patched")
+
+    # --- USE INDEX () for all TPC-H queries ---
+    # Only apply inside SQL text blocks, only in FROM/JOIN context.
+    # Must NOT match: "AS nation", "WHEN nation = ?", column refs.
+    # MySQL syntax: table [alias] USE INDEX ()
+    table_pattern = '|'.join(TPCH_TABLES)
+    text_block_re = re.compile(r'"""(.*?)"""', re.DOTALL)
+
+    # Match table name only when preceded by FROM/JOIN/comma context:
+    # - after "FROM\n   " or "FROM " (table in FROM clause)
+    # - after ",\n   " or ", " (next table in FROM list)
+    # - after "JOIN " or "JOIN\n   " (explicit JOIN)
+    # Captures: (table_name)(optional_alias)
+    table_ref_re = re.compile(
+        r'(?:(?<=FROM\n)|(?<=JOIN\n)|(?<=FROM )|(?<=JOIN )'
+        r'|(?<=,\n)|(?<=,))'
+        r'(\s*)'                                # leading whitespace
+        r'\b(' + table_pattern + r')\b'         # table name
+        r'(\s+[a-z]\d+)?'                       # optional alias
+        r'(?!\s+USE\s+INDEX)'                   # not already patched
+    )
+
+    def add_use_index_in_from(sql):
+        """Add USE INDEX () to table references in FROM/JOIN clauses only."""
+        lines = sql.split('\n')
+        result = []
+        in_from = False  # Track if we're inside a FROM clause
+
+        for line in lines:
+            stripped = line.strip()
+            upper = stripped.upper()
+
+            # Detect FROM clause start
+            # Skip EXTRACT(YEAR FROM ...) where FROM is part of EXTRACT
+            if upper == 'FROM' or re.match(r'^FROM\s+\w', upper):
+                # Check if previous non-empty line ends with EXTRACT(YEAR
+                prev = ''
+                for j in range(len(result) - 1, -1, -1):
+                    prev = result[j].strip()
+                    if prev:
+                        break
+                if not prev.upper().endswith('EXTRACT(YEAR'):
+                    in_from = True
+            # Detect end of FROM clause (WHERE, GROUP, ORDER, SELECT, HAVING, LIMIT)
+            elif in_from and upper and any(
+                upper.startswith(kw) for kw in
+                ['WHERE', 'GROUP BY', 'ORDER BY', 'SELECT', 'HAVING',
+                 'LIMIT', 'AS ', ')']
+            ):
+                in_from = False
+
+            # Also handle JOIN lines (which are always table references)
+            is_join_line = bool(re.match(
+                r'^\s*(?:LEFT\s+OUTER\s+|LEFT\s+|RIGHT\s+|INNER\s+|CROSS\s+)?JOIN\s+',
+                line, re.IGNORECASE,
+            ))
+
+            if (in_from or is_join_line) and 'USE INDEX' not in line:
+                # Add USE INDEX () after table names on this line
+                line = re.sub(
+                    r'\b(' + table_pattern + r')\b'
+                    r'(\s+[a-z]\d+)?'
+                    r'(?!\s+USE\s+INDEX)',
+                    lambda m: m.group(0) + ' USE INDEX ()',
+                    line,
+                )
+
+            result.append(line)
+        return '\n'.join(result)
+
+    def patch_text_block(match):
+        sql = match.group(1)
+        sql = add_use_index_in_from(sql)
+        return '"""' + sql + '"""'
+
+    modified = 0
+    for java_file in sorted(procedures_dir.glob("Q*.java")):
+        content = java_file.read_text()
+        if "USE INDEX" in content:
+            continue
+
+        new_content = text_block_re.sub(patch_text_block, content)
+        if new_content != content:
+            java_file.write_text(new_content)
+            modified += 1
+
+    if modified:
+        print(f"  patched {modified} TPC-H queries with USE INDEX ()")
+    else:
+        print("  TPC-H queries already patched with USE INDEX ()")
+
+
 def build_benchbase():
     """Build BenchBase with MySQL profile."""
     print("\nBuilding BenchBase...")
@@ -274,6 +420,7 @@ def main():
     print("Applying patches to third_party/benchbase...")
     patch_worker_retry()
     patch_loader_stock_retry()
+    patch_tpch_hash_join()
 
     if not args.patch:
         build_benchbase()

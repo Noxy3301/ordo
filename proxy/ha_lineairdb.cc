@@ -461,31 +461,23 @@ int ha_lineairdb::write_row(uchar *buf) {
     return HA_ERR_LOCK_DEADLOCK;
   }
 
-  tx->choose_table(db_table_name);
-  bool is_successful = tx->write(key, write_buffer_);
-  if (!is_successful)
-    return HA_ERR_LOCK_DEADLOCK;
+  // buffer_write appends to a local buffer (no RPC yet), so no error check needed.
+  // The actual RPC is sent at flush time (buffer full, table change, or commit).
+  tx->buffer_write(db_table_name, key, write_buffer_);
 
-  if (tx->is_aborted()) {
-    thd_mark_transaction_to_rollback(ha_thd(), 1);
-    return HA_ERR_LOCK_DEADLOCK;
-  }
-
+  // Buffer secondary index writes
   for (uint i = 0; i < table->s->keys; i++) {
     auto key_info = table->key_info[i];
     if (i != table->s->primary_key) {
       std::string secondary_key = build_secondary_key_from_row(buf, key_info);
-
-      bool is_successful =
-          tx->write_secondary_index(key_info.name, secondary_key, key);
-      if (!is_successful)
-        return HA_ERR_LOCK_DEADLOCK;
-
-      if (tx->is_aborted()) {
-        thd_mark_transaction_to_rollback(ha_thd(), 1);
-        return HA_ERR_LOCK_DEADLOCK;
-      }
+      tx->buffer_write_secondary_index(db_table_name, key_info.name,
+                                        secondary_key, key);
     }
+  }
+
+  if (tx->is_aborted()) {
+    thd_mark_transaction_to_rollback(ha_thd(), 1);
+    return HA_ERR_LOCK_DEADLOCK;
   }
 
   tx->add_rowcount_delta(share, +1);

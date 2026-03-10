@@ -220,6 +220,16 @@ def main():
 
     # Update config
     update_xml(config_work, scalefactor=str(args.scalefactor), time=str(args.time))
+    # TPC-H with multiple terminals needs parallel mode (serial=false + time tag)
+    if args.benchmark == "tpch" and (args.sweep or args.terminals > 1):
+        text = config_work.read_text()
+        text = text.replace("<serial>true</serial>", "<serial>false</serial>")
+        if "<time>" not in text:
+            text = text.replace(
+                "<serial>false</serial>",
+                f"<serial>false</serial>\n            <time>{args.time}</time>",
+            )
+        config_work.write_text(text)
     if args.loader_threads > 1:
         text = config_work.read_text()
         if "<loaderThreads>" in text:
@@ -255,17 +265,17 @@ def main():
     for terminals in thread_list:
         if args.restart_between and len(thread_list) > 1:
             print("\n  Restarting Ordo server + MySQL...")
-            subprocess.run([str(ROOT / "scripts" / "stop_mysql.sh")], capture_output=True)
-            subprocess.run([str(ROOT / "scripts" / "stop_server.sh")], capture_output=True)
-            time.sleep(2)
-            subprocess.run([str(ROOT / "scripts" / "start_server.sh")], capture_output=True)
-            time.sleep(2)
+            subprocess.run([str(ROOT / "scripts" / "stop_server.sh")])
+            subprocess.run([str(ROOT / "scripts" / "stop_mysql.sh")])
+            time.sleep(5)
+            subprocess.run([str(ROOT / "scripts" / "start_server.sh")])
+            time.sleep(3)
             subprocess.run([
                 str(ROOT / "scripts" / "start_mysql.sh"),
                 "--mysqld-port", str(args.mysql_port),
                 "--server-host", "127.0.0.1", "--server-port", "9999",
-            ], capture_output=True)
-            time.sleep(3)
+            ])
+            time.sleep(5)
 
         result = run_single(
             args.benchmark, config_work, terminals,

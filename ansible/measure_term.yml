@@ -1,47 +1,86 @@
 ---
+# Single benchmark iteration: generate XML config, execute BenchBase, parse output.
+# Included by measure.yml for each terminal count in the sweep.
+
 - name: Compute shared start epoch
   run_once: true
   delegate_to: localhost
   delegate_facts: true
   when: bench_sync | bool
   set_fact:
-    bench_start_epoch: "{{ (lookup('pipe', 'date +%s') | int) + bench_sync_buffer }}"
+    bench_start_epoch: "{{ (lookup('pipe', 'date +%s') | int) + (bench_sync_buffer | int) }}"
 
-- name: Run with fixed-terminal (terminals={{ bench_term }})
+- name: "Execute {{ bench_type | upper }} (terminals={{ bench_term }})"
   shell: |
     {% if bench_sync | bool %}
     target={{ hostvars['localhost'].bench_start_epoch }}
     now=$(date +%s)
-    if [ "$now" -lt "$target" ]; then
-      sleep $((target - now))
-    fi
+    if [ "$now" -lt "$target" ]; then sleep $((target - now)); fi
     {% endif %}
-    cd ~/ordo
-    ./scripts/run_dist.sh \
-      --profile {{ bench_profile }} \
-      --time {{ bench_time }} \
-      --rate {{ bench_rate }} \
-      --scalefactor {{ bench_scalefactor }} \
-      --mysql-host {{ haproxy_host }} \
-      --mysql-port {{ haproxy_port }} \
-      --terminals {{ bench_term }}
-    f=$(ls -td bench/results/_run_dist/* 2>/dev/null | head -n1)
-    tail -n1 "$f/summary.csv"
+
+    CFG=$(mktemp /tmp/bb-exec-XXXXX.xml)
+    cp ~/ordo/bench/config/{{ bench_type }}.xml "$CFG"
+
+    # JDBC URL -> HAProxy
+    sed -i 's|localhost:3307|{{ haproxy_host }}:{{ haproxy_port }}|g' "$CFG"
+
+    # Scale factor and terminals
+    sed -i 's|<scalefactor>[^<]*</scalefactor>|<scalefactor>{{ bench_scalefactor }}</scalefactor>|' "$CFG"
+    sed -i 's|<terminals>[^<]*</terminals>|<terminals>{{ bench_term }}</terminals>|' "$CFG"
+
+    {% if bench_type == 'ycsb' %}
+    # YCSB profile weights
+    sed -i 's|<weights>[^<]*</weights>|<weights>{{ ycsb_weights }}</weights>|' "$CFG"
+    {% endif %}
+
+    {% if bench_type != 'tpch' %}
+    # YCSB/TPC-C: update execution time
+    sed -i 's|<time>[^<]*</time>|<time>{{ bench_time }}</time>|' "$CFG"
+    {% elif not (bench_serial | bool) %}
+    # TPC-H parallel: serial=false + inject time tag
+    sed -i 's|<serial>true</serial>|<serial>false</serial>|' "$CFG"
+    sed -i '/<serial>false<\/serial>/a\            <time>{{ bench_time }}</time>' "$CFG"
+    {% endif %}
+
+    # Execute BenchBase (ensure sdkman Java is on PATH)
+    export SDKMAN_DIR="$HOME/.sdkman"
+    [ -s "$SDKMAN_DIR/bin/sdkman-init.sh" ] && source "$SDKMAN_DIR/bin/sdkman-init.sh"
+    cd ~/ordo/third_party/benchbase/benchbase-mysql
+    output=$(java -jar benchbase.jar -b {{ bench_type }} -c "$CFG" \
+      --create=false --load=false --execute=true 2>&1)
+    rm -f "$CFG"
+
+    # Parse: "= X requests/sec (throughput), Y requests/sec (goodput)"
+    line=$(echo "$output" | grep 'requests/sec (throughput)' | tail -1)
+    throughput=$(echo "$line" | sed -n 's/.*= \([0-9.]*\) requests\/sec (throughput).*/\1/p')
+    goodput=$(echo "$line" | sed -n 's/.*, \([0-9.]*\) requests\/sec (goodput).*/\1/p')
+
+    if [ -n "$throughput" ]; then
+      echo "{{ bench_term }},$throughput,$goodput"
+    else
+      echo "PARSE_ERROR: could not extract throughput" >&2
+      echo "$output" | tail -30 >&2
+      exit 1
+    fi
   args:
     executable: /bin/bash
   register: run_summary
 
-- name: Capture bench execute log (terminals={{ bench_term }})
+- name: "Capture bench log (terminals={{ bench_term }})"
   shell: |
     out_dir="{{ sample_dir | default('/tmp/metrics') }}/bench-{{ run_id | default('run') }}"
-    mkdir -p "$out_dir"
-    exec_dir=$(ls -td ~/ordo/bench/results/exp/*_execute_* 2>/dev/null | head -n1 || true)
-    if [ -n "$exec_dir" ] && [ -f "$exec_dir/execute_3307.log" ]; then
-      gzip -c "$exec_dir/execute_3307.log" > "$out_dir/execute_{{ bench_term }}.log.gz"
+    dest="$out_dir/execute_{{ bench_term }}"
+    mkdir -p "$dest"
+    bb_results=~/ordo/third_party/benchbase/benchbase-mysql/results
+    if [ -d "$bb_results" ]; then
+      # Copy latest result files (csv, json, xml) and remove originals to avoid mixing with next run
+      for f in "$bb_results"/*.{csv,json,xml}; do
+        [ -f "$f" ] && mv "$f" "$dest/"
+      done
     fi
   args:
     executable: /bin/bash
 
-- name: Append summary (terminals={{ bench_term }})
+- name: "Append summary (terminals={{ bench_term }})"
   set_fact:
     run_summaries: "{{ (run_summaries | default([])) + [run_summary | combine({'item': bench_term})] }}"

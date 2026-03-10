@@ -8,6 +8,8 @@
       shell: |
         cd ~/ordo
         ./scripts/stop_server.sh
+        git pull --ff-only || true
+        git submodule update --init --recursive || true
         ./scripts/build_partial.sh
         ulimit -n {{ lineairdb_nofile_limit }}
         ./scripts/start_server.sh

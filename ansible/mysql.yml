@@ -6,6 +6,8 @@
       shell: |
         cd ~/ordo
         ./scripts/stop_mysql.sh
+        git pull --ff-only || true
+        git submodule update --init --recursive || true
         ./scripts/build_partial.sh
         ./scripts/start_mysql.sh \
           --mysqld-port 3307 \
@@ -35,6 +37,7 @@
               CREATE USER IF NOT EXISTS 'root'@'{{ hostvars[b].private_ip }}' IDENTIFIED WITH mysql_native_password BY '';
               GRANT ALL PRIVILEGES ON *.* TO 'root'@'{{ hostvars[b].private_ip }}' WITH GRANT OPTION;
               {% endfor %}
+              SET GLOBAL max_connect_errors = 100000;
               FLUSH PRIVILEGES;"
       args:
         executable: /bin/bash

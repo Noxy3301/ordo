@@ -28,7 +28,7 @@
       set_fact:
         cpu_count: "{{ cpu_count_cmd.stdout | int }}"
 
-    - name: Build machine spec directory name
+    - name: Build machine spec string (for metadata)
       set_fact:
         machine_spec: >-
           {%- set roles = ['lineairdb', 'mysql', 'haproxy', 'benchbase'] -%}
@@ -43,6 +43,20 @@
             {%- endif -%}
           {%- endfor -%}
           {{ parts | join('_') }}
+
+    - name: Set result directory
+      set_fact:
+        result_dir: "{{ playbook_dir }}/result/{{ run_id }}/{{ machine_spec }}"
+
+    - name: Write run metadata
+      run_once: true
+      delegate_to: localhost
+      copy:
+        dest: "{{ result_dir }}/meta.txt"
+        content: |
+          run_id={{ run_id }}
+          machine_spec={{ machine_spec }}
+          timestamp={{ lookup('pipe', 'date -Iseconds') }}
 
     - name: Start mpstat sampling
       when: inventory_hostname not in groups.get('haproxy', [])
@@ -299,7 +313,7 @@
       when: inventory_hostname not in groups.get('haproxy', [])
       fetch:
         src: "{{ sample_dir }}/cpu-{{ run_id }}.log"
-        dest: "{{ playbook_dir }}/result/{{ machine_spec }}/cpu/{{ inventory_hostname }}/"
+        dest: "{{ result_dir }}/cpu/{{ inventory_hostname }}/"
         flat: yes
 
     - name: Fetch cpu logs (haproxy)
@@ -308,7 +322,7 @@
       delegate_to: "{{ haproxy_host }}"
       fetch:
         src: "{{ sample_dir }}/cpu-{{ run_id }}.log"
-        dest: "{{ playbook_dir }}/result/{{ hostvars[haproxy_host].machine_spec | default('unknown') }}/cpu/{{ haproxy_host }}/"
+        dest: "{{ result_dir }}/cpu/{{ haproxy_host }}/"
         flat: yes
 
     - name: Fetch HAProxy stats
@@ -317,75 +331,75 @@
       delegate_to: "{{ haproxy_host }}"
       fetch:
         src: "{{ sample_dir }}/haproxy-{{ run_id }}.csv"
-        dest: "{{ playbook_dir }}/result/{{ hostvars[haproxy_host].machine_spec | default('unknown') }}/haproxy/{{ haproxy_host }}/"
+        dest: "{{ result_dir }}/haproxy/{{ haproxy_host }}/"
         flat: yes
 
     - name: Fetch bench logs
       when: inventory_hostname in groups['benchbase']
       fetch:
         src: "{{ sample_dir }}/bench-{{ run_id }}.tgz"
-        dest: "{{ playbook_dir }}/result/{{ machine_spec }}/bench/{{ inventory_hostname }}/"
+        dest: "{{ result_dir }}/bench/{{ inventory_hostname }}/"
         flat: yes
 
     - name: Fetch LineairDB logs
       when: inventory_hostname in groups['lineairdb']
       fetch:
         src: "{{ sample_dir }}/lineairdb-{{ run_id }}.tgz"
-        dest: "{{ playbook_dir }}/result/{{ machine_spec }}/lineairdb/{{ inventory_hostname }}/"
+        dest: "{{ result_dir }}/lineairdb/{{ inventory_hostname }}/"
         flat: yes
 
     - name: Fetch server pidstat logs
       when: inventory_hostname in groups['lineairdb']
       fetch:
         src: "{{ sample_dir }}/pidstat-server-{{ run_id }}.log"
-        dest: "{{ playbook_dir }}/result/{{ machine_spec }}/lineairdb/{{ inventory_hostname }}/"
+        dest: "{{ result_dir }}/lineairdb/{{ inventory_hostname }}/"
         flat: yes
 
     - name: Fetch server sar -w logs
       when: inventory_hostname in groups['lineairdb']
       fetch:
         src: "{{ sample_dir }}/sar-w-{{ run_id }}.log"
-        dest: "{{ playbook_dir }}/result/{{ machine_spec }}/lineairdb/{{ inventory_hostname }}/"
+        dest: "{{ result_dir }}/lineairdb/{{ inventory_hostname }}/"
         flat: yes
 
     - name: Fetch server sar -n DEV logs
       when: inventory_hostname in groups['lineairdb']
       fetch:
         src: "{{ sample_dir }}/sar-dev-{{ run_id }}.log"
-        dest: "{{ playbook_dir }}/result/{{ machine_spec }}/lineairdb/{{ inventory_hostname }}/"
+        dest: "{{ result_dir }}/lineairdb/{{ inventory_hostname }}/"
         flat: yes
 
     - name: Fetch server sar -n SOFT logs
       when: inventory_hostname in groups['lineairdb']
       fetch:
         src: "{{ sample_dir }}/sar-soft-{{ run_id }}.log"
-        dest: "{{ playbook_dir }}/result/{{ machine_spec }}/lineairdb/{{ inventory_hostname }}/"
+        dest: "{{ result_dir }}/lineairdb/{{ inventory_hostname }}/"
         flat: yes
 
     - name: Fetch server mpstat -I ALL logs
       when: inventory_hostname in groups['lineairdb']
       fetch:
         src: "{{ sample_dir }}/mpstat-irq-{{ run_id }}.log"
-        dest: "{{ playbook_dir }}/result/{{ machine_spec }}/lineairdb/{{ inventory_hostname }}/"
+        dest: "{{ result_dir }}/lineairdb/{{ inventory_hostname }}/"
         flat: yes
 
     - name: Fetch server softnet_stat logs
       when: inventory_hostname in groups['lineairdb']
       fetch:
         src: "{{ sample_dir }}/softnet-{{ run_id }}.log"
-        dest: "{{ playbook_dir }}/result/{{ machine_spec }}/lineairdb/{{ inventory_hostname }}/"
+        dest: "{{ result_dir }}/lineairdb/{{ inventory_hostname }}/"
         flat: yes
 
     - name: Fetch server /proc/interrupts logs
       when: inventory_hostname in groups['lineairdb']
       fetch:
         src: "{{ sample_dir }}/interrupts-{{ run_id }}.log"
-        dest: "{{ playbook_dir }}/result/{{ machine_spec }}/lineairdb/{{ inventory_hostname }}/"
+        dest: "{{ result_dir }}/lineairdb/{{ inventory_hostname }}/"
         flat: yes
 
     - name: Fetch MySQL status snapshot
       when: inventory_hostname in groups['mysql']
       fetch:
         src: "{{ sample_dir }}/mysql-status-{{ run_id }}.txt"
-        dest: "{{ playbook_dir }}/result/{{ machine_spec }}/mysql/{{ inventory_hostname }}/"
+        dest: "{{ result_dir }}/mysql/{{ inventory_hostname }}/"
         flat: yes

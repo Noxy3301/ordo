@@ -1,55 +1,101 @@
 ---
-# Measurement-only playbook: run execute sweeps on bench nodes.
+# Benchmark execution orchestrator: terminal-count sweep on bench nodes.
+#
+# Usage:
+#   # YCSB profile B (default terminal sweep)
+#   ansible-playbook -i inventory.ini measure.yml -e "bench_type=ycsb bench_profile=b"
+#
+#   # TPC-C with custom terminals
+#   ansible-playbook -i inventory.ini measure.yml -e "bench_type=tpcc bench_terms=[1,16,64]"
+#
+#   # TPC-H serial (22 queries once)
+#   ansible-playbook -i inventory.ini measure.yml -e "bench_type=tpch bench_scalefactor=0.1"
+#
+#   # TPC-H parallel scalability
+#   ansible-playbook -i inventory.ini measure.yml \
+#     -e "bench_type=tpch bench_serial=false bench_scalefactor=0.01 bench_terms=[1,2,4,8,16]"
+#
+# Typically invoked via measure_usage.yml which wraps this with CPU/network monitoring.
 - hosts: benchbase
   gather_facts: false
   vars:
+    # -- Benchmark selection --
+    bench_type: ycsb
     bench_profile: b
-    bench_time: 30
-    bench_rate: 0
-    bench_scalefactor: 10
-    bench_terms: [1, 32, 64, 96, 128, 160, 192, 224, 256]
+    bench_serial: "{{ bench_type == 'tpch' }}"
+
+    # -- Execution parameters --
+    bench_time: 60
+    bench_scalefactor: "{{ 0.1 if bench_type == 'tpch' else 10 }}"
+    bench_terms: "{{ [1] if (bench_type == 'tpch' and (bench_serial | bool)) else [1, 32, 64, 96, 128, 160, 192, 224, 256] }}"
+
+    # -- Synchronized start across bench nodes --
     bench_sync: true
     bench_sync_buffer: 5
-    # If clock skew exceeds buffer, some hosts start immediately.
-    haproxy_host: "{{ hostvars['haproxy-1'].private_ip }}"
+
+    # -- Result directory (set by measure_usage.yml; fallback for standalone use) --
+    run_id: "run"
+    result_dir: "{{ playbook_dir }}/result/{{ run_id }}"
+
+    # -- HAProxy connection --
+    haproxy_host: "{{ hostvars[groups['haproxy'][0]].private_ip }}"
     haproxy_port: 3307
+
+    # -- YCSB profile weights --
+    _ycsb_profiles:
+      a: "50,0,0,50,0,0"
+      b: "95,0,0,5,0,0"
+      c: "100,0,0,0,0,0"
+      e: "0,5,95,0,0,0"
+      f: "50,0,0,0,0,50"
+    ycsb_weights: "{{ _ycsb_profiles[bench_profile] | default('95,0,0,5,0,0') }}"
   tasks:
-    - name: Run with fixed-terminal
+    - name: Set TPC-H optimizer settings on each MySQL
+      when: bench_type == 'tpch'
+      shell: |
+        ~/ordo/build/runtime_output_directory/mysql \
+          -u root --protocol=TCP \
+          -h {{ hostvars[item].private_ip }} -P 3307 \
+          -e "SET GLOBAL optimizer_switch='batched_key_access=on,mrr_cost_based=off,subquery_to_derived=on';
+              SET GLOBAL join_buffer_size=1073741824;"
+      args:
+        executable: /bin/bash
+      run_once: true
+      delegate_to: "{{ groups['benchbase'][0] }}"
+      loop: "{{ groups['mysql'] }}"
+      loop_control:
+        label: "{{ item }}"
+
+    - name: Run terminal sweep
       include_tasks: measure_term.yml
       loop: "{{ bench_terms }}"
       loop_control:
         loop_var: bench_term
 
-    - name: Show summary lines (numeric last line only)
+    - name: Show summary
       debug:
-        msg: "{{ item.item }} => {{ (item.stdout_lines | select('match','^[0-9]') | list | last) | default(item.stdout | trim) }}"
+        msg: "{{ item.item }} terminals => {{ item.stdout | trim }}"
       loop: "{{ run_summaries | default([]) }}"
       loop_control:
         label: "{{ item.item }}"
 
-    - name: Ensure throughput result dir
+    - name: Ensure throughput result directory
       delegate_to: localhost
       run_once: true
-      vars:
-        machine_spec: "{{ hostvars[groups['benchbase'][0]].machine_spec | default('unknown') }}"
-        throughput_dir: "{{ playbook_dir }}/result/{{ machine_spec }}/throughput"
       file:
-        path: "{{ throughput_dir }}"
+        path: "{{ result_dir }}/throughput"
         state: directory
 
-    - name: Write throughput raw csv
+    - name: Write throughput CSV
       delegate_to: localhost
       run_once: true
-      vars:
-        machine_spec: "{{ hostvars[groups['benchbase'][0]].machine_spec | default('unknown') }}"
-        throughput_dir: "{{ playbook_dir }}/result/{{ machine_spec }}/throughput"
       copy:
-        dest: "{{ throughput_dir }}/throughput_raw.csv"
+        dest: "{{ result_dir }}/throughput/throughput_raw.csv"
         content: |
           {% for host in groups['benchbase'] %}
           {% for item in (hostvars[host].run_summaries | default([])) %}
-          {% set line = (item.stdout_lines | select('match','^[0-9]') | list | last) | default(item.stdout | trim) %}
-          {% if line %}
+          {% set line = item.stdout | default('') | trim %}
+          {% if line and not line.startswith('PARSE') %}
           {{ host }},{{ line }}
           {% endif %}
           {% endfor %}

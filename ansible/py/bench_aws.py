@@ -1,0 +1,506 @@
+#!/usr/bin/env python3
+"""
+Ordo distributed benchmark orchestrator.
+
+Launches spot instances, runs Ansible playbooks, collects results, and cleans up.
+If spot instances cannot be acquired, skips benchmarks and cleans up.
+
+Usage:
+  # Default: YCSB benchmark
+  python3 py/bench_aws.py
+
+  # TPC-C with custom terminals
+  python3 py/bench_aws.py --bench-type tpcc --bench-terms 1,16,64,128
+
+  # TPC-H serial
+  python3 py/bench_aws.py --bench-type tpch
+
+  # Dry run (show what would be launched)
+  python3 py/bench_aws.py --dry-run
+"""
+
+import argparse
+import json
+import os
+import subprocess
+import sys
+import time
+from datetime import datetime
+from pathlib import Path
+
+SCRIPT_DIR = Path(__file__).resolve().parent
+ANSIBLE_DIR = SCRIPT_DIR.parent
+LOG_FILE = None  # set in main()
+
+# ──────────────────────────────────────────────
+# Cluster topology — edit these to change sizes
+# ──────────────────────────────────────────────
+CLUSTER = {
+    "lineairdb": {
+        "tag": "ordo-lineairdb",
+        "instance_type": "c6i.16xlarge",
+        "count": 1,
+    },
+    "mysql": {
+        "tag": "ordo-mysql",
+        "instance_type": "c6i.4xlarge",
+        "count": 1,
+    },
+    "haproxy": {
+        "tag": "ordo-haproxy",
+        "instance_type": "c6i.4xlarge",
+        "count": 1,
+    },
+    "benchbase": {
+        "tag": "ordo-bench",
+        "instance_type": "c6i.4xlarge",
+        "count": 1,
+    },
+}
+
+AWS_DEFAULTS = {
+    "region": "ap-southeast-2",
+    "launch_template": "lt-0f28a9f6b02e1c019",
+    "project_tag": "Ordo",
+    "ssh_key": "~/.ssh/ordo-aws.pem",
+    "ssh_user": "ubuntu",
+}
+
+# vCPU count for EC2 instance sizes (used to build machine_spec locally)
+_VCPU_BY_SIZE = {
+    "xlarge": 4, "2xlarge": 8, "4xlarge": 16, "8xlarge": 32,
+    "12xlarge": 48, "16xlarge": 64, "24xlarge": 96, "metal": 128,
+}
+
+
+def build_machine_spec():
+    """Build machine_spec string from CLUSTER config (e.g. lineairdb-64x1_mysql-16x1_...)."""
+    parts = []
+    for role, cfg in CLUSTER.items():
+        size = cfg["instance_type"].split(".")[-1]  # e.g. "16xlarge"
+        vcpu = _VCPU_BY_SIZE.get(size, 0)
+        parts.append(f"{role}-{vcpu}x{cfg['count']}")
+    return "_".join(parts)
+
+
+def log(msg):
+    ts = datetime.now().strftime("%H:%M:%S")
+    line = f"[{ts}] {msg}"
+    print(line, flush=True)
+    if LOG_FILE:
+        LOG_FILE.write(line + "\n")
+        LOG_FILE.flush()
+
+
+def aws(cmd, region=None):
+    """Run an AWS CLI command and return parsed JSON output."""
+    full = ["aws"] + cmd
+    if region:
+        full.extend(["--region", region])
+    full.extend(["--no-cli-pager", "--output", "json"])
+    result = subprocess.run(full, capture_output=True, text=True)
+    if result.returncode != 0:
+        raise RuntimeError(f"aws command failed: {' '.join(full)}\n{result.stderr.strip()}")
+    return json.loads(result.stdout) if result.stdout.strip() else {}
+
+
+def aws_text(cmd, region=None):
+    """Run an AWS CLI command and return text output."""
+    full = ["aws"] + cmd
+    if region:
+        full.extend(["--region", region])
+    full.extend(["--no-cli-pager", "--output", "text"])
+    result = subprocess.run(full, capture_output=True, text=True)
+    if result.returncode != 0:
+        raise RuntimeError(f"aws command failed: {' '.join(full)}\n{result.stderr.strip()}")
+    return result.stdout.strip()
+
+
+def run(cmd, check=True, **kwargs):
+    """Run a shell command, streaming output to both terminal and log file."""
+    log(f"  $ {cmd}")
+    if LOG_FILE:
+        # Stream stdout+stderr line-by-line to both terminal and log
+        proc = subprocess.Popen(
+            cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            text=True, bufsize=1, **kwargs,
+        )
+        for line in proc.stdout:
+            sys.stdout.write(line)
+            sys.stdout.flush()
+            LOG_FILE.write(line)
+            LOG_FILE.flush()
+        proc.wait()
+        if check and proc.returncode != 0:
+            raise subprocess.CalledProcessError(proc.returncode, cmd)
+        return proc
+    return subprocess.run(cmd, shell=True, check=check, **kwargs)
+
+
+# ──────────────────────────────────────────────
+# Phase 1: Launch spot instances
+# ──────────────────────────────────────────────
+def launch_instances(args):
+    """Launch spot instances for all roles. Returns list of instance IDs."""
+    all_instance_ids = []
+    region = args.region
+
+    for role, cfg in CLUSTER.items():
+        log(f"Launching {cfg['count']}x {cfg['instance_type']} for {role} ({cfg['tag']}) [spot]...")
+        try:
+            cmd = [
+                "ec2", "run-instances",
+                "--launch-template", f"LaunchTemplateId={args.launch_template},Version=$Default",
+                "--count", str(cfg["count"]),
+                "--instance-type", cfg["instance_type"],
+                "--instance-market-options", '{"MarketType":"spot","SpotOptions":{"SpotInstanceType":"one-time","InstanceInterruptionBehavior":"terminate"}}',
+            ]
+            cmd += [
+                "--tag-specifications",
+                f"ResourceType=instance,Tags=["
+                f"{{Key=Name,Value={cfg['tag']}}},"
+                f"{{Key=Project,Value={args.project_tag}}}"
+                f"]",
+            ]
+            result = aws(cmd, region=region)
+            ids = [inst["InstanceId"] for inst in result.get("Instances", [])]
+            all_instance_ids.extend(ids)
+            log(f"  -> {ids}")
+        except RuntimeError as e:
+            if "InsufficientInstanceCapacity" in str(e) or "SpotMaxPriceTooLow" in str(e):
+                log(f"  SPOT UNAVAILABLE for {role}: {e}")
+                return None
+            raise
+
+    return all_instance_ids
+
+
+# ──────────────────────────────────────────────
+# Phase 2: Wait for instances
+# ──────────────────────────────────────────────
+def wait_for_instances(instance_ids, region, timeout=300):
+    """Wait until all instances are running."""
+    log(f"Waiting for {len(instance_ids)} instances to be running...")
+    aws([
+        "ec2", "wait", "instance-running",
+        "--instance-ids", *instance_ids,
+    ], region=region)
+    log("All instances running.")
+
+
+# ──────────────────────────────────────────────
+# Phase 3: Generate inventory + wait for SSH
+# ──────────────────────────────────────────────
+def generate_inventory(args):
+    """Run update_inventory.py to generate inventory.ini."""
+    log("Generating Ansible inventory...")
+    run(
+        f"python3 {SCRIPT_DIR / 'update_inventory.py'}"
+        f" --region {args.region}"
+        f" --key {args.ssh_key}"
+        f" --user {args.ssh_user}"
+        f" --project-tag {args.project_tag}"
+    )
+
+
+def wait_for_ssh(args):
+    """Wait until Ansible can reach all hosts."""
+    log("Waiting for SSH connectivity...")
+    run(
+        f"ansible -i {ANSIBLE_DIR / 'inventory.ini'} all"
+        f" -m wait_for_connection -a 'timeout=300 delay=5 sleep=2' -o"
+    )
+    log("All hosts reachable via SSH.")
+
+
+# ──────────────────────────────────────────────
+# Phase 4: Run Ansible playbooks
+# ──────────────────────────────────────────────
+def run_playbook(name, extra_vars=None, args=None):
+    """Run an Ansible playbook."""
+    cmd = f"ansible-playbook -i {ANSIBLE_DIR / 'inventory.ini'} {ANSIBLE_DIR / name}"
+    if extra_vars:
+        cmd += f' -e "{extra_vars}"'
+    run(cmd)
+
+
+def deploy_infrastructure():
+    """Deploy LineairDB, MySQL, HAProxy in parallel, then wait."""
+    log("Deploying infrastructure (lineairdb + mysql + haproxy in parallel)...")
+    inv = str(ANSIBLE_DIR / "inventory.ini")
+    # Write deploy logs alongside bench_aws.log
+    deploy_log_dir = Path(LOG_FILE.name).parent if LOG_FILE else None
+    procs = []
+
+    for playbook in ["lineairdb.yml", "mysql.yml", "haproxy.yml"]:
+        cmd = f"ansible-playbook -i {inv} {ANSIBLE_DIR / playbook}"
+        log(f"  $ {cmd}")
+        if deploy_log_dir:
+            pb_log = open(deploy_log_dir / f"{playbook.replace('.yml', '')}.log", "w")
+            p = subprocess.Popen(cmd, shell=True, stdout=pb_log, stderr=subprocess.STDOUT)
+            procs.append((playbook, p, pb_log))
+        else:
+            p = subprocess.Popen(cmd, shell=True)
+            procs.append((playbook, p, None))
+
+    failed = []
+    for name, p, fh in procs:
+        rc = p.wait()
+        if fh:
+            fh.close()
+        if rc != 0:
+            failed.append(name)
+            log(f"  FAILED: {name} (rc={rc})")
+        else:
+            log(f"  OK: {name}")
+
+    if failed:
+        raise RuntimeError(f"Infrastructure deploy failed: {', '.join(failed)}")
+    log("Infrastructure deployed.")
+
+
+def run_benchmarks(args, run_id):
+    """Run benchbase setup + benchmark execution."""
+
+    bench_vars = f"bench_type={args.bench_type}"
+    if args.bench_scalefactor:
+        bench_vars += f" bench_scalefactor={args.bench_scalefactor}"
+
+    # Setup: create schema + load data
+    log(f"Setting up {args.bench_type.upper()} (SF={args.bench_scalefactor or 'default'})...")
+    run_playbook("benchbase.yml", extra_vars=bench_vars)
+
+    # Execute: benchmark with monitoring
+    exec_vars = bench_vars + f" run_id={run_id}"
+    if args.bench_time:
+        exec_vars += f" bench_time={args.bench_time}"
+    if args.bench_terms:
+        exec_vars += f" bench_terms=[{args.bench_terms}]"
+    if args.bench_type == "tpch" and args.bench_serial is not None:
+        exec_vars += f" bench_serial={'true' if args.bench_serial else 'false'}"
+    if args.bench_profile:
+        exec_vars += f" bench_profile={args.bench_profile}"
+
+    log(f"Running benchmark: {exec_vars}")
+    run_playbook("measure_usage.yml", extra_vars=exec_vars)
+
+    # Plot results — pass run_id root; plot scripts auto-detect machine_spec subdir
+    result_root = ANSIBLE_DIR / "result" / run_id
+    log("Plotting results...")
+    run(f"python3 {SCRIPT_DIR / 'plot_throughput.py'} --root {result_root}", check=False)
+    run(f"python3 {SCRIPT_DIR / 'plot_cpu.py'} --root {result_root}", check=False)
+    if args.bench_type == "tpch":
+        run(f"python3 {SCRIPT_DIR / 'plot_tpch.py'} --root {result_root}", check=False)
+
+    log(f"Benchmark complete. run_id={run_id}")
+    return run_id
+
+
+# ──────────────────────────────────────────────
+# Cleanup
+# ──────────────────────────────────────────────
+def cleanup(args):
+    """Cancel spot requests first, then terminate instances."""
+    region = args.region
+    project_tag = args.project_tag
+    log(f"Cleaning up (Project={project_tag}, region={region})...")
+
+    # Step 1: Cancel ALL open/active spot requests first (prevents respawn).
+    # Spot requests may not have Project tags, so find them via launch template.
+    try:
+        spot_ids = aws_text([
+            "ec2", "describe-spot-instance-requests",
+            "--filters",
+            "Name=state,Values=open,active",
+            f"Name=launch.key-name,Values={Path(args.ssh_key).stem}",
+            "--query", "SpotInstanceRequests[].SpotInstanceRequestId",
+        ], region=region)
+    except RuntimeError:
+        spot_ids = ""
+
+    if spot_ids and spot_ids != "None":
+        ids = spot_ids.split()
+        log(f"  Cancelling {len(ids)} spot requests: {ids}")
+        try:
+            aws_text([
+                "ec2", "cancel-spot-instance-requests",
+                "--spot-instance-request-ids", *ids,
+            ], region=region)
+        except RuntimeError as e:
+            log(f"  Warning: cancel spot failed: {e}")
+    else:
+        log("  No spot requests to cancel.")
+
+    # Step 2: Terminate instances by Project tag
+    try:
+        instance_ids = aws_text([
+            "ec2", "describe-instances",
+            "--filters",
+            f"Name=tag:Project,Values={project_tag}",
+            "Name=instance-state-name,Values=pending,running,stopping,stopped",
+            "--query", "Reservations[].Instances[].InstanceId",
+        ], region=region)
+    except RuntimeError:
+        instance_ids = ""
+
+    if instance_ids and instance_ids != "None":
+        ids = instance_ids.split()
+        log(f"  Terminating {len(ids)} tagged instances: {ids}")
+        try:
+            aws_text([
+                "ec2", "terminate-instances",
+                "--instance-ids", *ids,
+            ], region=region)
+        except RuntimeError as e:
+            log(f"  Warning: terminate failed: {e}")
+    else:
+        log("  No tagged instances to terminate.")
+
+    # Step 3: Also terminate any untagged instances from the same key pair
+    # (catches instances spawned by persistent spot requests after cleanup)
+    try:
+        untagged_ids = aws_text([
+            "ec2", "describe-instances",
+            "--filters",
+            f"Name=key-name,Values={Path(args.ssh_key).stem}",
+            "Name=instance-state-name,Values=pending,running,stopping,stopped",
+            "--query", "Reservations[].Instances[?!Tags].InstanceId",
+        ], region=region)
+    except RuntimeError:
+        untagged_ids = ""
+
+    if untagged_ids and untagged_ids != "None":
+        ids = [i for i in untagged_ids.split() if i not in (instance_ids or "").split()]
+        if ids:
+            log(f"  Terminating {len(ids)} untagged instances: {ids}")
+            try:
+                aws_text([
+                    "ec2", "terminate-instances",
+                    "--instance-ids", *ids,
+                ], region=region)
+            except RuntimeError as e:
+                log(f"  Warning: terminate untagged failed: {e}")
+
+    log("Cleanup done.")
+
+
+# ──────────────────────────────────────────────
+# Main
+# ──────────────────────────────────────────────
+def main():
+    parser = argparse.ArgumentParser(
+        description="Ordo distributed benchmark orchestrator",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  python3 py/bench_aws.py --bench-type ycsb --bench-profile b
+  python3 py/bench_aws.py --bench-type tpcc --bench-terms 1,16,64,128
+  python3 py/bench_aws.py --bench-type tpch --bench-scalefactor 0.1
+  python3 py/bench_aws.py --bench-type tpch --bench-serial false --bench-terms 1,2,4,8 --bench-scalefactor 0.01
+  python3 py/bench_aws.py --cleanup-only
+  python3 py/bench_aws.py --dry-run
+""",
+    )
+
+    # Benchmark options
+    parser.add_argument("--bench-type", default="ycsb", choices=["ycsb", "tpcc", "tpch"])
+    parser.add_argument("--bench-scalefactor", default=None, help="Scale factor (default: 10 for ycsb/tpcc, 0.1 for tpch)")
+    parser.add_argument("--bench-time", type=int, default=None, help="Execution time in seconds")
+    parser.add_argument("--bench-terms", default=None, help="Comma-separated terminal counts (e.g. 1,32,64)")
+    parser.add_argument("--bench-profile", default=None, help="YCSB profile: a,b,c,e,f")
+    parser.add_argument("--bench-serial", default=None, type=lambda x: x.lower() == "true",
+                        help="TPC-H serial mode (true/false)")
+
+    # AWS options
+    parser.add_argument("--region", default=AWS_DEFAULTS["region"])
+    parser.add_argument("--launch-template", default=AWS_DEFAULTS["launch_template"])
+    parser.add_argument("--project-tag", default=AWS_DEFAULTS["project_tag"])
+    parser.add_argument("--ssh-key", default=AWS_DEFAULTS["ssh_key"])
+    parser.add_argument("--ssh-user", default=AWS_DEFAULTS["ssh_user"])
+
+    # Cluster topology overrides
+    parser.add_argument("--mysql-count", type=int, default=None, help="Override MySQL node count")
+    # Control options
+    parser.add_argument("--cleanup-only", action="store_true", help="Only terminate instances, don't launch")
+    parser.add_argument("--skip-cleanup", action="store_true", help="Don't terminate instances after benchmark")
+    parser.add_argument("--dry-run", action="store_true", help="Show what would be launched")
+
+    args = parser.parse_args()
+    os.chdir(ANSIBLE_DIR)
+
+    # Apply cluster overrides before building machine_spec
+    if args.mysql_count is not None:
+        CLUSTER["mysql"]["count"] = args.mysql_count
+
+    machine_spec = build_machine_spec()
+
+    # Setup log directory: result/<run_id>/<machine_spec>/logs/
+    global LOG_FILE
+    run_id = datetime.now().strftime("%Y%m%d-%H%M%S")
+    log_dir = ANSIBLE_DIR / "result" / run_id / machine_spec / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    LOG_FILE = open(log_dir / "bench_aws.log", "w")
+    log(f"Log directory: {log_dir}")
+    log(f"Machine spec: {machine_spec}")
+
+    # Cleanup-only mode
+    if args.cleanup_only:
+        cleanup(args)
+        LOG_FILE.close()
+        return 0
+
+    # Dry run
+    if args.dry_run:
+        log("DRY RUN — would launch:")
+        for role, cfg in CLUSTER.items():
+            log(f"  {role}: {cfg['count']}x {cfg['instance_type']} (tag={cfg['tag']})")
+        log(f"Benchmark: {args.bench_type} SF={args.bench_scalefactor or 'default'}")
+        if args.bench_terms:
+            log(f"Terminals: [{args.bench_terms}]")
+        LOG_FILE.close()
+        return 0
+
+    # Full run
+    start_time = time.time()
+    instance_ids = None
+
+    try:
+        # Phase 1: Launch
+        instance_ids = launch_instances(args)
+        if instance_ids is None:
+            log("SPOT UNAVAILABLE — skipping benchmark.")
+            return 1
+
+        # Phase 2: Wait
+        wait_for_instances(instance_ids, args.region)
+
+        # Phase 3: Inventory + SSH
+        generate_inventory(args)
+        wait_for_ssh(args)
+
+        # Phase 4: Deploy + Benchmark
+        deploy_infrastructure()
+        run_benchmarks(args, run_id)
+
+        elapsed = time.time() - start_time
+        log(f"All done in {elapsed / 60:.1f} minutes.")
+        return 0
+
+    except (RuntimeError, subprocess.CalledProcessError) as e:
+        log(f"ERROR: {e}")
+        return 1
+
+    except KeyboardInterrupt:
+        log("Interrupted by user.")
+        return 1
+
+    finally:
+        if not args.skip_cleanup and instance_ids is not None:
+            cleanup(args)
+        if LOG_FILE:
+            log(f"Full log saved to: {log_dir}")
+            LOG_FILE.close()
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -3,6 +3,7 @@
 
 #include <iostream>
 #include <vector>
+#include <cstring>
 
 #include "lineairdb.pb.h"
 
@@ -460,12 +461,17 @@ void LineairDBRpc::handleTxGetMatchingKeysAndValuesInRange(const std::string& me
     LOG_DEBUG("Handling TxGetMatchingKeysAndValuesInRange");
 
     LineairDB::Protocol::TxGetMatchingKeysAndValuesInRange::Request request;
-    LineairDB::Protocol::TxGetMatchingKeysAndValuesInRange::Response response;
-
     request.ParseFromString(message);
 
     int64_t tx_id = request.transaction_id();
     auto* tx = tx_manager_->get_transaction(tx_id);
+
+    // Respond with flat binary instead of protobuf to avoid per-entry overhead.
+    // Format: [is_aborted:1B] [key_len:4B][key][val_len:4B][val]... [sentinel:key_len=0]
+    result.clear();
+    result.reserve(4096);
+    result.push_back(0);   // is_aborted placeholder (updated after Scan completes)
+
     if (tx) {
         std::string start_key = request.start_key();
         std::string end_key = request.end_key();
@@ -474,81 +480,98 @@ void LineairDBRpc::handleTxGetMatchingKeysAndValuesInRange(const std::string& me
         std::optional<std::string_view> end_opt;
         if (!end_key.empty()) { end_opt = end_key; }
 
+        // Scan callback: value is pair<const void*, size_t> from LineairDB
         auto scan_result = tx->Scan(
-            start_key, end_opt, [&response, &exclusive_end_key](auto key, auto value) {
+            start_key, end_opt, [&result, &exclusive_end_key](auto key, auto value) {
                 // Skip if key matches exclusive end key (HA_READ_BEFORE_KEY)
                 if (!exclusive_end_key.empty() && key == exclusive_end_key) { return false; }
-                // Skip tombstones
+                // Skip tombstones (deleted rows)
                 if (value.first == nullptr || value.second == 0) { return false; }
-                auto* kv = response.add_results();
-                kv->set_key(std::string(key));
-                kv->set_value(static_cast<const char*>(value.first), value.second);
-                return false;
+                // Append key-value entry in flat binary format
+                uint32_t klen = static_cast<uint32_t>(key.size());
+                uint32_t vlen = static_cast<uint32_t>(value.second);
+                result.append(reinterpret_cast<const char*>(&klen), 4);
+                result.append(key.data(), key.size());
+                result.append(reinterpret_cast<const char*>(&vlen), 4);
+                result.append(static_cast<const char*>(value.first), value.second);
+                return false;  // continue scanning
             });
 
         // Phantom detection: if Scan returns nullopt, the transaction is in an abort state
         if (!scan_result.has_value()) {
             tx->Abort();
-            response.set_is_aborted(true);
-        } else {
-            response.set_is_aborted(tx->IsAborted());
+            result[0] = 1;  // update is_aborted placeholder
+        } else if (tx->IsAborted()) {
+            result[0] = 1;
         }
-        LOG_DEBUG("GetMatchingKeysAndValuesInRange tx=%ld: %d results", tx_id, response.results_size());
     } else {
-        response.set_is_aborted(true);
+        result[0] = 1;
         LOG_WARNING("Transaction not found for get_matching_keys_and_values_in_range: %ld", tx_id);
     }
 
-    result = response.SerializeAsString();
+    uint32_t sentinel = 0;
+    result.append(reinterpret_cast<const char*>(&sentinel), 4);  // sentinel: key_len=0 marks end of entries
 }
 
 void LineairDBRpc::handleTxGetMatchingKeysAndValuesFromPrefix(const std::string& message, std::string& result) {
     LOG_DEBUG("Handling TxGetMatchingKeysAndValuesFromPrefix");
 
     LineairDB::Protocol::TxGetMatchingKeysAndValuesFromPrefix::Request request;
-    LineairDB::Protocol::TxGetMatchingKeysAndValuesFromPrefix::Response response;
-
     request.ParseFromString(message);
 
     int64_t tx_id = request.transaction_id();
     auto* tx = tx_manager_->get_transaction(tx_id);
+
+    // Same flat binary format as handleTxGetMatchingKeysAndValuesInRange
+    result.clear();
+    result.reserve(4096);
+    result.push_back(0);   // is_aborted placeholder
+
     if (tx) {
         std::string prefix = request.prefix();
         bool first_key_checked = false;
         bool prefix_miss = false;
 
+        // Scan callback: value is pair<const void*, size_t> from LineairDB
         auto scan_result = tx->Scan(
             prefix, std::nullopt,
-            [&response, &first_key_checked, &prefix_miss, &prefix, this](auto key, auto value) {
+            [&result, &first_key_checked, &prefix_miss, &prefix, this](auto key, auto value) {
+                // Check if first key matches the prefix; if not, abort scan early
                 if (!first_key_checked) {
                     first_key_checked = true;
                     std::string key_str(key);
                     if (!key_prefix_is_matching(prefix, key_str)) { prefix_miss = true; return true; }
                 }
-                // Skip tombstones
+                // Skip tombstones (deleted rows)
                 if (value.first == nullptr || value.second == 0) { return false; }
-                auto* kv = response.add_results();
-                kv->set_key(std::string(key));
-                kv->set_value(static_cast<const char*>(value.first), value.second);
-                return false;
+                // Append key-value entry in flat binary format
+                uint32_t klen = static_cast<uint32_t>(key.size());
+                uint32_t vlen = static_cast<uint32_t>(value.second);
+                result.append(reinterpret_cast<const char*>(&klen), 4);
+                result.append(key.data(), key.size());
+                result.append(reinterpret_cast<const char*>(&vlen), 4);
+                result.append(static_cast<const char*>(value.first), value.second);
+                return false;  // continue scanning
             });
 
         // Phantom detection: if Scan returns nullopt, the transaction is in an abort state
         if (!scan_result.has_value()) {
             tx->Abort();
-            response.set_is_aborted(true);
-        } else {
-            response.set_is_aborted(tx->IsAborted());
-            if (prefix_miss) { response.clear_results(); }
+            result[0] = 1;
+        } else if (tx->IsAborted()) {
+            result[0] = 1;
         }
-        LOG_DEBUG("GetMatchingKeysAndValuesFromPrefix tx=%ld prefix='%s': %d results",
-                  tx_id, prefix.c_str(), response.results_size());
+        if (prefix_miss) {
+            // No matching keys found; discard entries, keep just header + sentinel
+            result.resize(1);
+        }
     } else {
-        response.set_is_aborted(true);
+        result[0] = 1;
         LOG_WARNING("Transaction not found for get_matching_keys_and_values_from_prefix: %ld", tx_id);
     }
 
-    result = response.SerializeAsString();
+    uint32_t sentinel = 0;
+    result.append(reinterpret_cast<const char*>(&sentinel), 4);  // sentinel
 }
 
 void LineairDBRpc::handleTxFetchLastKeyInRange(const std::string& message, std::string& result) {

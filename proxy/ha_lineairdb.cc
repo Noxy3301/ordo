@@ -863,6 +863,7 @@ bool ha_lineairdb::fetch_next_batch() {
 
   scanned_keys_.clear();
   scanned_values_.clear();
+  scan_cache_.clear();
   buffer_position_ = 0;
 
   // Proxy: fetch all rows via RPC in one call (no batched Scan callback)

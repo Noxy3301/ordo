@@ -456,6 +456,12 @@ std::vector<KeyValue> LineairDBProxy::tx_get_matching_keys_and_values_in_range(L
     request.set_end_key(end_key);
     request.set_exclusive_end_key(exclusive_end_key);
 
+    // Attach pushed predicate filter if available
+    const auto& filter = tx->get_pushed_filter();
+    if (!filter.empty()) {
+        request.mutable_filter()->ParseFromString(filter);
+    }
+
     std::string raw_response;
     if (!send_protobuf_recv_binary(request, raw_response, MessageType::TX_GET_MATCHING_KEYS_AND_VALUES_IN_RANGE)) {
         LOG_ERROR("RPC failed: Failed to send message to server");
@@ -482,6 +488,12 @@ std::vector<KeyValue> LineairDBProxy::tx_get_matching_keys_and_values_from_prefi
     LineairDB::Protocol::TxGetMatchingKeysAndValuesFromPrefix::Request request;
     request.set_transaction_id(tx_id);
     request.set_prefix(prefix);
+
+    // Attach pushed predicate filter if available
+    const auto& filter = tx->get_pushed_filter();
+    if (!filter.empty()) {
+        request.mutable_filter()->ParseFromString(filter);
+    }
 
     std::string raw_response;
     if (!send_protobuf_recv_binary(request, raw_response, MessageType::TX_GET_MATCHING_KEYS_AND_VALUES_FROM_PREFIX)) {
@@ -514,6 +526,12 @@ int LineairDBProxy::tx_scan_into_buffers(LineairDBTransaction* tx,
     LineairDB::Protocol::TxGetMatchingKeysAndValuesFromPrefix::Request request;
     request.set_transaction_id(tx_id);
     request.set_prefix(prefix);
+
+    // Attach pushed predicate filter if available
+    const auto& filter = tx->get_pushed_filter();
+    if (!filter.empty()) {
+        request.mutable_filter()->ParseFromString(filter);
+    }
 
     std::string raw_response;
     if (!send_protobuf_recv_binary(request, raw_response, MessageType::TX_GET_MATCHING_KEYS_AND_VALUES_FROM_PREFIX)) {

@@ -109,9 +109,13 @@
 #include <strings.h>
 
 #include "lineairdb_field_types.h"
+#include "lineairdb.pb.h"
 #include "my_dbug.h"
 #include "mysql/plugin.h"
 #include "sql/field.h"
+#include "sql/item.h"
+#include "sql/item_cmpfunc.h"
+#include "sql/item_func.h"
 #include "sql/sql_class.h"
 #include "sql/sql_plugin.h"
 #include "sql/table.h"
@@ -791,6 +795,186 @@ int ha_lineairdb::index_last(uchar *buf) {
   return error;
 }
 
+// ---------------------------------------------------------------------------
+// Predicate Pushdown: serialize MySQL Item tree → FilterExpr protobuf
+// ---------------------------------------------------------------------------
+
+/**
+ * Recursively serialize a MySQL Item expression tree into a FilterExpr protobuf.
+ * Returns false if the Item type is not supported (PP is silently skipped).
+ *
+ * @param item   MySQL Item node (condition expression)
+ * @param expr   FilterExpr protobuf to populate
+ * @return true if serialization succeeded
+ */
+static bool serialize_item(const Item *item,
+                           LineairDB::Protocol::FilterExpr *expr) {
+  if (!item) return false;
+
+  switch (item->type()) {
+    case Item::INT_ITEM: {
+      if (item->unsigned_flag) {
+        expr->set_op(LineairDB::Protocol::FilterExpr::CONST_UINT);
+        expr->set_uint_val(const_cast<Item *>(item)->val_uint());
+      } else {
+        expr->set_op(LineairDB::Protocol::FilterExpr::CONST_INT);
+        expr->set_int_val(const_cast<Item *>(item)->val_int());
+      }
+      return true;
+    }
+    case Item::REAL_ITEM: {
+      expr->set_op(LineairDB::Protocol::FilterExpr::CONST_DOUBLE);
+      expr->set_double_val(const_cast<Item *>(item)->val_real());
+      return true;
+    }
+    case Item::STRING_ITEM: {
+      expr->set_op(LineairDB::Protocol::FilterExpr::CONST_STRING);
+      String buf;
+      String *s = const_cast<Item *>(item)->val_str(&buf);
+      if (s) {
+        expr->set_string_val(s->ptr(), s->length());
+      }
+      return true;
+    }
+    case Item::DECIMAL_ITEM: {
+      expr->set_op(LineairDB::Protocol::FilterExpr::CONST_DOUBLE);
+      expr->set_double_val(const_cast<Item *>(item)->val_real());
+      return true;
+    }
+    case Item::NULL_ITEM: {
+      expr->set_op(LineairDB::Protocol::FilterExpr::CONST_NULL);
+      return true;
+    }
+    case Item::FIELD_ITEM: {
+      const Item_field *field_item = down_cast<const Item_field *>(item);
+      Field *field = field_item->field;
+      if (!field) return false;
+      expr->set_op(LineairDB::Protocol::FilterExpr::COLUMN_REF);
+      expr->set_column_index(field->field_index());
+
+      // Set compare_type based on MySQL field type
+      switch (field->result_type()) {
+        case INT_RESULT:
+          if (field->is_unsigned())
+            expr->set_compare_type(1);  // UNSIGNED_INT
+          else
+            expr->set_compare_type(0);  // SIGNED_INT
+          break;
+        case REAL_RESULT:
+        case DECIMAL_RESULT:
+          expr->set_compare_type(2);  // DOUBLE
+          break;
+        default:
+          expr->set_compare_type(3);  // STRING
+          break;
+      }
+      return true;
+    }
+    case Item::FUNC_ITEM:
+    case Item::COND_ITEM: {
+      const Item_func *func = down_cast<const Item_func *>(item);
+      Item **args = func->arguments();
+      uint arg_count = func->argument_count();
+
+      switch (func->functype()) {
+        case Item_func::EQ_FUNC:
+          expr->set_op(LineairDB::Protocol::FilterExpr::OP_EQ);
+          break;
+        case Item_func::NE_FUNC:
+          expr->set_op(LineairDB::Protocol::FilterExpr::OP_NE);
+          break;
+        case Item_func::LT_FUNC:
+          expr->set_op(LineairDB::Protocol::FilterExpr::OP_LT);
+          break;
+        case Item_func::LE_FUNC:
+          expr->set_op(LineairDB::Protocol::FilterExpr::OP_LE);
+          break;
+        case Item_func::GT_FUNC:
+          expr->set_op(LineairDB::Protocol::FilterExpr::OP_GT);
+          break;
+        case Item_func::GE_FUNC:
+          expr->set_op(LineairDB::Protocol::FilterExpr::OP_GE);
+          break;
+        case Item_func::BETWEEN: {
+          expr->set_op(LineairDB::Protocol::FilterExpr::OP_BETWEEN);
+          auto *between = down_cast<const Item_func_between *>(func);
+          expr->set_negated(between->negated);
+          break;
+        }
+        case Item_func::IN_FUNC: {
+          expr->set_op(LineairDB::Protocol::FilterExpr::OP_IN);
+          auto *in_func = down_cast<const Item_func_in *>(func);
+          expr->set_negated(in_func->negated);
+          break;
+        }
+        case Item_func::LIKE_FUNC:
+          expr->set_op(LineairDB::Protocol::FilterExpr::OP_LIKE);
+          break;
+        case Item_func::ISNULL_FUNC:
+          expr->set_op(LineairDB::Protocol::FilterExpr::OP_IS_NULL);
+          break;
+        case Item_func::ISNOTNULL_FUNC:
+          expr->set_op(LineairDB::Protocol::FilterExpr::OP_IS_NOT_NULL);
+          break;
+        case Item_func::COND_AND_FUNC:
+          expr->set_op(LineairDB::Protocol::FilterExpr::OP_AND);
+          break;
+        case Item_func::COND_OR_FUNC:
+          expr->set_op(LineairDB::Protocol::FilterExpr::OP_OR);
+          break;
+        case Item_func::NOT_FUNC:
+          expr->set_op(LineairDB::Protocol::FilterExpr::OP_NOT);
+          break;
+        default:
+          return false;  // unsupported function → skip PP
+      }
+
+      // Recursively serialize arguments
+      for (uint i = 0; i < arg_count; i++) {
+        if (!serialize_item(args[i], expr->add_children())) {
+          return false;
+        }
+      }
+
+      // For comparison operators, propagate compare_type from the COLUMN_REF child
+      if (expr->children_size() >= 2) {
+        for (int i = 0; i < expr->children_size(); i++) {
+          if (expr->children(i).op() ==
+              LineairDB::Protocol::FilterExpr::COLUMN_REF) {
+            uint32_t ct = expr->children(i).compare_type();
+            // Set compare_type on all COLUMN_REF children to ensure type matching
+            for (int j = 0; j < expr->children_size(); j++) {
+              if (j != i && expr->children(j).op() !=
+                                LineairDB::Protocol::FilterExpr::COLUMN_REF) {
+                expr->mutable_children(j)->set_compare_type(ct);
+              }
+            }
+            break;
+          }
+        }
+      }
+      return true;
+    }
+    default:
+      return false;  // unsupported item type → skip PP
+  }
+}
+
+const Item *ha_lineairdb::cond_push(const Item *cond) {
+  DBUG_TRACE;
+  pushed_filter_serialized_.clear();
+  if (!cond || !table) return cond;
+
+  LineairDB::Protocol::PushedPredicate predicate;
+  predicate.set_num_columns(table->s->fields);
+  if (!serialize_item(cond, predicate.mutable_expr())) {
+    // Serialization failed → no PP, MySQL evaluates everything
+    return cond;
+  }
+  predicate.SerializeToString(&pushed_filter_serialized_);
+  return cond;  // Always return cond: MySQL re-evaluates (safety net)
+}
+
 /**
   @brief
   rnd_init() is called when the system wants the storage engine to do a table
@@ -827,6 +1011,13 @@ int ha_lineairdb::rnd_init(bool) {
   }
 
   tx->choose_table(db_table_name);
+
+  // Predicate pushdown: propagate filter serialized by cond_push() to transaction
+  if (!pushed_filter_serialized_.empty()) {
+    tx->set_pushed_filter(pushed_filter_serialized_);
+  } else {
+    tx->clear_pushed_filter();
+  }
 
   DBUG_RETURN(0);
 }

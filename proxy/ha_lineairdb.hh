@@ -383,7 +383,12 @@ public:
                        bool eq_range_arg, bool sorted) override;
   int read_range_next() override;
 
+  /** Predicate pushdown: serialize WHERE conditions for server-side filtering */
+  const Item *cond_push(const Item *cond) override;
+
 private:
+  // Serialized PushedPredicate protobuf from cond_push()
+  std::string pushed_filter_serialized_;
   /** The multi range read session object */
   DsMrr_impl m_ds_mrr;
 

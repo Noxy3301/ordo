@@ -295,6 +295,7 @@ message TxGetMatchingKeysAndValuesInRange {
         bytes start_key = 2;
         bytes end_key = 3;
         bytes exclusive_end_key = 4;
+        PushedPredicate filter = 5;
     }
     message Response {
         repeated KeyValue results = 1;
@@ -309,6 +310,7 @@ message TxGetMatchingKeysAndValuesFromPrefix {
     message Request {
         int64 transaction_id = 1;
         bytes prefix = 2;
+        PushedPredicate filter = 3;
     }
     message Response {
         repeated KeyValue results = 1;
@@ -428,4 +430,33 @@ message TxFetchLastSecondaryEntryInRange {
         SecondaryIndexEntry entry = 2;
         bool is_aborted = 3;
     }
+}
+
+// Predicate pushdown: recursive expression tree for server-side row filtering.
+// Server evaluates this during Scan and skips non-matching rows.
+// MySQL still re-evaluates all conditions (cond_push returns original cond).
+message FilterExpr {
+    enum Op {
+        CONST_INT = 0; CONST_UINT = 1; CONST_DOUBLE = 2;
+        CONST_STRING = 3; CONST_NULL = 4; COLUMN_REF = 5;
+        OP_EQ = 10; OP_NE = 11; OP_LT = 12; OP_LE = 13;
+        OP_GT = 14; OP_GE = 15;
+        OP_AND = 20; OP_OR = 21; OP_NOT = 22;
+        OP_BETWEEN = 30; OP_IN = 31; OP_LIKE = 32;
+        OP_IS_NULL = 33; OP_IS_NOT_NULL = 34;
+    }
+    Op op = 1;
+    int64 int_val = 2;
+    uint64 uint_val = 3;
+    double double_val = 4;
+    bytes string_val = 5;
+    uint32 column_index = 6;  // 0-based (COLUMN_REF用)
+    uint32 compare_type = 7;  // 0=SIGNED_INT, 1=UNSIGNED_INT, 2=DOUBLE, 3=STRING
+    repeated FilterExpr children = 8;
+    bool negated = 9;         // BETWEEN, IN用
+}
+
+message PushedPredicate {
+    FilterExpr expr = 1;
+    uint32 num_columns = 2;
 }

@@ -1,4 +1,5 @@
 #include "lineairdb_rpc.hh"
+#include "predicate_evaluator.hh"
 #include "../../common/log.h"
 
 #include <iostream>
@@ -480,13 +481,30 @@ void LineairDBRpc::handleTxGetMatchingKeysAndValuesInRange(const std::string& me
         std::optional<std::string_view> end_opt;
         if (!end_key.empty()) { end_opt = end_key; }
 
+        // Predicate pushdown: prepare filter if present
+        const bool has_filter = request.has_filter() && request.filter().has_expr();
+        const auto* filter_expr = has_filter ? &request.filter().expr() : nullptr;
+        uint32_t filter_num_cols = has_filter ? request.filter().num_columns() : 0;
+        PredicateEvaluator evaluator;
+
         // Scan callback: value is pair<const void*, size_t> from LineairDB
         auto scan_result = tx->Scan(
-            start_key, end_opt, [&result, &exclusive_end_key](auto key, auto value) {
+            start_key, end_opt, [&result, &exclusive_end_key,
+                                  filter_expr, filter_num_cols, &evaluator](auto key, auto value) {
                 // Skip if key matches exclusive end key (HA_READ_BEFORE_KEY)
                 if (!exclusive_end_key.empty() && key == exclusive_end_key) { return false; }
                 // Skip tombstones (deleted rows)
                 if (value.first == nullptr || value.second == 0) { return false; }
+                // Predicate pushdown: evaluate filter if present
+                if (filter_expr) {
+                    if (evaluator.parse_row(static_cast<const char*>(value.first),
+                                            value.second, filter_num_cols)) {
+                        if (!evaluator.evaluate(*filter_expr)) {
+                            return false;  // filter rejected → skip row, continue scanning
+                        }
+                    }
+                    // parse_row failure → include row (safe fallback)
+                }
                 // Append key-value entry in flat binary format
                 uint32_t klen = static_cast<uint32_t>(key.size());
                 uint32_t vlen = static_cast<uint32_t>(value.second);
@@ -532,10 +550,17 @@ void LineairDBRpc::handleTxGetMatchingKeysAndValuesFromPrefix(const std::string&
         bool first_key_checked = false;
         bool prefix_miss = false;
 
+        // Predicate pushdown: prepare filter if present
+        const bool has_filter = request.has_filter() && request.filter().has_expr();
+        const auto* filter_expr = has_filter ? &request.filter().expr() : nullptr;
+        uint32_t filter_num_cols = has_filter ? request.filter().num_columns() : 0;
+        PredicateEvaluator evaluator;
+
         // Scan callback: value is pair<const void*, size_t> from LineairDB
         auto scan_result = tx->Scan(
             prefix, std::nullopt,
-            [&result, &first_key_checked, &prefix_miss, &prefix, this](auto key, auto value) {
+            [&result, &first_key_checked, &prefix_miss, &prefix,
+             filter_expr, filter_num_cols, &evaluator, this](auto key, auto value) {
                 // Check if first key matches the prefix; if not, abort scan early
                 if (!first_key_checked) {
                     first_key_checked = true;
@@ -544,6 +569,16 @@ void LineairDBRpc::handleTxGetMatchingKeysAndValuesFromPrefix(const std::string&
                 }
                 // Skip tombstones (deleted rows)
                 if (value.first == nullptr || value.second == 0) { return false; }
+                // Predicate pushdown: evaluate filter if present
+                if (filter_expr) {
+                    if (evaluator.parse_row(static_cast<const char*>(value.first),
+                                            value.second, filter_num_cols)) {
+                        if (!evaluator.evaluate(*filter_expr)) {
+                            return false;  // filter rejected → skip row, continue scanning
+                        }
+                    }
+                    // parse_row failure → include row (safe fallback)
+                }
                 // Append key-value entry in flat binary format
                 uint32_t klen = static_cast<uint32_t>(key.size());
                 uint32_t vlen = static_cast<uint32_t>(value.second);

@@ -28,14 +28,14 @@ void LineairDBServer::handle_client(int client_socket) {
         std::string payload;
 
         if (!MessageHandler::receive_message(client_socket, sender_id, message_type, payload)) {
-            return;  // Client disconnected or error
+            break;  // Client disconnected or error
         }
 
         std::string result;
         rpc_handler->handle_rpc(sender_id, message_type, payload, result);
 
-        if (!MessageHandler::send_response(client_socket, 0, message_type, result)) {
-            return;  // Failed to send response
+        if (!MessageHandler::send_response_writev(client_socket, 0, message_type, result)) {
+            break;  // Failed to send response
         }
     }
 }

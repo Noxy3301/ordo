@@ -198,6 +198,7 @@ def main():
     parser.add_argument("--mysql-port", type=int, default=3307)
     parser.add_argument("--loader-threads", type=int, default=1, help="Number of parallel loader threads (default: 1)")
     parser.add_argument("--restart-between", action="store_true", help="Restart Ordo server+MySQL between sweep iterations")
+    parser.add_argument("--exclude-queries", type=str, help="TPC-H: comma-separated query numbers to exclude (e.g. 15,21)")
     args = parser.parse_args()
 
     # Validate
@@ -237,6 +238,21 @@ def main():
         else:
             text = text.replace("</parameters>", f"    <loaderThreads>{args.loader_threads}</loaderThreads>\n</parameters>")
             config_work.write_text(text)
+    if args.benchmark == "tpch" and args.exclude_queries:
+        exclude_set = {int(q.strip()) for q in args.exclude_queries.split(",")}
+        text = config_work.read_text()
+        # TPC-H has 22 queries, weights is "1,1,...,1" (22 values)
+        import re
+        match = re.search(r"<weights>([\d,]+)</weights>", text)
+        if match:
+            weights = match.group(1).split(",")
+            for q in exclude_set:
+                if 1 <= q <= len(weights):
+                    weights[q - 1] = "0"
+            new_weights = ",".join(weights)
+            text = text.replace(match.group(0), f"<weights>{new_weights}</weights>", 1)
+            config_work.write_text(text)
+            print(f"  Excluded TPC-H queries: {sorted(exclude_set)}")
     if args.benchmark == "ycsb":
         weights = YCSB_PROFILES.get(args.profile)
         if not weights:

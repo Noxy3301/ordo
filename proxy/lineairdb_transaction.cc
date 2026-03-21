@@ -337,8 +337,11 @@ void LineairDBTransaction::begin_transaction() {
 }
 
 void LineairDBTransaction::set_status_to_abort() {
+  // Skip TX_ABORT RPC if the server already knows (is_aborted_ was set from an RPC response).
+  if (!is_aborted_) {
+    lineairdb_proxy->tx_abort(tx_id);
+  }
   is_aborted_ = true;
-  lineairdb_proxy->tx_abort(tx_id);
 }
 
 bool LineairDBTransaction::end_transaction() {

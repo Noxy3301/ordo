@@ -227,15 +227,24 @@ public:
   */
   double scan_time() override
   {
-    return (double)(stats.records + stats.deleted) / 20.0 + 10;
+    // Unlike InnoDB which advances a cursor one row at a time,
+    // ha_lineairdb materializes all matching rows in a single Scan RPC.
+    // High cost relative to read_time discourages full scan over index access.
+    // NOTE: NDB uses records * 1000 (see storage/ndb/plugin/ha_ndbcluster.cc:7197).
+    return (double)stats.records * 10.0 + 10;
   }
 
   /** @brief
     This method will never be called if you do not implement indexes.
   */
-  double read_time(uint, uint, ha_rows rows) override
+  double read_time(uint index, uint ranges, ha_rows rows) override
   {
-    return (double)rows / 20.0 + 1;
+    // ranges: number of index lookups, each requires at least 1 RPC.
+    // rows: estimated row count to materialize and transfer.
+    // Same formula for PK and secondary indexes because
+    // batch_fetch_secondary_payloads batches all primary row lookups
+    // into a single RPC, making per-row cost similar.
+    return (double)ranges * 1.0 + (double)rows * 0.5;
   }
 
   /*

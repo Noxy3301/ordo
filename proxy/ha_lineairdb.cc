@@ -1357,15 +1357,37 @@ int ha_lineairdb::info(uint flag) {
   return 0;
 }
 
+/**
+ * Estimate rec_per_key (average rows matching a key prefix) for each
+ * key part of an index.
+ *
+ * Assumes uniform data distribution: N total rows split evenly across
+ * K key parts means each part divides by N^(1/K).
+ *
+ * Example: 1,000,000 rows, 4-part UNIQUE KEY
+ *   per_part = 1000000^(1/4) ≈ 31.6
+ *   1 part specified: 1000000 / 31.6   = 31,623 rows
+ *   2 parts:          1000000 / 31.6^2 = 1,000 rows
+ *   3 parts:          1000000 / 31.6^3 = 32 rows
+ *   4 parts (full):   1 row (UNIQUE)
+ *
+ * See also: NDB's ndb_index_stat_set_rpk (ha_ndb_index_stat.cc:2529).
+ */
 void ha_lineairdb::set_generic_rec_per_key(KEY *key, uint key_parts,
                                            bool is_primary) {
+  bool is_unique = (key->flags & HA_NOSAME);
+  // How much each additional key part narrows the result set
+  double per_part = std::max(2.0, std::pow(static_cast<double>(stats.records), 1.0 / key_parts));
+
   for (uint j = 0; j < key_parts; j++) {
-    ulong rpk;
-    if (is_primary && j == key_parts - 1) {
-      rpk = 1; // Last part of primary key is unique
+    ulong rpk; // records per key
+    if ((is_primary || is_unique) && j == key_parts - 1) {
+      // All parts specified on a UNIQUE/PK -> exactly 1 row
+      rpk = 1;
     } else {
-      rpk = static_cast<ulong>(
-          std::max(static_cast<ha_rows>(1), stats.records / ((j + 1) * 10)));
+      // per_part^(j+1) = total divisor for j+1 key parts
+      double selectivity = std::pow(per_part, static_cast<double>(j + 1));
+      rpk = static_cast<ulong>(std::max(1.0, static_cast<double>(stats.records) / selectivity));
     }
     key->rec_per_key[j] = rpk;
     key->set_records_per_key(j, static_cast<rec_per_key_t>(rpk));
@@ -1672,6 +1694,15 @@ int ha_lineairdb::rename_table(const char *, const char *, const dd::Table *,
 
   Called from opt_range.cc by check_quick_keys().
 
+  @note
+  MySQL passes WHERE conditions as min_key / max_key:
+    - Equality (WHERE col=1):        min_key == max_key (same bytes)
+    - Range (WHERE col BETWEEN 1,5): min_key != max_key
+
+  We compare min_key and max_key byte-by-byte per key part to detect
+  how many leading columns are equality conditions, then use rec_per_key
+  for that depth. See NDB's records_in_range (ha_ndbcluster.cc:12861).
+
   @see
   check_quick_keys() in opt_range.cc
 */
@@ -1679,46 +1710,106 @@ ha_rows ha_lineairdb::records_in_range(uint inx, key_range *min_key,
                                        key_range *max_key) {
   DBUG_TRACE;
 
+  // Guard: table metadata not available
   if (table == nullptr || table->s == nullptr) {
     return 10;
   }
 
+  // Get the index definition (inx = which index the optimizer is asking about)
   KEY *key = table->key_info + inx;
   if (key == nullptr) {
     return 10;
   }
 
+  // Total rows in this table (floor of 2 to avoid zero-cost estimates)
   ha_rows total_records = stats.records;
   if (total_records < 2)
     total_records = 2;
 
+  // No bounds at all -> full table scan
+  if (min_key == nullptr && max_key == nullptr) {
+    return total_records;
+  }
+
+  // Count how many key parts (columns) the query specifies
   uint key_parts_used = 0;
   if (min_key != nullptr) {
     key_parts_used = calculate_key_parts_from_length(key, min_key->length);
+  } else if (max_key != nullptr) {
+    key_parts_used = calculate_key_parts_from_length(key, max_key->length);
   }
 
+  // All columns of a UNIQUE/PK specified -> exactly 1 row
   if ((key->flags & HA_NOSAME) &&
       key_parts_used == key->user_defined_key_parts) {
     return 1;
   }
 
+  // No columns matched -> full scan
   if (key_parts_used == 0) {
     return total_records;
   }
 
-  ha_rows estimate;
-  if (key_parts_used - 1 < key->user_defined_key_parts) {
-    estimate = key->rec_per_key[key_parts_used - 1];
-  } else {
-    estimate = total_records / ((key_parts_used + 1) * 10);
+  // --- Equality prefix detection ---
+  // Compare min_key and max_key per column to find how many leading
+  // columns have equal values (= condition vs BETWEEN/range).
+  //
+  // Example: WHERE w=1 AND d=1 AND o_id BETWEEN 100 AND 200
+  //   min = [1][1][100], max = [1][1][200]
+  //     col 0: 1==1     -> eq
+  //     col 1: 1==1     -> eq
+  //     col 2: 100!=200 -> neq
+  //   -> eq_parts = 2
+  uint eq_parts = 0;
+  if (min_key != nullptr && max_key != nullptr) {
+    uint cmp_len = std::min(min_key->length, max_key->length);
+    uint consumed = 0; // byte offset into key buffer
+    for (uint p = 0; p < key->user_defined_key_parts && consumed < cmp_len; p++) {
+      uint part_len = key->key_part[p].store_length;
+      if (consumed + part_len > cmp_len)
+        break;
+      if (memcmp(min_key->key + consumed, max_key->key + consumed, part_len) == 0) {
+        eq_parts++;
+        consumed += part_len;
+      } else {
+        break; // This column differs -> range condition from here
+      }
+    }
+  } else if (min_key != nullptr) {
+    // One-sided: only min_key given. If exact match flag, treat as equality.
+    if (min_key->flag == HA_READ_KEY_EXACT ||
+        min_key->flag == HA_READ_KEY_OR_NEXT) {
+      eq_parts = key_parts_used;
+    }
   }
 
+  // --- Estimate row count ---
+  ha_rows estimate;
+  if (eq_parts > 0) {
+    // Use rec_per_key at the equality depth
+    uint rpk_idx = eq_parts - 1; // 0-based array index
+    if (rpk_idx < key->user_defined_key_parts) {
+      estimate = static_cast<ha_rows>(key->rec_per_key[rpk_idx]);
+    } else {
+      estimate = 1;
+    }
+    // Range conditions after equality prefix -> halve (NDB heuristic)
+    if (eq_parts < key_parts_used) {
+      estimate = std::max(static_cast<ha_rows>(1), estimate / 2);
+    }
+  } else {
+    // No equality at all -> pure range scan.
+    // Heuristic: two-sided range ~5%, one-sided ~10% (NDB fallback).
+    if (min_key != nullptr && max_key != nullptr) {
+      estimate = std::max(static_cast<ha_rows>(2), total_records / 20);
+    } else {
+      estimate = std::max(static_cast<ha_rows>(2), total_records / 10);
+    }
+  }
+
+  // Floor: always return at least 1 row to avoid zero-cost estimates
   if (estimate < 1)
     estimate = 1;
-
-  if (max_key == nullptr && min_key != nullptr && key_parts_used > 0) {
-    estimate = std::min(total_records, estimate * 2);
-  }
 
   return estimate;
 }

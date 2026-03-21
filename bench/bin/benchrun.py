@@ -281,16 +281,19 @@ def main():
     for terminals in thread_list:
         if args.restart_between and len(thread_list) > 1:
             print("\n  Restarting Ordo server + MySQL...")
-            subprocess.run([str(ROOT / "scripts" / "stop_server.sh")])
-            subprocess.run([str(ROOT / "scripts" / "stop_mysql.sh")])
+            # Redirect to DEVNULL: piping these scripts' stdout/stderr causes
+            # the subprocess to hang when the shell background-starts mysqld.
+            _dn = {"stdout": subprocess.DEVNULL, "stderr": subprocess.DEVNULL}
+            subprocess.run([str(ROOT / "scripts" / "stop_server.sh")], **_dn)
+            subprocess.run([str(ROOT / "scripts" / "stop_mysql.sh")], **_dn)
             time.sleep(5)
-            subprocess.run([str(ROOT / "scripts" / "start_server.sh")])
+            subprocess.run([str(ROOT / "scripts" / "start_server.sh")], **_dn)
             time.sleep(3)
             subprocess.run([
                 str(ROOT / "scripts" / "start_mysql.sh"),
                 "--mysqld-port", str(args.mysql_port),
                 "--server-host", "127.0.0.1", "--server-port", "9999",
-            ])
+            ], **_dn)
             time.sleep(5)
 
         result = run_single(

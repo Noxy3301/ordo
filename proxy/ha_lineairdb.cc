@@ -344,8 +344,26 @@ int ha_lineairdb::open(const char *table_name, int, uint, const dd::Table *) {
     set_key_and_key_part_info(table);
 
   if (table->s->primary_key != MAX_KEY) {
+    // Calculate LineairDBField-encoded PK size. Each key part is encoded as:
+    //   1 (null marker) + 1 (type tag) + 2 (length field) + payload
+    // For STRING types, an extra terminator byte is added (+5 total overhead).
+    // MySQL's key_length only counts raw column bytes, which is smaller.
     uint pk_index = table->s->primary_key;
-    ref_length = sizeof(uint16_t) + table->key_info[pk_index].key_length;
+    KEY *pk = &table->key_info[pk_index];
+    size_t encoded_pk_size = 0;
+    for (uint i = 0; i < pk->user_defined_key_parts; i++) {
+      KEY_PART_INFO *part = &pk->key_part[i];
+      Field *field = part->field;
+      LineairDBFieldType ldb_type = convert_mysql_type_to_lineairdb(field->type());
+      if (ldb_type == LineairDBFieldType::LINEAIRDB_STRING) {
+        // STRING: marker(1) + type(1) + payload + terminator(1) + length(2)
+        encoded_pk_size += 5 + part->length;
+      } else {
+        // INT/DATETIME/OTHER: marker(1) + type(1) + length(2) + payload
+        encoded_pk_size += 4 + field->pack_length();
+      }
+    }
+    ref_length = sizeof(uint16_t) + encoded_pk_size;
   } else {
     ref_length = sizeof(uint16_t) + serialize_hidden_primary_key(0).size();
   }

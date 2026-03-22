@@ -34,6 +34,7 @@ bool LineairDBTransaction::table_is_not_chosen() {
 const std::pair<const std::byte *const, const size_t>
 LineairDBTransaction::read(std::string key) {
   if (table_is_not_chosen()) return std::pair<const std::byte *const, const size_t>{nullptr, 0};
+
   flush_write_buffer();
 
   last_read_value_ = lineairdb_proxy->tx_read(this, key);
@@ -313,10 +314,20 @@ bool LineairDBTransaction::flush_write_buffer() {
     return false;
   }
 
+  // Save current table: tx_batch_write embeds table_name in the RPC,
+  // which changes the server's current table. If it differs from what
+  // the caller expects, restore it afterward.
+  std::string saved_table = db_table_key;
+
   bool ok = lineairdb_proxy->tx_batch_write(
       this, write_buffer_table_, write_buffer_ops_, write_buffer_si_ops_);
   write_buffer_ops_.clear();
   write_buffer_si_ops_.clear();
+
+  if (write_buffer_table_ != saved_table && !saved_table.empty()) {
+    lineairdb_proxy->db_set_table(tx_id, saved_table);
+  }
+
   return ok;
 }
 

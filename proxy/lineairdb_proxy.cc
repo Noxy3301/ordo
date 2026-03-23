@@ -135,6 +135,7 @@ std::string LineairDBProxy::tx_read(LineairDBTransaction* tx, const std::string&
     LineairDB::Protocol::TxRead::Response response;
 
     request.set_transaction_id(tx_id);
+    request.set_table_name(tx->get_selected_table_name());
     request.set_key(key);
     LOG_DEBUG("CLIENT: Created read request");
 
@@ -162,6 +163,7 @@ bool LineairDBProxy::tx_write(LineairDBTransaction* tx, const std::string& key, 
     LineairDB::Protocol::TxWrite::Response response;
 
     request.set_transaction_id(tx_id);
+    request.set_table_name(tx->get_selected_table_name());
     request.set_key(key);
     request.set_value(value);
     LOG_DEBUG("CLIENT: Created write request");
@@ -190,6 +192,7 @@ bool LineairDBProxy::tx_delete(LineairDBTransaction* tx, const std::string& key)
     LineairDB::Protocol::TxDelete::Response response;
 
     request.set_transaction_id(tx_id);
+    request.set_table_name(tx->get_selected_table_name());
     request.set_key(key);
 
     if (!send_protobuf_message(request, response, MessageType::TX_DELETE)) {
@@ -215,6 +218,7 @@ std::vector<LineairDBProxy::BatchReadResult> LineairDBProxy::tx_batch_read(
     LineairDB::Protocol::TxBatchRead::Response response;
 
     request.set_transaction_id(tx_id);
+    request.set_table_name(tx->get_selected_table_name());
     for (const auto& key : keys) {
         request.add_keys(key);
     }
@@ -288,6 +292,7 @@ std::vector<std::string> LineairDBProxy::tx_read_secondary_index(LineairDBTransa
     LineairDB::Protocol::TxReadSecondaryIndex::Response response;
 
     request.set_transaction_id(tx_id);
+    request.set_table_name(tx->get_selected_table_name());
     request.set_index_name(index_name);
     request.set_secondary_key(secondary_key);
 
@@ -323,6 +328,7 @@ bool LineairDBProxy::tx_write_secondary_index(LineairDBTransaction* tx,
     LineairDB::Protocol::TxWriteSecondaryIndex::Response response;
 
     request.set_transaction_id(tx_id);
+    request.set_table_name(tx->get_selected_table_name());
     request.set_index_name(index_name);
     request.set_secondary_key(secondary_key);
     request.set_primary_key(primary_key);
@@ -354,6 +360,7 @@ bool LineairDBProxy::tx_delete_secondary_index(LineairDBTransaction* tx,
     LineairDB::Protocol::TxDeleteSecondaryIndex::Response response;
 
     request.set_transaction_id(tx_id);
+    request.set_table_name(tx->get_selected_table_name());
     request.set_index_name(index_name);
     request.set_secondary_key(secondary_key);
     request.set_primary_key(primary_key);
@@ -386,6 +393,7 @@ bool LineairDBProxy::tx_update_secondary_index(LineairDBTransaction* tx,
     LineairDB::Protocol::TxUpdateSecondaryIndex::Response response;
 
     request.set_transaction_id(tx_id);
+    request.set_table_name(tx->get_selected_table_name());
     request.set_index_name(index_name);
     request.set_old_secondary_key(old_secondary_key);
     request.set_new_secondary_key(new_secondary_key);
@@ -419,6 +427,7 @@ std::vector<std::string> LineairDBProxy::tx_get_matching_keys_in_range(LineairDB
     LineairDB::Protocol::TxGetMatchingKeysInRange::Response response;
 
     request.set_transaction_id(tx_id);
+    request.set_table_name(tx->get_selected_table_name());
     request.set_start_key(start_key);
     request.set_end_key(end_key);
     request.set_exclusive_end_key(exclusive_end_key);
@@ -452,6 +461,7 @@ std::vector<KeyValue> LineairDBProxy::tx_get_matching_keys_and_values_in_range(L
 
     LineairDB::Protocol::TxGetMatchingKeysAndValuesInRange::Request request;
     request.set_transaction_id(tx_id);
+    request.set_table_name(tx->get_selected_table_name());
     request.set_start_key(start_key);
     request.set_end_key(end_key);
     request.set_exclusive_end_key(exclusive_end_key);
@@ -487,6 +497,7 @@ std::vector<KeyValue> LineairDBProxy::tx_get_matching_keys_and_values_from_prefi
 
     LineairDB::Protocol::TxGetMatchingKeysAndValuesFromPrefix::Request request;
     request.set_transaction_id(tx_id);
+    request.set_table_name(tx->get_selected_table_name());
     request.set_prefix(prefix);
 
     // Attach pushed predicate filter if available
@@ -525,6 +536,7 @@ int LineairDBProxy::tx_scan_into_buffers(LineairDBTransaction* tx,
 
     LineairDB::Protocol::TxGetMatchingKeysAndValuesFromPrefix::Request request;
     request.set_transaction_id(tx_id);
+    request.set_table_name(tx->get_selected_table_name());
     request.set_prefix(prefix);
 
     // Attach pushed predicate filter if available
@@ -612,6 +624,7 @@ std::optional<std::string> LineairDBProxy::tx_fetch_last_key_in_range(LineairDBT
     LineairDB::Protocol::TxFetchLastKeyInRange::Response response;
 
     request.set_transaction_id(tx_id);
+    request.set_table_name(tx->get_selected_table_name());
     request.set_start_key(start_key);
     request.set_end_key(end_key);
     request.set_exclusive_end_key(exclusive_end_key);
@@ -643,6 +656,7 @@ std::optional<std::string> LineairDBProxy::tx_fetch_first_key_with_prefix(Lineai
     LineairDB::Protocol::TxFetchFirstKeyWithPrefix::Response response;
 
     request.set_transaction_id(tx_id);
+    request.set_table_name(tx->get_selected_table_name());
     request.set_prefix(prefix);
     request.set_prefix_end(prefix_end);
 
@@ -673,6 +687,7 @@ std::optional<std::string> LineairDBProxy::tx_fetch_next_key_with_prefix(Lineair
     LineairDB::Protocol::TxFetchNextKeyWithPrefix::Response response;
 
     request.set_transaction_id(tx_id);
+    request.set_table_name(tx->get_selected_table_name());
     request.set_last_key(last_key);
     request.set_prefix_end(prefix_end);
 
@@ -707,6 +722,7 @@ std::vector<std::string> LineairDBProxy::tx_get_matching_primary_keys_in_range(L
     LineairDB::Protocol::TxGetMatchingPrimaryKeysInRange::Response response;
 
     request.set_transaction_id(tx_id);
+    request.set_table_name(tx->get_selected_table_name());
     request.set_index_name(index_name);
     request.set_start_key(start_key);
     request.set_end_key(end_key);
@@ -743,6 +759,7 @@ std::vector<std::string> LineairDBProxy::tx_get_matching_primary_keys_from_prefi
     LineairDB::Protocol::TxGetMatchingPrimaryKeysFromPrefix::Response response;
 
     request.set_transaction_id(tx_id);
+    request.set_table_name(tx->get_selected_table_name());
     request.set_index_name(index_name);
     request.set_prefix(prefix);
 
@@ -778,6 +795,7 @@ std::optional<std::string> LineairDBProxy::tx_fetch_last_primary_key_in_secondar
     LineairDB::Protocol::TxFetchLastPrimaryKeyInSecondaryRange::Response response;
 
     request.set_transaction_id(tx_id);
+    request.set_table_name(tx->get_selected_table_name());
     request.set_index_name(index_name);
     request.set_start_key(start_key);
     request.set_end_key(end_key);
@@ -812,6 +830,7 @@ std::optional<SecondaryIndexEntry> LineairDBProxy::tx_fetch_last_secondary_entry
     LineairDB::Protocol::TxFetchLastSecondaryEntryInRange::Response response;
 
     request.set_transaction_id(tx_id);
+    request.set_table_name(tx->get_selected_table_name());
     request.set_index_name(index_name);
     request.set_start_key(start_key);
     request.set_end_key(end_key);

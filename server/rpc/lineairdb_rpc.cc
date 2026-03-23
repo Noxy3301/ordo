@@ -167,6 +167,9 @@ void LineairDBRpc::handleTxRead(const std::string& message, std::string& result)
     int64_t tx_id = request.transaction_id();
     auto* tx = tx_manager_->get_transaction(tx_id);
     if (tx) {
+        if (!request.table_name().empty()) {
+            tx->SetTable(request.table_name());
+        }
         auto read_result = tx->Read(request.key());
         response.set_is_aborted(tx->IsAborted());
 
@@ -197,6 +200,9 @@ void LineairDBRpc::handleTxBatchRead(const std::string& message, std::string& re
     int64_t tx_id = request.transaction_id();
     auto* tx = tx_manager_->get_transaction(tx_id);
     if (tx) {
+        if (!request.table_name().empty()) {
+            tx->SetTable(request.table_name());
+        }
         for (int i = 0; i < request.keys_size(); i++) {
             auto* read_result = response.add_results();
             auto pair = tx->Read(request.keys(i));
@@ -269,6 +275,9 @@ void LineairDBRpc::handleTxWrite(const std::string& message, std::string& result
     int64_t tx_id = request.transaction_id();
     auto* tx = tx_manager_->get_transaction(tx_id);
     if (tx) {
+        if (!request.table_name().empty()) {
+            tx->SetTable(request.table_name());
+        }
         const std::string& value_str = request.value();
         tx->Write(request.key(), reinterpret_cast<const std::byte*>(value_str.c_str()), value_str.size());
         response.set_is_aborted(tx->IsAborted());
@@ -294,6 +303,9 @@ void LineairDBRpc::handleTxDelete(const std::string& message, std::string& resul
     int64_t tx_id = request.transaction_id();
     auto* tx = tx_manager_->get_transaction(tx_id);
     if (tx) {
+        if (!request.table_name().empty()) {
+            tx->SetTable(request.table_name());
+        }
         tx->Delete(request.key());
         response.set_is_aborted(tx->IsAborted());
         response.set_success(!tx->IsAborted());
@@ -318,6 +330,9 @@ void LineairDBRpc::handleTxReadSecondaryIndex(const std::string& message, std::s
     int64_t tx_id = request.transaction_id();
     auto* tx = tx_manager_->get_transaction(tx_id);
     if (tx) {
+        if (!request.table_name().empty()) {
+            tx->SetTable(request.table_name());
+        }
         auto results = tx->ReadSecondaryIndex(request.index_name(), request.secondary_key());
         response.set_is_aborted(tx->IsAborted());
 
@@ -346,6 +361,9 @@ void LineairDBRpc::handleTxWriteSecondaryIndex(const std::string& message, std::
     int64_t tx_id = request.transaction_id();
     auto* tx = tx_manager_->get_transaction(tx_id);
     if (tx) {
+        if (!request.table_name().empty()) {
+            tx->SetTable(request.table_name());
+        }
         const std::string& pk = request.primary_key();
         tx->WriteSecondaryIndex(request.index_name(), request.secondary_key(),
                                 reinterpret_cast<const std::byte*>(pk.c_str()), pk.size());
@@ -371,6 +389,9 @@ void LineairDBRpc::handleTxDeleteSecondaryIndex(const std::string& message, std:
     int64_t tx_id = request.transaction_id();
     auto* tx = tx_manager_->get_transaction(tx_id);
     if (tx) {
+        if (!request.table_name().empty()) {
+            tx->SetTable(request.table_name());
+        }
         const std::string& pk = request.primary_key();
         tx->DeleteSecondaryIndex(request.index_name(), request.secondary_key(),
                                  reinterpret_cast<const std::byte*>(pk.c_str()), pk.size());
@@ -398,6 +419,9 @@ void LineairDBRpc::handleTxUpdateSecondaryIndex(const std::string& message, std:
     int64_t tx_id = request.transaction_id();
     auto* tx = tx_manager_->get_transaction(tx_id);
     if (tx) {
+        if (!request.table_name().empty()) {
+            tx->SetTable(request.table_name());
+        }
         const std::string& pk = request.primary_key();
         tx->UpdateSecondaryIndex(request.index_name(),
                                  request.old_secondary_key(), request.new_secondary_key(),
@@ -427,6 +451,9 @@ void LineairDBRpc::handleTxGetMatchingKeysInRange(const std::string& message, st
     int64_t tx_id = request.transaction_id();
     auto* tx = tx_manager_->get_transaction(tx_id);
     if (tx) {
+        if (!request.table_name().empty()) {
+            tx->SetTable(request.table_name());
+        }
         std::string start_key = request.start_key();
         std::string end_key = request.end_key();
         std::string exclusive_end_key = request.exclusive_end_key();
@@ -474,6 +501,9 @@ void LineairDBRpc::handleTxGetMatchingKeysAndValuesInRange(const std::string& me
     result.push_back(0);   // is_aborted placeholder (updated after Scan completes)
 
     if (tx) {
+        if (!request.table_name().empty()) {
+            tx->SetTable(request.table_name());
+        }
         std::string start_key = request.start_key();
         std::string end_key = request.end_key();
         std::string exclusive_end_key = request.exclusive_end_key();
@@ -546,6 +576,9 @@ void LineairDBRpc::handleTxGetMatchingKeysAndValuesFromPrefix(const std::string&
     result.push_back(0);   // is_aborted placeholder
 
     if (tx) {
+        if (!request.table_name().empty()) {
+            tx->SetTable(request.table_name());
+        }
         std::string prefix = request.prefix();
         bool first_key_checked = false;
         bool prefix_miss = false;
@@ -620,6 +653,9 @@ void LineairDBRpc::handleTxFetchLastKeyInRange(const std::string& message, std::
     int64_t tx_id = request.transaction_id();
     auto* tx = tx_manager_->get_transaction(tx_id);
     if (tx) {
+        if (!request.table_name().empty()) {
+            tx->SetTable(request.table_name());
+        }
         std::string start_key = request.start_key();
         std::string end_key = request.end_key();
         std::string exclusive_end_key = request.exclusive_end_key();
@@ -670,6 +706,9 @@ void LineairDBRpc::handleTxFetchFirstKeyWithPrefix(const std::string& message, s
     int64_t tx_id = request.transaction_id();
     auto* tx = tx_manager_->get_transaction(tx_id);
     if (tx) {
+        if (!request.table_name().empty()) {
+            tx->SetTable(request.table_name());
+        }
         std::string prefix = request.prefix();
         std::string prefix_end = request.prefix_end();
 
@@ -726,6 +765,9 @@ void LineairDBRpc::handleTxFetchNextKeyWithPrefix(const std::string& message, st
     int64_t tx_id = request.transaction_id();
     auto* tx = tx_manager_->get_transaction(tx_id);
     if (tx) {
+        if (!request.table_name().empty()) {
+            tx->SetTable(request.table_name());
+        }
         std::string last_key = request.last_key();
         std::string prefix_end = request.prefix_end();
         bool skip_first = true;
@@ -789,6 +831,9 @@ void LineairDBRpc::handleTxGetMatchingPrimaryKeysInRange(const std::string& mess
     int64_t tx_id = request.transaction_id();
     auto* tx = tx_manager_->get_transaction(tx_id);
     if (tx) {
+        if (!request.table_name().empty()) {
+            tx->SetTable(request.table_name());
+        }
         std::string index_name = request.index_name();
         std::string start_key = request.start_key();
         std::string end_key = request.end_key();
@@ -835,6 +880,9 @@ void LineairDBRpc::handleTxGetMatchingPrimaryKeysFromPrefix(const std::string& m
     int64_t tx_id = request.transaction_id();
     auto* tx = tx_manager_->get_transaction(tx_id);
     if (tx) {
+        if (!request.table_name().empty()) {
+            tx->SetTable(request.table_name());
+        }
         std::string index_name = request.index_name();
         std::string prefix = request.prefix();
         bool first_key_checked = false;
@@ -882,6 +930,9 @@ void LineairDBRpc::handleTxFetchLastPrimaryKeyInSecondaryRange(const std::string
     int64_t tx_id = request.transaction_id();
     auto* tx = tx_manager_->get_transaction(tx_id);
     if (tx) {
+        if (!request.table_name().empty()) {
+            tx->SetTable(request.table_name());
+        }
         std::string index_name = request.index_name();
         std::string start_key = request.start_key();
         std::string end_key = request.end_key();
@@ -937,6 +988,9 @@ void LineairDBRpc::handleTxFetchLastSecondaryEntryInRange(const std::string& mes
     int64_t tx_id = request.transaction_id();
     auto* tx = tx_manager_->get_transaction(tx_id);
     if (tx) {
+        if (!request.table_name().empty()) {
+            tx->SetTable(request.table_name());
+        }
         std::string index_name = request.index_name();
         std::string start_key = request.start_key();
         std::string end_key = request.end_key();

@@ -81,6 +81,7 @@ message TxBatchRead {
     message Request {
         int64 transaction_id = 1;
         repeated bytes keys = 2;
+        string table_name = 3;
     }
     message ReadResult {
         bool found = 1;
@@ -122,6 +123,7 @@ message TxRead {
     message Request {
         int64 transaction_id = 1;
         bytes key = 2;
+        string table_name = 4;
     }
     message Response {
         bool found = 1;
@@ -136,6 +138,7 @@ message TxWrite {
         int64 transaction_id = 1;
         bytes key = 2;
         bytes value = 3;
+        string table_name = 5;
     }
     message Response {
         bool success = 1;
@@ -166,6 +169,7 @@ message TxDelete {
     message Request {
         int64 transaction_id = 1;
         bytes key = 2;
+        string table_name = 4;
     }
     message Response {
         bool success = 1;
@@ -180,6 +184,7 @@ message TxReadSecondaryIndex {
         int64 transaction_id = 1;
         string index_name = 2;
         bytes secondary_key = 3;
+        string table_name = 4;
     }
     message Response {
         repeated bytes values = 1;
@@ -195,6 +200,7 @@ message TxWriteSecondaryIndex {
         string index_name = 2;
         bytes secondary_key = 3;
         bytes primary_key = 4;
+        string table_name = 5;
     }
     message Response {
         bool success = 1;
@@ -210,6 +216,7 @@ message TxDeleteSecondaryIndex {
         string index_name = 2;
         bytes secondary_key = 3;
         bytes primary_key = 4;
+        string table_name = 5;
     }
     message Response {
         bool success = 1;
@@ -226,6 +233,7 @@ message TxUpdateSecondaryIndex {
         bytes old_secondary_key = 3;
         bytes new_secondary_key = 4;
         bytes primary_key = 5;
+        string table_name = 6;
     }
     message Response {
         bool success = 1;
@@ -279,6 +287,7 @@ message TxGetMatchingKeysInRange {
         bytes start_key = 2;
         bytes end_key = 3;
         bytes exclusive_end_key = 4;
+        string table_name = 5;
     }
     message Response {
         repeated bytes keys = 1;
@@ -296,6 +305,7 @@ message TxGetMatchingKeysAndValuesInRange {
         bytes end_key = 3;
         bytes exclusive_end_key = 4;
         PushedPredicate filter = 5;
+        string table_name = 6;
     }
     message Response {
         repeated KeyValue results = 1;
@@ -311,6 +321,7 @@ message TxGetMatchingKeysAndValuesFromPrefix {
         int64 transaction_id = 1;
         bytes prefix = 2;
         PushedPredicate filter = 3;
+        string table_name = 4;
     }
     message Response {
         repeated KeyValue results = 1;
@@ -327,6 +338,7 @@ message TxFetchLastKeyInRange {
         bytes start_key = 2;
         bytes end_key = 3;
         bytes exclusive_end_key = 4;
+        string table_name = 5;
     }
     message Response {
         bool found = 1;
@@ -342,6 +354,7 @@ message TxFetchFirstKeyWithPrefix {
         int64 transaction_id = 1;
         bytes prefix = 2;
         bytes prefix_end = 3;
+        string table_name = 4;
     }
     message Response {
         bool found = 1;
@@ -357,6 +370,7 @@ message TxFetchNextKeyWithPrefix {
         int64 transaction_id = 1;
         bytes last_key = 2;
         bytes prefix_end = 3;
+        string table_name = 4;
     }
     message Response {
         bool found = 1;
@@ -375,6 +389,7 @@ message TxGetMatchingPrimaryKeysInRange {
         bytes start_key = 3;
         bytes end_key = 4;
         bytes exclusive_end_key = 5;
+        string table_name = 6;
     }
     message Response {
         repeated bytes primary_keys = 1;
@@ -389,6 +404,7 @@ message TxGetMatchingPrimaryKeysFromPrefix {
         int64 transaction_id = 1;
         string index_name = 2;
         bytes prefix = 3;
+        string table_name = 4;
     }
     message Response {
         repeated bytes primary_keys = 1;
@@ -406,6 +422,7 @@ message TxFetchLastPrimaryKeyInSecondaryRange {
         bytes start_key = 3;
         bytes end_key = 4;
         bytes exclusive_end_key = 5;
+        string table_name = 6;
     }
     message Response {
         bool found = 1;
@@ -424,6 +441,7 @@ message TxFetchLastSecondaryEntryInRange {
         bytes start_key = 3;
         bytes end_key = 4;
         bytes exclusive_end_key = 5;
+        string table_name = 6;
     }
     message Response {
         bool found = 1;

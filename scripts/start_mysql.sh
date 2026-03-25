@@ -56,7 +56,8 @@ echo "Step 2/5: Starting MySQL with InnoDB..."
   --pid-file="$PID_FILE" \
   --max-connections=16384 \
   --open-files-limit=65535 \
-  --table-open-cache=8192 &
+  --table-open-cache=8192 \
+  --disable-log-bin &
 BOOT_PID=$!
 
 echo "Step 3/5: Waiting for MySQL to be ready..."
@@ -77,7 +78,8 @@ sleep 3
   --pid-file="$PID_FILE" --default-storage-engine=lineairdb \
   --max-connections=16384 \
   --open-files-limit=65535 \
-  --table-open-cache=8192 &
+  --table-open-cache=8192 \
+  --disable-log-bin &
 MYSQL_PID=$!
 
 until ./runtime_output_directory/mysqladmin ping -u root --socket="$SOCKET" --port="$MYSQLD_PORT" >/dev/null 2>&1; do

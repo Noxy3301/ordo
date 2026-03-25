@@ -50,6 +50,8 @@ set(SOURCES
     # RPC layer
     rpc/lineairdb_rpc.cc
     rpc/lineairdb_rpc.hh
+    rpc/predicate_evaluator.cc
+    rpc/predicate_evaluator.hh
     
     # Storage layer
     storage/database_manager.cc

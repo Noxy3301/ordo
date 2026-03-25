@@ -178,6 +178,58 @@
       args:
         executable: /bin/bash
 
+    - name: Start mysqld pidstat sampling (mysql)
+      when: inventory_hostname in groups.get('mysql', [])
+      shell: |
+        mkdir -p {{ sample_dir }}
+        pid=$(pgrep -f 'mysqld.*lineairdb' | head -n1 || true)
+        if [ -z "$pid" ]; then
+          echo "mysqld not running" > {{ sample_dir }}/pidstat-mysql-{{ run_id }}.log
+          exit 0
+        fi
+        nohup pidstat -u -w -p "$pid" {{ sample_interval }} > {{ sample_dir }}/pidstat-mysql-{{ run_id }}.log 2>&1 &
+        echo $! > {{ sample_dir }}/pidstat-mysql-{{ run_id }}.pid
+      args:
+        executable: /bin/bash
+
+    - name: Start benchbase pidstat sampling (benchbase)
+      when: inventory_hostname in groups.get('benchbase', [])
+      shell: |
+        mkdir -p {{ sample_dir }}
+        nohup bash -c '
+        while true; do
+          pid=$(pgrep -f "java.*benchbase" | head -n1 || true)
+          if [ -n "$pid" ]; then
+            pidstat -u -p "$pid" {{ sample_interval }} 1 2>/dev/null | tail -1
+          fi
+          sleep {{ sample_interval }}
+        done' > {{ sample_dir }}/pidstat-bench-{{ run_id }}.log 2>&1 &
+        echo $! > {{ sample_dir }}/pidstat-bench-{{ run_id }}.pid
+      args:
+        executable: /bin/bash
+
+    - name: Start server per-thread pidstat sampling (lineairdb)
+      when: inventory_hostname in groups.get('lineairdb', [])
+      shell: |
+        mkdir -p {{ sample_dir }}
+        pid=$(pgrep -f '/build/server/lineairdb-server' | head -n1 || true)
+        if [ -z "$pid" ]; then
+          echo "lineairdb-server not running" > {{ sample_dir }}/pidstat-threads-{{ run_id }}.log
+          exit 0
+        fi
+        nohup pidstat -t -u -p "$pid" 5 > {{ sample_dir }}/pidstat-threads-{{ run_id }}.log 2>&1 &
+        echo $! > {{ sample_dir }}/pidstat-threads-{{ run_id }}.pid
+      args:
+        executable: /bin/bash
+
+    - name: Start vmstat sampling (all nodes)
+      shell: |
+        mkdir -p {{ sample_dir }}
+        nohup vmstat {{ sample_interval }} > {{ sample_dir }}/vmstat-{{ run_id }}.log 2>&1 &
+        echo $! > {{ sample_dir }}/vmstat-{{ run_id }}.pid
+      args:
+        executable: /bin/bash
+
 - import_playbook: measure.yml
 
 - hosts: lineairdb:mysql:haproxy:benchbase
@@ -277,6 +329,41 @@
       shell: |
         if [ -f {{ sample_dir }}/haproxy-{{ run_id }}.pid ]; then
           kill "$(cat {{ sample_dir }}/haproxy-{{ run_id }}.pid)" || true
+        fi
+      args:
+        executable: /bin/bash
+
+    - name: Stop mysqld pidstat sampling (mysql)
+      when: inventory_hostname in groups.get('mysql', [])
+      shell: |
+        if [ -f {{ sample_dir }}/pidstat-mysql-{{ run_id }}.pid ]; then
+          kill "$(cat {{ sample_dir }}/pidstat-mysql-{{ run_id }}.pid)" || true
+        fi
+      args:
+        executable: /bin/bash
+
+    - name: Stop benchbase pidstat sampling (benchbase)
+      when: inventory_hostname in groups.get('benchbase', [])
+      shell: |
+        if [ -f {{ sample_dir }}/pidstat-bench-{{ run_id }}.pid ]; then
+          kill "$(cat {{ sample_dir }}/pidstat-bench-{{ run_id }}.pid)" || true
+        fi
+      args:
+        executable: /bin/bash
+
+    - name: Stop server per-thread pidstat sampling (lineairdb)
+      when: inventory_hostname in groups.get('lineairdb', [])
+      shell: |
+        if [ -f {{ sample_dir }}/pidstat-threads-{{ run_id }}.pid ]; then
+          kill "$(cat {{ sample_dir }}/pidstat-threads-{{ run_id }}.pid)" || true
+        fi
+      args:
+        executable: /bin/bash
+
+    - name: Stop vmstat sampling (all nodes)
+      shell: |
+        if [ -f {{ sample_dir }}/vmstat-{{ run_id }}.pid ]; then
+          kill "$(cat {{ sample_dir }}/vmstat-{{ run_id }}.pid)" || true
         fi
       args:
         executable: /bin/bash
@@ -403,3 +490,34 @@
         src: "{{ sample_dir }}/mysql-status-{{ run_id }}.txt"
         dest: "{{ result_dir }}/mysql/{{ inventory_hostname }}/"
         flat: yes
+
+    - name: Fetch mysqld pidstat logs
+      when: inventory_hostname in groups['mysql']
+      fetch:
+        src: "{{ sample_dir }}/pidstat-mysql-{{ run_id }}.log"
+        dest: "{{ result_dir }}/mysql/{{ inventory_hostname }}/"
+        flat: yes
+      failed_when: false
+
+    - name: Fetch benchbase pidstat logs
+      when: inventory_hostname in groups['benchbase']
+      fetch:
+        src: "{{ sample_dir }}/pidstat-bench-{{ run_id }}.log"
+        dest: "{{ result_dir }}/bench/{{ inventory_hostname }}/"
+        flat: yes
+      failed_when: false
+
+    - name: Fetch server per-thread pidstat logs
+      when: inventory_hostname in groups['lineairdb']
+      fetch:
+        src: "{{ sample_dir }}/pidstat-threads-{{ run_id }}.log"
+        dest: "{{ result_dir }}/lineairdb/{{ inventory_hostname }}/"
+        flat: yes
+      failed_when: false
+
+    - name: Fetch vmstat logs
+      fetch:
+        src: "{{ sample_dir }}/vmstat-{{ run_id }}.log"
+        dest: "{{ result_dir }}/vmstat/{{ inventory_hostname }}/"
+        flat: yes
+      failed_when: false

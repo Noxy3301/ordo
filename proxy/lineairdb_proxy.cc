@@ -135,6 +135,7 @@ std::string LineairDBProxy::tx_read(LineairDBTransaction* tx, const std::string&
     LineairDB::Protocol::TxRead::Response response;
 
     request.set_transaction_id(tx_id);
+    request.set_table_name(tx->get_selected_table_name());
     request.set_key(key);
     LOG_DEBUG("CLIENT: Created read request");
 
@@ -162,6 +163,7 @@ bool LineairDBProxy::tx_write(LineairDBTransaction* tx, const std::string& key, 
     LineairDB::Protocol::TxWrite::Response response;
 
     request.set_transaction_id(tx_id);
+    request.set_table_name(tx->get_selected_table_name());
     request.set_key(key);
     request.set_value(value);
     LOG_DEBUG("CLIENT: Created write request");
@@ -190,6 +192,7 @@ bool LineairDBProxy::tx_delete(LineairDBTransaction* tx, const std::string& key)
     LineairDB::Protocol::TxDelete::Response response;
 
     request.set_transaction_id(tx_id);
+    request.set_table_name(tx->get_selected_table_name());
     request.set_key(key);
 
     if (!send_protobuf_message(request, response, MessageType::TX_DELETE)) {
@@ -215,6 +218,7 @@ std::vector<LineairDBProxy::BatchReadResult> LineairDBProxy::tx_batch_read(
     LineairDB::Protocol::TxBatchRead::Response response;
 
     request.set_transaction_id(tx_id);
+    request.set_table_name(tx->get_selected_table_name());
     for (const auto& key : keys) {
         request.add_keys(key);
     }
@@ -288,6 +292,7 @@ std::vector<std::string> LineairDBProxy::tx_read_secondary_index(LineairDBTransa
     LineairDB::Protocol::TxReadSecondaryIndex::Response response;
 
     request.set_transaction_id(tx_id);
+    request.set_table_name(tx->get_selected_table_name());
     request.set_index_name(index_name);
     request.set_secondary_key(secondary_key);
 
@@ -323,6 +328,7 @@ bool LineairDBProxy::tx_write_secondary_index(LineairDBTransaction* tx,
     LineairDB::Protocol::TxWriteSecondaryIndex::Response response;
 
     request.set_transaction_id(tx_id);
+    request.set_table_name(tx->get_selected_table_name());
     request.set_index_name(index_name);
     request.set_secondary_key(secondary_key);
     request.set_primary_key(primary_key);
@@ -354,6 +360,7 @@ bool LineairDBProxy::tx_delete_secondary_index(LineairDBTransaction* tx,
     LineairDB::Protocol::TxDeleteSecondaryIndex::Response response;
 
     request.set_transaction_id(tx_id);
+    request.set_table_name(tx->get_selected_table_name());
     request.set_index_name(index_name);
     request.set_secondary_key(secondary_key);
     request.set_primary_key(primary_key);
@@ -386,6 +393,7 @@ bool LineairDBProxy::tx_update_secondary_index(LineairDBTransaction* tx,
     LineairDB::Protocol::TxUpdateSecondaryIndex::Response response;
 
     request.set_transaction_id(tx_id);
+    request.set_table_name(tx->get_selected_table_name());
     request.set_index_name(index_name);
     request.set_old_secondary_key(old_secondary_key);
     request.set_new_secondary_key(new_secondary_key);
@@ -419,6 +427,7 @@ std::vector<std::string> LineairDBProxy::tx_get_matching_keys_in_range(LineairDB
     LineairDB::Protocol::TxGetMatchingKeysInRange::Response response;
 
     request.set_transaction_id(tx_id);
+    request.set_table_name(tx->get_selected_table_name());
     request.set_start_key(start_key);
     request.set_end_key(end_key);
     request.set_exclusive_end_key(exclusive_end_key);
@@ -451,24 +460,27 @@ std::vector<KeyValue> LineairDBProxy::tx_get_matching_keys_and_values_in_range(L
     }
 
     LineairDB::Protocol::TxGetMatchingKeysAndValuesInRange::Request request;
-    LineairDB::Protocol::TxGetMatchingKeysAndValuesInRange::Response response;
-
     request.set_transaction_id(tx_id);
+    request.set_table_name(tx->get_selected_table_name());
     request.set_start_key(start_key);
     request.set_end_key(end_key);
     request.set_exclusive_end_key(exclusive_end_key);
 
-    if (!send_protobuf_message(request, response, MessageType::TX_GET_MATCHING_KEYS_AND_VALUES_IN_RANGE)) {
+    // Attach pushed predicate filter if available
+    const auto& filter = tx->get_pushed_filter();
+    if (!filter.empty()) {
+        request.mutable_filter()->ParseFromString(filter);
+    }
+
+    std::string raw_response;
+    if (!send_protobuf_recv_binary(request, raw_response, MessageType::TX_GET_MATCHING_KEYS_AND_VALUES_IN_RANGE)) {
         LOG_ERROR("RPC failed: Failed to send message to server");
         return {};
     }
 
-    tx->set_aborted(response.is_aborted());
-
-    std::vector<KeyValue> results;
-    for (const auto& kv : response.results()) {
-        results.emplace_back(KeyValue{kv.key(), kv.value()});
-    }
+    bool is_aborted = false;
+    auto results = parse_binary_kv_response(raw_response, is_aborted);
+    tx->set_aborted(is_aborted);
 
     LOG_DEBUG("CLIENT: tx_get_matching_keys_and_values_in_range completed, found %zu results", results.size());
     return results;
@@ -484,25 +496,117 @@ std::vector<KeyValue> LineairDBProxy::tx_get_matching_keys_and_values_from_prefi
     }
 
     LineairDB::Protocol::TxGetMatchingKeysAndValuesFromPrefix::Request request;
-    LineairDB::Protocol::TxGetMatchingKeysAndValuesFromPrefix::Response response;
-
     request.set_transaction_id(tx_id);
+    request.set_table_name(tx->get_selected_table_name());
     request.set_prefix(prefix);
 
-    if (!send_protobuf_message(request, response, MessageType::TX_GET_MATCHING_KEYS_AND_VALUES_FROM_PREFIX)) {
+    // Attach pushed predicate filter if available
+    const auto& filter = tx->get_pushed_filter();
+    if (!filter.empty()) {
+        request.mutable_filter()->ParseFromString(filter);
+    }
+
+    std::string raw_response;
+    if (!send_protobuf_recv_binary(request, raw_response, MessageType::TX_GET_MATCHING_KEYS_AND_VALUES_FROM_PREFIX)) {
         LOG_ERROR("RPC failed: Failed to send message to server");
         return {};
     }
 
-    tx->set_aborted(response.is_aborted());
-
-    std::vector<KeyValue> results;
-    for (const auto& kv : response.results()) {
-        results.emplace_back(KeyValue{kv.key(), kv.value()});
-    }
+    bool is_aborted = false;
+    auto results = parse_binary_kv_response(raw_response, is_aborted);
+    tx->set_aborted(is_aborted);
 
     LOG_DEBUG("CLIENT: tx_get_matching_keys_and_values_from_prefix completed, found %zu results", results.size());
     return results;
+}
+
+// Zero-copy scan variant: parse binary response directly into caller-provided buffers.
+// Same wire format as parse_binary_kv_response(), but avoids intermediate KeyValue copies.
+// TODO: unify parse logic with parse_binary_kv_response() via callback-based parser
+int LineairDBProxy::tx_scan_into_buffers(LineairDBTransaction* tx,
+                                          const std::string& prefix,
+                                          std::vector<std::string>& out_keys,
+                                          std::vector<std::vector<std::byte>>& out_values,
+                                          std::unordered_map<std::string, size_t>& out_cache) {
+    int64_t tx_id = tx->get_tx_id();
+    if (!connected_) {
+        LOG_ERROR("RPC failed: Not connected to server");
+        return -1;
+    }
+
+    LineairDB::Protocol::TxGetMatchingKeysAndValuesFromPrefix::Request request;
+    request.set_transaction_id(tx_id);
+    request.set_table_name(tx->get_selected_table_name());
+    request.set_prefix(prefix);
+
+    // Attach pushed predicate filter if available
+    const auto& filter = tx->get_pushed_filter();
+    if (!filter.empty()) {
+        request.mutable_filter()->ParseFromString(filter);
+    }
+
+    std::string raw_response;
+    if (!send_protobuf_recv_binary(request, raw_response, MessageType::TX_GET_MATCHING_KEYS_AND_VALUES_FROM_PREFIX)) {
+        LOG_ERROR("RPC failed: Failed to send message to server");
+        return -1;
+    }
+
+    if (raw_response.size() < 5) {  // 1B is_aborted + 4B sentinel minimum
+        tx->set_aborted(true);
+        return -1;
+    }
+
+    // Walk the raw buffer with a pointer; same format as parse_binary_kv_response
+    const char* p = raw_response.data();
+    const char* end = p + raw_response.size();
+
+    // First byte: is_aborted flag from server
+    bool is_aborted = (static_cast<uint8_t>(*p) != 0);
+    p++;
+    tx->set_aborted(is_aborted);
+
+    if (is_aborted) return 0;
+
+    int count = 0;
+    while (p + 4 <= end) {
+        // Read key length
+        uint32_t klen;
+        std::memcpy(&klen, p, 4);
+        p += 4;
+        if (klen == 0) break;  // sentinel: no more entries
+
+        if (p + klen + 4 > end) {
+            LOG_WARNING("tx_scan_into_buffers: truncated at key (klen=%u, remaining=%ld)", klen, end - p);
+            break;
+        }
+        std::string key(p, klen);
+        p += klen;
+
+        // Read value length
+        uint32_t vlen;
+        std::memcpy(&vlen, p, 4);
+        p += 4;
+        if (p + vlen > end) {
+            LOG_WARNING("tx_scan_into_buffers: truncated at value (vlen=%u, remaining=%ld)", vlen, end - p);
+            break;
+        }
+
+        // Skip tombstones (deleted rows still appear in scan)
+        if (vlen == 0) { p += vlen; continue; }
+
+        // Store directly into caller-provided buffers
+        size_t idx = out_keys.size();
+        out_keys.emplace_back(std::move(key));
+        // Copy value bytes from raw_response into a new vector<std::byte>
+        out_values.emplace_back(
+            reinterpret_cast<const std::byte*>(p),
+            reinterpret_cast<const std::byte*>(p) + vlen);
+        out_cache[out_keys.back()] = idx;
+        p += vlen;
+        count++;
+    }
+
+    return count;
 }
 
 std::optional<std::string> LineairDBProxy::tx_fetch_last_key_in_range(LineairDBTransaction* tx,
@@ -520,6 +624,7 @@ std::optional<std::string> LineairDBProxy::tx_fetch_last_key_in_range(LineairDBT
     LineairDB::Protocol::TxFetchLastKeyInRange::Response response;
 
     request.set_transaction_id(tx_id);
+    request.set_table_name(tx->get_selected_table_name());
     request.set_start_key(start_key);
     request.set_end_key(end_key);
     request.set_exclusive_end_key(exclusive_end_key);
@@ -551,6 +656,7 @@ std::optional<std::string> LineairDBProxy::tx_fetch_first_key_with_prefix(Lineai
     LineairDB::Protocol::TxFetchFirstKeyWithPrefix::Response response;
 
     request.set_transaction_id(tx_id);
+    request.set_table_name(tx->get_selected_table_name());
     request.set_prefix(prefix);
     request.set_prefix_end(prefix_end);
 
@@ -581,6 +687,7 @@ std::optional<std::string> LineairDBProxy::tx_fetch_next_key_with_prefix(Lineair
     LineairDB::Protocol::TxFetchNextKeyWithPrefix::Response response;
 
     request.set_transaction_id(tx_id);
+    request.set_table_name(tx->get_selected_table_name());
     request.set_last_key(last_key);
     request.set_prefix_end(prefix_end);
 
@@ -615,6 +722,7 @@ std::vector<std::string> LineairDBProxy::tx_get_matching_primary_keys_in_range(L
     LineairDB::Protocol::TxGetMatchingPrimaryKeysInRange::Response response;
 
     request.set_transaction_id(tx_id);
+    request.set_table_name(tx->get_selected_table_name());
     request.set_index_name(index_name);
     request.set_start_key(start_key);
     request.set_end_key(end_key);
@@ -651,6 +759,7 @@ std::vector<std::string> LineairDBProxy::tx_get_matching_primary_keys_from_prefi
     LineairDB::Protocol::TxGetMatchingPrimaryKeysFromPrefix::Response response;
 
     request.set_transaction_id(tx_id);
+    request.set_table_name(tx->get_selected_table_name());
     request.set_index_name(index_name);
     request.set_prefix(prefix);
 
@@ -686,6 +795,7 @@ std::optional<std::string> LineairDBProxy::tx_fetch_last_primary_key_in_secondar
     LineairDB::Protocol::TxFetchLastPrimaryKeyInSecondaryRange::Response response;
 
     request.set_transaction_id(tx_id);
+    request.set_table_name(tx->get_selected_table_name());
     request.set_index_name(index_name);
     request.set_start_key(start_key);
     request.set_end_key(end_key);
@@ -720,6 +830,7 @@ std::optional<SecondaryIndexEntry> LineairDBProxy::tx_fetch_last_secondary_entry
     LineairDB::Protocol::TxFetchLastSecondaryEntryInRange::Response response;
 
     request.set_transaction_id(tx_id);
+    request.set_table_name(tx->get_selected_table_name());
     request.set_index_name(index_name);
     request.set_start_key(start_key);
     request.set_end_key(end_key);
@@ -927,8 +1038,68 @@ bool LineairDBProxy::send_protobuf_message(const RequestType& request, ResponseT
     return true;
 }
 
-bool LineairDBProxy::send_message_with_header(const std::string& serialized_request, 
-                                              std::string& serialized_response, 
+// Send protobuf-encoded request, receive raw binary response (no protobuf decode).
+// Used for Scan RPCs where the server returns flat binary instead of protobuf.
+template<typename RequestType>
+bool LineairDBProxy::send_protobuf_recv_binary(const RequestType& request,
+                                                std::string& raw_response,
+                                                MessageType message_type) {
+    std::string serialized_request = request.SerializeAsString();
+    return send_message_with_header(serialized_request, raw_response, message_type);
+}
+
+// Parse flat binary scan response into vector<KeyValue>.
+// Wire format: [is_aborted:1B] [key_len:4B LE][key][val_len:4B LE][val]... [sentinel:key_len=0]
+// TODO: unify parse logic with tx_scan_into_buffers() via callback-based parser
+std::vector<KeyValue> LineairDBProxy::parse_binary_kv_response(const std::string& raw, bool& is_aborted) {
+    std::vector<KeyValue> results;
+    if (raw.size() < 5) {  // 1B is_aborted + 4B sentinel minimum
+        is_aborted = true;
+        return results;
+    }
+
+    // Walk the raw buffer with a pointer; each field is read via memcpy
+    const char* p = raw.data();
+    const char* end = p + raw.size();
+
+    // First byte: is_aborted flag from server
+    is_aborted = (static_cast<uint8_t>(*p) != 0);
+    p++;
+
+    while (p + 4 <= end) {
+        // Read key length
+        uint32_t klen;
+        std::memcpy(&klen, p, 4);
+        p += 4;
+        if (klen == 0) break;  // sentinel: no more entries
+
+        if (p + klen + 4 > end) {
+            LOG_WARNING("parse_binary_kv_response: truncated at key (klen=%u, remaining=%ld)", klen, end - p);
+            break;
+        }
+        std::string key(p, klen);
+        p += klen;
+
+        // Read value length
+        uint32_t vlen;
+        std::memcpy(&vlen, p, 4);
+        p += 4;
+
+        if (p + vlen > end) {
+            LOG_WARNING("parse_binary_kv_response: truncated at value (vlen=%u, remaining=%ld)", vlen, end - p);
+            break;
+        }
+        std::string val(p, vlen);
+        p += vlen;
+
+        results.emplace_back(KeyValue{std::move(key), std::move(val)});
+    }
+
+    return results;
+}
+
+bool LineairDBProxy::send_message_with_header(const std::string& serialized_request,
+                                              std::string& serialized_response,
                                               MessageType message_type) {
     if (!connected_) {
         LOG_ERROR("SEND_MESSAGE: Not connected!");

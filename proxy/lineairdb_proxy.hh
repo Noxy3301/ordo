@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 #include <memory>
@@ -151,6 +152,13 @@ public:
                                                                     const std::string& exclusive_end_key);
     std::vector<KeyValue> tx_get_matching_keys_and_values_from_prefix(LineairDBTransaction* tx,
                                                                        const std::string& prefix);
+    // Zero-copy variant: parse binary response directly into caller-provided buffers.
+    // Returns number of entries parsed, or -1 on error.
+    int tx_scan_into_buffers(LineairDBTransaction* tx,
+                             const std::string& prefix,
+                             std::vector<std::string>& out_keys,
+                             std::vector<std::vector<std::byte>>& out_values,
+                             std::unordered_map<std::string, size_t>& out_cache);
     std::optional<std::string> tx_fetch_last_key_in_range(LineairDBTransaction* tx,
                                                            const std::string& start_key,
                                                            const std::string& end_key,
@@ -196,6 +204,11 @@ public:
 private:
     template<typename RequestType, typename ResponseType>
     bool send_protobuf_message(const RequestType& request, ResponseType& response, MessageType message_type);
+    // Send protobuf request, receive raw binary response
+    template<typename RequestType>
+    bool send_protobuf_recv_binary(const RequestType& request, std::string& raw_response, MessageType message_type);
+    // Parse flat binary scan response: [is_aborted:1B] [entries...] [sentinel: key_len=0]
+    static std::vector<KeyValue> parse_binary_kv_response(const std::string& raw, bool& is_aborted);
     bool send_message(const std::string& serialized_request, std::string& serialized_response);
     bool send_message_with_header(const std::string& serialized_request, std::string& serialized_response, MessageType message_type);
 

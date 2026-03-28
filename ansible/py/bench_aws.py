@@ -67,7 +67,7 @@ AWS_DEFAULTS = {
     # On-demand fallback params (extracted from launch template)
     "ami_id": "ami-03ce71439341a2e5f",
     "security_group": "sg-02d9a0d5948d02dbb",
-    "subnet": None,  # auto-assign if not specified
+    "subnet": "subnet-0a15ff55a4cae198b",  # ap-southeast-2c (same-AZ pinning)
 }
 
 # vCPU count for EC2 instance sizes (used to build machine_spec locally)
@@ -163,6 +163,8 @@ def _launch_role(role, cfg, args):
         "--count", str(cfg["count"]),
         "--instance-type", cfg["instance_type"],
     ]
+    if args.subnet:
+        base_cmd += ["--subnet-id", args.subnet]
 
     if not args.on_demand:
         # Try spot first

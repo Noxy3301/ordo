@@ -64,6 +64,10 @@ AWS_DEFAULTS = {
     "project_tag": "Ordo",
     "ssh_key": "~/.ssh/ordo-aws.pem",
     "ssh_user": "ubuntu",
+    # On-demand fallback params (extracted from launch template)
+    "ami_id": "ami-03ce71439341a2e5f",
+    "security_group": "sg-02d9a0d5948d02dbb",
+    "subnet": "subnet-0a15ff55a4cae198b",  # ap-southeast-2c (same-AZ pinning)
 }
 
 # vCPU count for EC2 instance sizes (used to build machine_spec locally)
@@ -138,39 +142,98 @@ def run(cmd, check=True, **kwargs):
 
 
 # ──────────────────────────────────────────────
-# Phase 1: Launch spot instances
+# Phase 1: Launch instances (spot with on-demand fallback)
 # ──────────────────────────────────────────────
-def launch_instances(args):
-    """Launch spot instances for all roles. Returns list of instance IDs."""
-    all_instance_ids = []
-    region = args.region
+SPOT_ERRORS = ("InsufficientInstanceCapacity", "SpotMaxPriceTooLow", "MaxSpotInstanceCountExceeded")
 
-    for role, cfg in CLUSTER.items():
+
+def _launch_role(role, cfg, args):
+    """Launch instances for a single role. Try spot first, fall back to on-demand."""
+    region = args.region
+    tag_spec = [
+        "--tag-specifications",
+        f"ResourceType=instance,Tags=["
+        f"{{Key=Name,Value={cfg['tag']}}},"
+        f"{{Key=Project,Value={args.project_tag}}}"
+        f"]",
+    ]
+    base_cmd = [
+        "ec2", "run-instances",
+        "--launch-template", f"LaunchTemplateId={args.launch_template},Version=$Default",
+        "--count", str(cfg["count"]),
+        "--instance-type", cfg["instance_type"],
+    ]
+    if args.subnet:
+        base_cmd += ["--subnet-id", args.subnet]
+
+    def _number_instances(ids, base_tag, region):
+        """Tag instances with sequential names: tag-1, tag-2, ..."""
+        for i, iid in enumerate(ids, 1):
+            name = f"{base_tag}-{i}" if len(ids) > 1 else base_tag
+            aws(["ec2", "create-tags", "--resources", iid,
+                 "--tags", f"Key=Name,Value={name}"], region=region)
+
+    if not args.on_demand:
+        # Try spot first
         log(f"Launching {cfg['count']}x {cfg['instance_type']} for {role} ({cfg['tag']}) [spot]...")
         try:
-            cmd = [
-                "ec2", "run-instances",
-                "--launch-template", f"LaunchTemplateId={args.launch_template},Version=$Default",
-                "--count", str(cfg["count"]),
-                "--instance-type", cfg["instance_type"],
-                "--instance-market-options", '{"MarketType":"spot","SpotOptions":{"SpotInstanceType":"one-time","InstanceInterruptionBehavior":"terminate"}}',
-            ]
-            cmd += [
-                "--tag-specifications",
-                f"ResourceType=instance,Tags=["
-                f"{{Key=Name,Value={cfg['tag']}}},"
-                f"{{Key=Project,Value={args.project_tag}}}"
-                f"]",
-            ]
-            result = aws(cmd, region=region)
+            spot_cmd = base_cmd + [
+                "--instance-market-options",
+                '{"MarketType":"spot","SpotOptions":{"SpotInstanceType":"one-time","InstanceInterruptionBehavior":"terminate"}}',
+            ] + tag_spec
+            result = aws(spot_cmd, region=region)
             ids = [inst["InstanceId"] for inst in result.get("Instances", [])]
-            all_instance_ids.extend(ids)
-            log(f"  -> {ids}")
+            _number_instances(ids, cfg["tag"], region)
+            log(f"  -> [spot] {ids}")
+            return ids
         except RuntimeError as e:
-            if "InsufficientInstanceCapacity" in str(e) or "SpotMaxPriceTooLow" in str(e):
-                log(f"  SPOT UNAVAILABLE for {role}: {e}")
-                return None
-            raise
+            if any(err in str(e) for err in SPOT_ERRORS):
+                log(f"  Spot unavailable for {role}, falling back to on-demand...")
+            else:
+                raise
+
+    # On-demand (fallback or --on-demand flag)
+    # Launch template has InstanceMarketOptions=spot, so we must launch
+    # WITHOUT the template and specify all params directly.
+    log(f"Launching {cfg['count']}x {cfg['instance_type']} for {role} ({cfg['tag']}) [on-demand]...")
+    od_cmd = [
+        "ec2", "run-instances",
+        "--image-id", args.ami_id,
+        "--key-name", Path(args.ssh_key).stem,
+        "--security-group-ids", args.security_group,
+        "--count", str(cfg["count"]),
+        "--instance-type", cfg["instance_type"],
+    ]
+    if args.subnet:
+        od_cmd += ["--subnet-id", args.subnet]
+    result = aws(od_cmd + tag_spec, region=region)
+    ids = [inst["InstanceId"] for inst in result.get("Instances", [])]
+    _number_instances(ids, cfg["tag"], region)
+    log(f"  -> [on-demand] {ids}")
+    return ids
+
+
+def launch_instances(args):
+    """Launch instances for all roles. Returns list of instance IDs, or None on failure."""
+    all_instance_ids = []
+
+    for role, cfg in CLUSTER.items():
+        try:
+            ids = _launch_role(role, cfg, args)
+            all_instance_ids.extend(ids)
+        except RuntimeError as e:
+            log(f"  LAUNCH FAILED for {role}: {e}")
+            # Terminate any instances already launched
+            if all_instance_ids:
+                log(f"  Rolling back {len(all_instance_ids)} already-launched instances...")
+                try:
+                    aws_text([
+                        "ec2", "terminate-instances",
+                        "--instance-ids", *all_instance_ids,
+                    ], region=args.region)
+                except RuntimeError:
+                    pass
+            return None
 
     return all_instance_ids
 
@@ -224,16 +287,17 @@ def run_playbook(name, extra_vars=None, args=None):
     run(cmd)
 
 
-def deploy_infrastructure():
+def deploy_infrastructure(branch=None):
     """Deploy LineairDB, MySQL, HAProxy in parallel, then wait."""
     log("Deploying infrastructure (lineairdb + mysql + haproxy in parallel)...")
     inv = str(ANSIBLE_DIR / "inventory.ini")
+    extra = f' -e "ordo_branch={branch}"' if branch else ""
     # Write deploy logs alongside bench_aws.log
     deploy_log_dir = Path(LOG_FILE.name).parent if LOG_FILE else None
     procs = []
 
     for playbook in ["lineairdb.yml", "mysql.yml", "haproxy.yml"]:
-        cmd = f"ansible-playbook -i {inv} {ANSIBLE_DIR / playbook}"
+        cmd = f"ansible-playbook -i {inv} {ANSIBLE_DIR / playbook}{extra}"
         log(f"  $ {cmd}")
         if deploy_log_dir:
             pb_log = open(deploy_log_dir / f"{playbook.replace('.yml', '')}.log", "w")
@@ -289,6 +353,8 @@ def run_benchmarks(args, run_id):
     log("Plotting results...")
     run(f"python3 {SCRIPT_DIR / 'plot_throughput.py'} --root {result_root}", check=False)
     run(f"python3 {SCRIPT_DIR / 'plot_cpu.py'} --root {result_root}", check=False)
+    if args.bench_type == "tpcc":
+        run(f"python3 {SCRIPT_DIR / 'plot_tpcc.py'} --root {result_root}", check=False)
     if args.bench_type == "tpch":
         run(f"python3 {SCRIPT_DIR / 'plot_tpch.py'} --root {result_root}", check=False)
 
@@ -417,10 +483,15 @@ Examples:
     parser.add_argument("--project-tag", default=AWS_DEFAULTS["project_tag"])
     parser.add_argument("--ssh-key", default=AWS_DEFAULTS["ssh_key"])
     parser.add_argument("--ssh-user", default=AWS_DEFAULTS["ssh_user"])
+    parser.add_argument("--ami-id", default=AWS_DEFAULTS["ami_id"], help="AMI ID for on-demand fallback")
+    parser.add_argument("--security-group", default=AWS_DEFAULTS["security_group"])
+    parser.add_argument("--subnet", default=AWS_DEFAULTS["subnet"], help="Subnet ID (for AZ pinning)")
 
     # Cluster topology overrides
     parser.add_argument("--mysql-count", type=int, default=None, help="Override MySQL node count")
     # Control options
+    parser.add_argument("--branch", default=None, help="Git branch to checkout on remote nodes (default: keep current)")
+    parser.add_argument("--on-demand", action="store_true", help="Skip spot, launch all instances as on-demand")
     parser.add_argument("--cleanup-only", action="store_true", help="Only terminate instances, don't launch")
     parser.add_argument("--skip-cleanup", action="store_true", help="Don't terminate instances after benchmark")
     parser.add_argument("--dry-run", action="store_true", help="Show what would be launched")
@@ -479,7 +550,7 @@ Examples:
         wait_for_ssh(args)
 
         # Phase 4: Deploy + Benchmark
-        deploy_infrastructure()
+        deploy_infrastructure(branch=args.branch)
         run_benchmarks(args, run_id)
 
         elapsed = time.time() - start_time

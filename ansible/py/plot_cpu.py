@@ -330,7 +330,9 @@ def main():
 
     if args.output is None:
         suffix = f"-{args.run_id}" if args.run_id else ""
-        args.output = cpu_root / f"cpu_plot-{config_name}{suffix}.png"
+        plot_dir = selected_root / "_plot"
+        plot_dir.mkdir(parents=True, exist_ok=True)
+        args.output = plot_dir / f"cpu_plot-{config_name}{suffix}.png"
 
     data = load_series(cpu_root, args.run_id)
     if not data:

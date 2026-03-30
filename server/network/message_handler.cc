@@ -5,6 +5,7 @@
 #include <vector>
 #include <cstring>
 #include <sys/socket.h>
+#include <sys/uio.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
 
@@ -77,5 +78,50 @@ bool MessageHandler::send_response(int socket, uint64_t sender_id,
     }
     
     LOG_DEBUG("Response sent successfully");
+    return true;
+}
+
+bool MessageHandler::send_response_writev(int socket, uint64_t sender_id,
+                                          MessageType message_type, const std::string& payload) {
+    LOG_DEBUG("Sending response via writev (%zu bytes)", payload.size());
+
+    MessageHeader response_header;
+    response_header.sender_id = htobe64(sender_id);
+    response_header.message_type = htonl(static_cast<uint32_t>(message_type));
+    response_header.payload_size = htonl(static_cast<uint32_t>(payload.size()));
+
+    struct iovec iov[2];
+    iov[0].iov_base = &response_header;
+    iov[0].iov_len = sizeof(response_header);
+    iov[1].iov_base = const_cast<char*>(payload.data());
+    iov[1].iov_len = payload.size();
+
+    size_t total_size = sizeof(response_header) + payload.size();
+    size_t total_sent = 0;
+
+    while (total_sent < total_size) {
+        ssize_t bytes_sent = writev(socket, iov, 2);
+        if (bytes_sent <= 0) {
+            LOG_ERROR("writev failed (sent %zu/%zu bytes)", total_sent, total_size);
+            return false;
+        }
+        total_sent += bytes_sent;
+        if (total_sent < total_size) {
+            // Adjust iov for partial write
+            size_t consumed = bytes_sent;
+            for (int i = 0; i < 2; i++) {
+                if (consumed >= iov[i].iov_len) {
+                    consumed -= iov[i].iov_len;
+                    iov[i].iov_len = 0;
+                } else {
+                    iov[i].iov_base = static_cast<char*>(iov[i].iov_base) + consumed;
+                    iov[i].iov_len -= consumed;
+                    break;
+                }
+            }
+        }
+    }
+
+    LOG_DEBUG("writev response sent successfully");
     return true;
 }

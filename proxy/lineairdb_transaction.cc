@@ -18,9 +18,7 @@ LineairDBTransaction::LineairDBTransaction(THD* thd,
 std::string LineairDBTransaction::get_selected_table_name() { return db_table_key; }
 
 void LineairDBTransaction::choose_table(std::string db_table_name) {
-  if (db_table_key == db_table_name) return;
   db_table_key = db_table_name;
-  lineairdb_proxy->db_set_table(tx_id, db_table_key);
 }
 
 bool LineairDBTransaction::table_is_not_chosen() {
@@ -34,6 +32,7 @@ bool LineairDBTransaction::table_is_not_chosen() {
 const std::pair<const std::byte *const, const size_t>
 LineairDBTransaction::read(std::string key) {
   if (table_is_not_chosen()) return std::pair<const std::byte *const, const size_t>{nullptr, 0};
+
   flush_write_buffer();
 
   last_read_value_ = lineairdb_proxy->tx_read(this, key);
@@ -337,8 +336,11 @@ void LineairDBTransaction::begin_transaction() {
 }
 
 void LineairDBTransaction::set_status_to_abort() {
+  // Skip TX_ABORT RPC if the server already knows (is_aborted_ was set from an RPC response).
+  if (!is_aborted_) {
+    lineairdb_proxy->tx_abort(tx_id);
+  }
   is_aborted_ = true;
-  lineairdb_proxy->tx_abort(tx_id);
 }
 
 bool LineairDBTransaction::end_transaction() {

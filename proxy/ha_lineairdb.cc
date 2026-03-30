@@ -109,9 +109,13 @@
 #include <strings.h>
 
 #include "lineairdb_field_types.h"
+#include "lineairdb.pb.h"
 #include "my_dbug.h"
 #include "mysql/plugin.h"
 #include "sql/field.h"
+#include "sql/item.h"
+#include "sql/item_cmpfunc.h"
+#include "sql/item_func.h"
 #include "sql/sql_class.h"
 #include "sql/sql_plugin.h"
 #include "sql/table.h"
@@ -340,8 +344,26 @@ int ha_lineairdb::open(const char *table_name, int, uint, const dd::Table *) {
     set_key_and_key_part_info(table);
 
   if (table->s->primary_key != MAX_KEY) {
+    // Calculate LineairDBField-encoded PK size. Each key part is encoded as:
+    //   1 (null marker) + 1 (type tag) + 2 (length field) + payload
+    // For STRING types, an extra terminator byte is added (+5 total overhead).
+    // MySQL's key_length only counts raw column bytes, which is smaller.
     uint pk_index = table->s->primary_key;
-    ref_length = sizeof(uint16_t) + table->key_info[pk_index].key_length;
+    KEY *pk = &table->key_info[pk_index];
+    size_t encoded_pk_size = 0;
+    for (uint i = 0; i < pk->user_defined_key_parts; i++) {
+      KEY_PART_INFO *part = &pk->key_part[i];
+      Field *field = part->field;
+      LineairDBFieldType ldb_type = convert_mysql_type_to_lineairdb(field->type());
+      if (ldb_type == LineairDBFieldType::LINEAIRDB_STRING) {
+        // STRING: marker(1) + type(1) + payload + terminator(1) + length(2)
+        encoded_pk_size += 5 + part->length;
+      } else {
+        // INT/DATETIME/OTHER: marker(1) + type(1) + length(2) + payload
+        encoded_pk_size += 4 + field->pack_length();
+      }
+    }
+    ref_length = sizeof(uint16_t) + encoded_pk_size;
   } else {
     ref_length = sizeof(uint16_t) + serialize_hidden_primary_key(0).size();
   }
@@ -791,6 +813,186 @@ int ha_lineairdb::index_last(uchar *buf) {
   return error;
 }
 
+// ---------------------------------------------------------------------------
+// Predicate Pushdown: serialize MySQL Item tree → FilterExpr protobuf
+// ---------------------------------------------------------------------------
+
+/**
+ * Recursively serialize a MySQL Item expression tree into a FilterExpr protobuf.
+ * Returns false if the Item type is not supported (PP is silently skipped).
+ *
+ * @param item   MySQL Item node (condition expression)
+ * @param expr   FilterExpr protobuf to populate
+ * @return true if serialization succeeded
+ */
+static bool serialize_item(const Item *item,
+                           LineairDB::Protocol::FilterExpr *expr) {
+  if (!item) return false;
+
+  switch (item->type()) {
+    case Item::INT_ITEM: {
+      if (item->unsigned_flag) {
+        expr->set_op(LineairDB::Protocol::FilterExpr::CONST_UINT);
+        expr->set_uint_val(const_cast<Item *>(item)->val_uint());
+      } else {
+        expr->set_op(LineairDB::Protocol::FilterExpr::CONST_INT);
+        expr->set_int_val(const_cast<Item *>(item)->val_int());
+      }
+      return true;
+    }
+    case Item::REAL_ITEM: {
+      expr->set_op(LineairDB::Protocol::FilterExpr::CONST_DOUBLE);
+      expr->set_double_val(const_cast<Item *>(item)->val_real());
+      return true;
+    }
+    case Item::STRING_ITEM: {
+      expr->set_op(LineairDB::Protocol::FilterExpr::CONST_STRING);
+      String buf;
+      String *s = const_cast<Item *>(item)->val_str(&buf);
+      if (s) {
+        expr->set_string_val(s->ptr(), s->length());
+      }
+      return true;
+    }
+    case Item::DECIMAL_ITEM: {
+      expr->set_op(LineairDB::Protocol::FilterExpr::CONST_DOUBLE);
+      expr->set_double_val(const_cast<Item *>(item)->val_real());
+      return true;
+    }
+    case Item::NULL_ITEM: {
+      expr->set_op(LineairDB::Protocol::FilterExpr::CONST_NULL);
+      return true;
+    }
+    case Item::FIELD_ITEM: {
+      const Item_field *field_item = down_cast<const Item_field *>(item);
+      Field *field = field_item->field;
+      if (!field) return false;
+      expr->set_op(LineairDB::Protocol::FilterExpr::COLUMN_REF);
+      expr->set_column_index(field->field_index());
+
+      // Set compare_type based on MySQL field type
+      switch (field->result_type()) {
+        case INT_RESULT:
+          if (field->is_unsigned())
+            expr->set_compare_type(1);  // UNSIGNED_INT
+          else
+            expr->set_compare_type(0);  // SIGNED_INT
+          break;
+        case REAL_RESULT:
+        case DECIMAL_RESULT:
+          expr->set_compare_type(2);  // DOUBLE
+          break;
+        default:
+          expr->set_compare_type(3);  // STRING
+          break;
+      }
+      return true;
+    }
+    case Item::FUNC_ITEM:
+    case Item::COND_ITEM: {
+      const Item_func *func = down_cast<const Item_func *>(item);
+      Item **args = func->arguments();
+      uint arg_count = func->argument_count();
+
+      switch (func->functype()) {
+        case Item_func::EQ_FUNC:
+          expr->set_op(LineairDB::Protocol::FilterExpr::OP_EQ);
+          break;
+        case Item_func::NE_FUNC:
+          expr->set_op(LineairDB::Protocol::FilterExpr::OP_NE);
+          break;
+        case Item_func::LT_FUNC:
+          expr->set_op(LineairDB::Protocol::FilterExpr::OP_LT);
+          break;
+        case Item_func::LE_FUNC:
+          expr->set_op(LineairDB::Protocol::FilterExpr::OP_LE);
+          break;
+        case Item_func::GT_FUNC:
+          expr->set_op(LineairDB::Protocol::FilterExpr::OP_GT);
+          break;
+        case Item_func::GE_FUNC:
+          expr->set_op(LineairDB::Protocol::FilterExpr::OP_GE);
+          break;
+        case Item_func::BETWEEN: {
+          expr->set_op(LineairDB::Protocol::FilterExpr::OP_BETWEEN);
+          auto *between = down_cast<const Item_func_between *>(func);
+          expr->set_negated(between->negated);
+          break;
+        }
+        case Item_func::IN_FUNC: {
+          expr->set_op(LineairDB::Protocol::FilterExpr::OP_IN);
+          auto *in_func = down_cast<const Item_func_in *>(func);
+          expr->set_negated(in_func->negated);
+          break;
+        }
+        case Item_func::LIKE_FUNC:
+          expr->set_op(LineairDB::Protocol::FilterExpr::OP_LIKE);
+          break;
+        case Item_func::ISNULL_FUNC:
+          expr->set_op(LineairDB::Protocol::FilterExpr::OP_IS_NULL);
+          break;
+        case Item_func::ISNOTNULL_FUNC:
+          expr->set_op(LineairDB::Protocol::FilterExpr::OP_IS_NOT_NULL);
+          break;
+        case Item_func::COND_AND_FUNC:
+          expr->set_op(LineairDB::Protocol::FilterExpr::OP_AND);
+          break;
+        case Item_func::COND_OR_FUNC:
+          expr->set_op(LineairDB::Protocol::FilterExpr::OP_OR);
+          break;
+        case Item_func::NOT_FUNC:
+          expr->set_op(LineairDB::Protocol::FilterExpr::OP_NOT);
+          break;
+        default:
+          return false;  // unsupported function → skip PP
+      }
+
+      // Recursively serialize arguments
+      for (uint i = 0; i < arg_count; i++) {
+        if (!serialize_item(args[i], expr->add_children())) {
+          return false;
+        }
+      }
+
+      // For comparison operators, propagate compare_type from the COLUMN_REF child
+      if (expr->children_size() >= 2) {
+        for (int i = 0; i < expr->children_size(); i++) {
+          if (expr->children(i).op() ==
+              LineairDB::Protocol::FilterExpr::COLUMN_REF) {
+            uint32_t ct = expr->children(i).compare_type();
+            // Set compare_type on all COLUMN_REF children to ensure type matching
+            for (int j = 0; j < expr->children_size(); j++) {
+              if (j != i && expr->children(j).op() !=
+                                LineairDB::Protocol::FilterExpr::COLUMN_REF) {
+                expr->mutable_children(j)->set_compare_type(ct);
+              }
+            }
+            break;
+          }
+        }
+      }
+      return true;
+    }
+    default:
+      return false;  // unsupported item type → skip PP
+  }
+}
+
+const Item *ha_lineairdb::cond_push(const Item *cond) {
+  DBUG_TRACE;
+  pushed_filter_serialized_.clear();
+  if (!cond || !table) return cond;
+
+  LineairDB::Protocol::PushedPredicate predicate;
+  predicate.set_num_columns(table->s->fields);
+  if (!serialize_item(cond, predicate.mutable_expr())) {
+    // Serialization failed → no PP, MySQL evaluates everything
+    return cond;
+  }
+  predicate.SerializeToString(&pushed_filter_serialized_);
+  return cond;  // Always return cond: MySQL re-evaluates (safety net)
+}
+
 /**
   @brief
   rnd_init() is called when the system wants the storage engine to do a table
@@ -828,6 +1030,13 @@ int ha_lineairdb::rnd_init(bool) {
 
   tx->choose_table(db_table_name);
 
+  // Predicate pushdown: propagate filter serialized by cond_push() to transaction
+  if (!pushed_filter_serialized_.empty()) {
+    tx->set_pushed_filter(pushed_filter_serialized_);
+  } else {
+    tx->clear_pushed_filter();
+  }
+
   DBUG_RETURN(0);
 }
 
@@ -863,6 +1072,7 @@ bool ha_lineairdb::fetch_next_batch() {
 
   scanned_keys_.clear();
   scanned_values_.clear();
+  scan_cache_.clear();
   buffer_position_ = 0;
 
   // Proxy: fetch all rows via RPC in one call (no batched Scan callback)
@@ -1147,15 +1357,37 @@ int ha_lineairdb::info(uint flag) {
   return 0;
 }
 
+/**
+ * Estimate rec_per_key (average rows matching a key prefix) for each
+ * key part of an index.
+ *
+ * Assumes uniform data distribution: N total rows split evenly across
+ * K key parts means each part divides by N^(1/K).
+ *
+ * Example: 1,000,000 rows, 4-part UNIQUE KEY
+ *   per_part = 1000000^(1/4) ≈ 31.6
+ *   1 part specified: 1000000 / 31.6   = 31,623 rows
+ *   2 parts:          1000000 / 31.6^2 = 1,000 rows
+ *   3 parts:          1000000 / 31.6^3 = 32 rows
+ *   4 parts (full):   1 row (UNIQUE)
+ *
+ * See also: NDB's ndb_index_stat_set_rpk (ha_ndb_index_stat.cc:2529).
+ */
 void ha_lineairdb::set_generic_rec_per_key(KEY *key, uint key_parts,
                                            bool is_primary) {
+  bool is_unique = (key->flags & HA_NOSAME);
+  // How much each additional key part narrows the result set
+  double per_part = std::max(2.0, std::pow(static_cast<double>(stats.records), 1.0 / key_parts));
+
   for (uint j = 0; j < key_parts; j++) {
-    ulong rpk;
-    if (is_primary && j == key_parts - 1) {
-      rpk = 1; // Last part of primary key is unique
+    ulong rpk; // records per key
+    if ((is_primary || is_unique) && j == key_parts - 1) {
+      // All parts specified on a UNIQUE/PK -> exactly 1 row
+      rpk = 1;
     } else {
-      rpk = static_cast<ulong>(
-          std::max(static_cast<ha_rows>(1), stats.records / ((j + 1) * 10)));
+      // per_part^(j+1) = total divisor for j+1 key parts
+      double selectivity = std::pow(per_part, static_cast<double>(j + 1));
+      rpk = static_cast<ulong>(std::max(1.0, static_cast<double>(stats.records) / selectivity));
     }
     key->rec_per_key[j] = rpk;
     key->set_records_per_key(j, static_cast<rec_per_key_t>(rpk));
@@ -1462,6 +1694,15 @@ int ha_lineairdb::rename_table(const char *, const char *, const dd::Table *,
 
   Called from opt_range.cc by check_quick_keys().
 
+  @note
+  MySQL passes WHERE conditions as min_key / max_key:
+    - Equality (WHERE col=1):        min_key == max_key (same bytes)
+    - Range (WHERE col BETWEEN 1,5): min_key != max_key
+
+  We compare min_key and max_key byte-by-byte per key part to detect
+  how many leading columns are equality conditions, then use rec_per_key
+  for that depth. See NDB's records_in_range (ha_ndbcluster.cc:12861).
+
   @see
   check_quick_keys() in opt_range.cc
 */
@@ -1469,46 +1710,106 @@ ha_rows ha_lineairdb::records_in_range(uint inx, key_range *min_key,
                                        key_range *max_key) {
   DBUG_TRACE;
 
+  // Guard: table metadata not available
   if (table == nullptr || table->s == nullptr) {
     return 10;
   }
 
+  // Get the index definition (inx = which index the optimizer is asking about)
   KEY *key = table->key_info + inx;
   if (key == nullptr) {
     return 10;
   }
 
+  // Total rows in this table (floor of 2 to avoid zero-cost estimates)
   ha_rows total_records = stats.records;
   if (total_records < 2)
     total_records = 2;
 
+  // No bounds at all -> full table scan
+  if (min_key == nullptr && max_key == nullptr) {
+    return total_records;
+  }
+
+  // Count how many key parts (columns) the query specifies
   uint key_parts_used = 0;
   if (min_key != nullptr) {
     key_parts_used = calculate_key_parts_from_length(key, min_key->length);
+  } else if (max_key != nullptr) {
+    key_parts_used = calculate_key_parts_from_length(key, max_key->length);
   }
 
+  // All columns of a UNIQUE/PK specified -> exactly 1 row
   if ((key->flags & HA_NOSAME) &&
       key_parts_used == key->user_defined_key_parts) {
     return 1;
   }
 
+  // No columns matched -> full scan
   if (key_parts_used == 0) {
     return total_records;
   }
 
-  ha_rows estimate;
-  if (key_parts_used - 1 < key->user_defined_key_parts) {
-    estimate = key->rec_per_key[key_parts_used - 1];
-  } else {
-    estimate = total_records / ((key_parts_used + 1) * 10);
+  // --- Equality prefix detection ---
+  // Compare min_key and max_key per column to find how many leading
+  // columns have equal values (= condition vs BETWEEN/range).
+  //
+  // Example: WHERE w=1 AND d=1 AND o_id BETWEEN 100 AND 200
+  //   min = [1][1][100], max = [1][1][200]
+  //     col 0: 1==1     -> eq
+  //     col 1: 1==1     -> eq
+  //     col 2: 100!=200 -> neq
+  //   -> eq_parts = 2
+  uint eq_parts = 0;
+  if (min_key != nullptr && max_key != nullptr) {
+    uint cmp_len = std::min(min_key->length, max_key->length);
+    uint consumed = 0; // byte offset into key buffer
+    for (uint p = 0; p < key->user_defined_key_parts && consumed < cmp_len; p++) {
+      uint part_len = key->key_part[p].store_length;
+      if (consumed + part_len > cmp_len)
+        break;
+      if (memcmp(min_key->key + consumed, max_key->key + consumed, part_len) == 0) {
+        eq_parts++;
+        consumed += part_len;
+      } else {
+        break; // This column differs -> range condition from here
+      }
+    }
+  } else if (min_key != nullptr) {
+    // One-sided: only min_key given. If exact match flag, treat as equality.
+    if (min_key->flag == HA_READ_KEY_EXACT ||
+        min_key->flag == HA_READ_KEY_OR_NEXT) {
+      eq_parts = key_parts_used;
+    }
   }
 
+  // --- Estimate row count ---
+  ha_rows estimate;
+  if (eq_parts > 0) {
+    // Use rec_per_key at the equality depth
+    uint rpk_idx = eq_parts - 1; // 0-based array index
+    if (rpk_idx < key->user_defined_key_parts) {
+      estimate = static_cast<ha_rows>(key->rec_per_key[rpk_idx]);
+    } else {
+      estimate = 1;
+    }
+    // Range conditions after equality prefix -> halve (NDB heuristic)
+    if (eq_parts < key_parts_used) {
+      estimate = std::max(static_cast<ha_rows>(1), estimate / 2);
+    }
+  } else {
+    // No equality at all -> pure range scan.
+    // Heuristic: two-sided range ~5%, one-sided ~10% (NDB fallback).
+    if (min_key != nullptr && max_key != nullptr) {
+      estimate = std::max(static_cast<ha_rows>(2), total_records / 20);
+    } else {
+      estimate = std::max(static_cast<ha_rows>(2), total_records / 10);
+    }
+  }
+
+  // Floor: always return at least 1 row to avoid zero-cost estimates
   if (estimate < 1)
     estimate = 1;
-
-  if (max_key == nullptr && min_key != nullptr && key_parts_used > 0) {
-    estimate = std::min(total_records, estimate * 2);
-  }
 
   return estimate;
 }

@@ -110,6 +110,11 @@ public:
 
   inline bool is_a_single_statement() const { return !isTransaction; }
 
+  // Predicate pushdown: serialized PushedPredicate protobuf
+  void set_pushed_filter(const std::string& s) { pushed_filter_ = s; }
+  const std::string& get_pushed_filter() const { return pushed_filter_; }
+  void clear_pushed_filter() { pushed_filter_.clear(); }
+
   void add_rowcount_delta(LineairDB_share *share, int64_t delta);
   int64_t peek_rowcount_delta(const LineairDB_share *share) const;
 
@@ -136,6 +141,9 @@ private:
   bool is_aborted_;
 
   std::vector<std::pair<LineairDB_share *, int64_t>> rowcount_deltas_;
+
+  // Predicate pushdown: serialized PushedPredicate for scan filtering
+  std::string pushed_filter_;
 
   // Write buffer for batch write operations
   static constexpr size_t WRITE_BATCH_SIZE = 100;

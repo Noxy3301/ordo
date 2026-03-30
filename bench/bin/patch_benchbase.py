@@ -240,9 +240,6 @@ def patch_tpch_hash_join():
     vastly faster than NLJ with PK lookups (1 RPC per row probe).  MySQL's
     optimizer doesn't model RPC cost, so it always prefers eq_ref (PK lookup).
     Adding USE INDEX () disables all index access, forcing hash join.
-
-    Also fixes Q19's implicit join with OR conditions to use explicit JOIN ON,
-    preventing cross join.
     """
     TPCH_TABLES = [
         'lineitem', 'orders', 'customer', 'supplier',
@@ -253,40 +250,6 @@ def patch_tpch_hash_join():
         BENCHBASE_SRC
         / "src/main/java/com/oltpbenchmark/benchmarks/tpch/procedures"
     )
-
-    # --- Q19 fix: implicit join with OR -> explicit JOIN ON ---
-    q19 = procedures_dir / "Q19.java"
-    q19_text = q19.read_text()
-    if "JOIN part" not in q19_text:
-        q19_old = (
-            "               lineitem,\n"
-            "               part\n"
-            "            WHERE\n"
-            "               (\n"
-            "                  p_partkey = l_partkey\n"
-            "                  AND p_brand = ?"
-        )
-        q19_new = (
-            "               lineitem\n"
-            "               JOIN part ON p_partkey = l_partkey\n"
-            "            WHERE\n"
-            "               (\n"
-            "                  p_brand = ?"
-        )
-        if q19_old in q19_text:
-            q19_text = q19_text.replace(q19_old, q19_new)
-            # Remove duplicate p_partkey = l_partkey from other OR branches
-            q19_text = q19_text.replace(
-                "                  p_partkey = l_partkey\n"
-                "                  AND p_brand = ?",
-                "                  p_brand = ?",
-            )
-            q19.write_text(q19_text)
-            print("  patched Q19.java (JOIN ON fix)")
-        else:
-            print("  WARNING: Q19.java anchor not found", file=sys.stderr)
-    else:
-        print("  Q19.java JOIN ON already patched")
 
     # --- USE INDEX () for all TPC-H queries ---
     # Only apply inside SQL text blocks, only in FROM/JOIN context.

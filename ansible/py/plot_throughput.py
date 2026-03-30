@@ -122,7 +122,9 @@ def main():
     write_summary_csv(throughput_root / "throughput_sum.csv", summary)
 
     if args.output is None:
-        args.output = throughput_root / f"throughput_plot-{config_name}.png"
+        plot_dir = config_root / "_plot"
+        plot_dir.mkdir(parents=True, exist_ok=True)
+        args.output = plot_dir / f"throughput_plot-{config_name}.png"
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
     plot_summary(summary, args.output, args.title)

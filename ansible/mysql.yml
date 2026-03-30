@@ -6,8 +6,14 @@
       shell: |
         cd ~/ordo
         ./scripts/stop_mysql.sh
+        git fetch origin
+        git checkout {{ ordo_branch | default('main') }}
         git pull --ff-only || true
         git submodule update --init --recursive || true
+        echo "Ordo($(git rev-parse --abbrev-ref HEAD)@$(git rev-parse --short HEAD)),"\
+             "LineairDB($(cd third_party/LineairDB && git rev-parse --abbrev-ref HEAD)@$(cd third_party/LineairDB && git rev-parse --short HEAD)),"\
+             "mysql-server($(cd third_party/mysql-server && git rev-parse --abbrev-ref HEAD)@$(cd third_party/mysql-server && git rev-parse --short HEAD)),"\
+             "benchbase($(cd third_party/benchbase && git rev-parse --abbrev-ref HEAD)@$(cd third_party/benchbase && git rev-parse --short HEAD))"
         ./scripts/build_partial.sh
         ./scripts/start_mysql.sh \
           --mysqld-port 3307 \

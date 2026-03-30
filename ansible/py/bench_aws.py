@@ -67,7 +67,7 @@ AWS_DEFAULTS = {
     # On-demand fallback params (extracted from launch template)
     "ami_id": "ami-03ce71439341a2e5f",
     "security_group": "sg-02d9a0d5948d02dbb",
-    "subnet": None,  # auto-assign if not specified
+    "subnet": "subnet-0a15ff55a4cae198b",  # ap-southeast-2c (same-AZ pinning)
 }
 
 # vCPU count for EC2 instance sizes (used to build machine_spec locally)
@@ -163,6 +163,15 @@ def _launch_role(role, cfg, args):
         "--count", str(cfg["count"]),
         "--instance-type", cfg["instance_type"],
     ]
+    if args.subnet:
+        base_cmd += ["--subnet-id", args.subnet]
+
+    def _number_instances(ids, base_tag, region):
+        """Tag instances with sequential names: tag-1, tag-2, ..."""
+        for i, iid in enumerate(ids, 1):
+            name = f"{base_tag}-{i}" if len(ids) > 1 else base_tag
+            aws(["ec2", "create-tags", "--resources", iid,
+                 "--tags", f"Key=Name,Value={name}"], region=region)
 
     if not args.on_demand:
         # Try spot first
@@ -174,6 +183,7 @@ def _launch_role(role, cfg, args):
             ] + tag_spec
             result = aws(spot_cmd, region=region)
             ids = [inst["InstanceId"] for inst in result.get("Instances", [])]
+            _number_instances(ids, cfg["tag"], region)
             log(f"  -> [spot] {ids}")
             return ids
         except RuntimeError as e:
@@ -198,6 +208,7 @@ def _launch_role(role, cfg, args):
         od_cmd += ["--subnet-id", args.subnet]
     result = aws(od_cmd + tag_spec, region=region)
     ids = [inst["InstanceId"] for inst in result.get("Instances", [])]
+    _number_instances(ids, cfg["tag"], region)
     log(f"  -> [on-demand] {ids}")
     return ids
 
@@ -276,16 +287,17 @@ def run_playbook(name, extra_vars=None, args=None):
     run(cmd)
 
 
-def deploy_infrastructure():
+def deploy_infrastructure(branch=None):
     """Deploy LineairDB, MySQL, HAProxy in parallel, then wait."""
     log("Deploying infrastructure (lineairdb + mysql + haproxy in parallel)...")
     inv = str(ANSIBLE_DIR / "inventory.ini")
+    extra = f' -e "ordo_branch={branch}"' if branch else ""
     # Write deploy logs alongside bench_aws.log
     deploy_log_dir = Path(LOG_FILE.name).parent if LOG_FILE else None
     procs = []
 
     for playbook in ["lineairdb.yml", "mysql.yml", "haproxy.yml"]:
-        cmd = f"ansible-playbook -i {inv} {ANSIBLE_DIR / playbook}"
+        cmd = f"ansible-playbook -i {inv} {ANSIBLE_DIR / playbook}{extra}"
         log(f"  $ {cmd}")
         if deploy_log_dir:
             pb_log = open(deploy_log_dir / f"{playbook.replace('.yml', '')}.log", "w")
@@ -341,6 +353,8 @@ def run_benchmarks(args, run_id):
     log("Plotting results...")
     run(f"python3 {SCRIPT_DIR / 'plot_throughput.py'} --root {result_root}", check=False)
     run(f"python3 {SCRIPT_DIR / 'plot_cpu.py'} --root {result_root}", check=False)
+    if args.bench_type == "tpcc":
+        run(f"python3 {SCRIPT_DIR / 'plot_tpcc.py'} --root {result_root}", check=False)
     if args.bench_type == "tpch":
         run(f"python3 {SCRIPT_DIR / 'plot_tpch.py'} --root {result_root}", check=False)
 
@@ -476,6 +490,7 @@ Examples:
     # Cluster topology overrides
     parser.add_argument("--mysql-count", type=int, default=None, help="Override MySQL node count")
     # Control options
+    parser.add_argument("--branch", default=None, help="Git branch to checkout on remote nodes (default: keep current)")
     parser.add_argument("--on-demand", action="store_true", help="Skip spot, launch all instances as on-demand")
     parser.add_argument("--cleanup-only", action="store_true", help="Only terminate instances, don't launch")
     parser.add_argument("--skip-cleanup", action="store_true", help="Don't terminate instances after benchmark")
@@ -535,7 +550,7 @@ Examples:
         wait_for_ssh(args)
 
         # Phase 4: Deploy + Benchmark
-        deploy_infrastructure()
+        deploy_infrastructure(branch=args.branch)
         run_benchmarks(args, run_id)
 
         elapsed = time.time() - start_time

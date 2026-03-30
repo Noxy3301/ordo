@@ -166,6 +166,13 @@ def _launch_role(role, cfg, args):
     if args.subnet:
         base_cmd += ["--subnet-id", args.subnet]
 
+    def _number_instances(ids, base_tag, region):
+        """Tag instances with sequential names: tag-1, tag-2, ..."""
+        for i, iid in enumerate(ids, 1):
+            name = f"{base_tag}-{i}" if len(ids) > 1 else base_tag
+            aws(["ec2", "create-tags", "--resources", iid,
+                 "--tags", f"Key=Name,Value={name}"], region=region)
+
     if not args.on_demand:
         # Try spot first
         log(f"Launching {cfg['count']}x {cfg['instance_type']} for {role} ({cfg['tag']}) [spot]...")
@@ -176,6 +183,7 @@ def _launch_role(role, cfg, args):
             ] + tag_spec
             result = aws(spot_cmd, region=region)
             ids = [inst["InstanceId"] for inst in result.get("Instances", [])]
+            _number_instances(ids, cfg["tag"], region)
             log(f"  -> [spot] {ids}")
             return ids
         except RuntimeError as e:
@@ -200,6 +208,7 @@ def _launch_role(role, cfg, args):
         od_cmd += ["--subnet-id", args.subnet]
     result = aws(od_cmd + tag_spec, region=region)
     ids = [inst["InstanceId"] for inst in result.get("Instances", [])]
+    _number_instances(ids, cfg["tag"], region)
     log(f"  -> [on-demand] {ids}")
     return ids
 
@@ -278,16 +287,17 @@ def run_playbook(name, extra_vars=None, args=None):
     run(cmd)
 
 
-def deploy_infrastructure():
+def deploy_infrastructure(branch=None):
     """Deploy LineairDB, MySQL, HAProxy in parallel, then wait."""
     log("Deploying infrastructure (lineairdb + mysql + haproxy in parallel)...")
     inv = str(ANSIBLE_DIR / "inventory.ini")
+    extra = f' -e "ordo_branch={branch}"' if branch else ""
     # Write deploy logs alongside bench_aws.log
     deploy_log_dir = Path(LOG_FILE.name).parent if LOG_FILE else None
     procs = []
 
     for playbook in ["lineairdb.yml", "mysql.yml", "haproxy.yml"]:
-        cmd = f"ansible-playbook -i {inv} {ANSIBLE_DIR / playbook}"
+        cmd = f"ansible-playbook -i {inv} {ANSIBLE_DIR / playbook}{extra}"
         log(f"  $ {cmd}")
         if deploy_log_dir:
             pb_log = open(deploy_log_dir / f"{playbook.replace('.yml', '')}.log", "w")
@@ -478,6 +488,7 @@ Examples:
     # Cluster topology overrides
     parser.add_argument("--mysql-count", type=int, default=None, help="Override MySQL node count")
     # Control options
+    parser.add_argument("--branch", default=None, help="Git branch to checkout on remote nodes (default: keep current)")
     parser.add_argument("--on-demand", action="store_true", help="Skip spot, launch all instances as on-demand")
     parser.add_argument("--cleanup-only", action="store_true", help="Only terminate instances, don't launch")
     parser.add_argument("--skip-cleanup", action="store_true", help="Don't terminate instances after benchmark")
@@ -537,7 +548,7 @@ Examples:
         wait_for_ssh(args)
 
         # Phase 4: Deploy + Benchmark
-        deploy_infrastructure()
+        deploy_infrastructure(branch=args.branch)
         run_benchmarks(args, run_id)
 
         elapsed = time.time() - start_time

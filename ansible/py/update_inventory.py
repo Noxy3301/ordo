@@ -50,7 +50,10 @@ def build_inventory(instances, args, header_lines=None, group_order=None):
             continue
         prefix = role["prefix"]
         tag = role["tag"]
-        entries = by_tag.get(tag, [])
+        entries = []
+        for t, insts in by_tag.items():
+            if t == tag or t.startswith(tag + "-"):
+                entries.extend(insts)
         entries.sort(key=lambda item: item.get("PrivIP") or "")
         if lines and lines[-1] != "":
             lines.append("")
@@ -126,7 +129,9 @@ def main():
     filters = ["Name=instance-state-name,Values=running"]
     if args.project_tag:
         filters.append(f"Name=tag:Project,Values={args.project_tag}")
-    filters.append("Name=tag:Name,Values=" + ",".join(tags))
+    # Use wildcard to match both "ordo-mysql" and "ordo-mysql-1" etc.
+    tag_patterns = [f"{t},{t}-*" for t in tags]
+    filters.append("Name=tag:Name,Values=" + ",".join(tag_patterns))
 
     cmd = [
         "aws",

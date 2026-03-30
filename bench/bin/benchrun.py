@@ -320,6 +320,34 @@ def main():
             f.write(f"{r['terminals']},{r.get('throughput',0):.1f},{r.get('goodput',0):.1f},{r.get('server_retry',0)},{r.get('unexpected_errors',0)},{r.get('load_time','')}\n")
     print(f"\nResults saved: {csv_path}")
 
+    # Generate plot if more than one data point
+    if len(all_results) > 1:
+        try:
+            import matplotlib
+            matplotlib.use("Agg")
+            import matplotlib.pyplot as plt
+
+            terminals = [r["terminals"] for r in all_results]
+            throughput = [r.get("throughput", 0) for r in all_results]
+            goodput = [r.get("goodput", 0) for r in all_results]
+
+            fig, ax = plt.subplots(figsize=(10, 6))
+            ax.plot(terminals, throughput, "b-o", label="Throughput")
+            ax.plot(terminals, goodput, "g-o", label="Goodput")
+            ax.set_xlabel("Terminals")
+            ax.set_ylabel("req/s")
+            ax.set_title(f"{args.benchmark.upper()} SF={args.scalefactor}")
+            ax.legend()
+            ax.grid(True, alpha=0.3)
+
+            plot_path = result_base / "summary_plot.png"
+            plt.tight_layout()
+            plt.savefig(plot_path, dpi=150)
+            plt.close()
+            print(f"Plot saved: {plot_path}")
+        except ImportError:
+            pass
+
 
 if __name__ == "__main__":
     main()

@@ -236,7 +236,7 @@ def main():
         query_latencies[r["query"]].append(r["latency_us"] / 1000.0)
 
     # Output directory
-    out_dir = args.output_dir or config_root / "tpch"
+    out_dir = args.output_dir or config_root / "_plot"
     out_dir.mkdir(parents=True, exist_ok=True)
 
     # Write CSV summary

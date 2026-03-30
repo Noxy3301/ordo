@@ -353,6 +353,8 @@ def run_benchmarks(args, run_id):
     log("Plotting results...")
     run(f"python3 {SCRIPT_DIR / 'plot_throughput.py'} --root {result_root}", check=False)
     run(f"python3 {SCRIPT_DIR / 'plot_cpu.py'} --root {result_root}", check=False)
+    if args.bench_type == "tpcc":
+        run(f"python3 {SCRIPT_DIR / 'plot_tpcc.py'} --root {result_root}", check=False)
     if args.bench_type == "tpch":
         run(f"python3 {SCRIPT_DIR / 'plot_tpch.py'} --root {result_root}", check=False)
 

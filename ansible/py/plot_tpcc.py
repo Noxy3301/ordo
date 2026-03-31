@@ -75,17 +75,13 @@ def extract_bench_data(config_root: Path):
                             continue
 
                         data_rows = rows[:-1] if len(rows) > 2 else rows
-                        avg_lat = np.mean([float(r["Average Latency (millisecond)"]) for r in data_rows])
-                        p25_lat = np.mean([float(r["25th Percentile Latency (millisecond)"]) for r in data_rows])
                         p50_lat = np.mean([float(r["Median Latency (millisecond)"]) for r in data_rows])
-                        p75_lat = np.mean([float(r["75th Percentile Latency (millisecond)"]) for r in data_rows])
+                        p95_lat = np.mean([float(r["95th Percentile Latency (millisecond)"]) for r in data_rows])
                         p99_lat = np.mean([float(r["99th Percentile Latency (millisecond)"]) for r in data_rows])
 
                         results.setdefault(terminals, {})[tx] = {
-                            "avg": avg_lat,
-                            "p25": p25_lat,
                             "p50": p50_lat,
-                            "p75": p75_lat,
+                            "p95": p95_lat,
                             "p99": p99_lat,
                         }
 
@@ -100,24 +96,21 @@ def plot_latency(results, config_root: Path, output_dir: Path):
     terminals = sorted(results.keys())
     machine_spec = config_root.name
 
-    # --- Latency distribution (p25/p50/p75/p99), shared y-axis ---
+    # --- Latency distribution (p50/p95/p99), shared y-axis ---
     fig, axes = plt.subplots(1, len(TX_TYPES), figsize=(20, 5), sharey=True)
 
     for i, tx in enumerate(TX_TYPES):
         ax = axes[i]
-        p25 = [results[t].get(tx, {}).get("p25", 0) for t in terminals]
         p50 = [results[t].get(tx, {}).get("p50", 0) for t in terminals]
-        p75 = [results[t].get(tx, {}).get("p75", 0) for t in terminals]
+        p95 = [results[t].get(tx, {}).get("p95", 0) for t in terminals]
         p99 = [results[t].get(tx, {}).get("p99", 0) for t in terminals]
         color = TX_COLORS[tx]
 
-        # p25-p75 band (IQR)
-        ax.fill_between(terminals, p25, p75, alpha=0.15, color=color, label="p25-p75")
-        # p50-p99 band
-        ax.fill_between(terminals, p50, p99, alpha=0.08, color=color, label="p50-p99")
-        # Lines
+        ax.fill_between(terminals, p50, p95, alpha=0.15, color=color)
+        ax.fill_between(terminals, p95, p99, alpha=0.08, color=color)
         ax.plot(terminals, p50, "o-", color=color, linewidth=2, markersize=4, label="p50")
-        ax.plot(terminals, p99, "s--", color=color, linewidth=1, markersize=4, alpha=0.6, label="p99")
+        ax.plot(terminals, p95, "^-", color=color, linewidth=1, markersize=3, alpha=0.7, label="p95")
+        ax.plot(terminals, p99, "s--", color=color, linewidth=1, markersize=3, alpha=0.5, label="p99")
 
         ax.set_title(tx, fontweight="bold")
         ax.set_xlabel("Terminals")

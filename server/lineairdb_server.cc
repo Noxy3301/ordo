@@ -20,7 +20,7 @@ void LineairDBServer::handle_client(int client_socket) {
     LOG_INFO("Handling client connection fd=%d", client_socket);
     // Per-connection managers
     auto tx_manager = std::make_shared<TransactionManager>();
-    auto rpc_handler = std::make_shared<LineairDBRpc>(db_manager_, tx_manager);
+    auto rpc_handler = std::make_shared<LineairDBRpc>(db_manager_, tx_manager, row_counts_);
 
     while (true) {
         uint64_t sender_id;

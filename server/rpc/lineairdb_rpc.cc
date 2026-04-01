@@ -9,8 +9,9 @@
 #include "lineairdb.pb.h"
 
 LineairDBRpc::LineairDBRpc(std::shared_ptr<DatabaseManager> db_manager,
-                           std::shared_ptr<TransactionManager> tx_manager)
-    : db_manager_(db_manager), tx_manager_(tx_manager) {
+                           std::shared_ptr<TransactionManager> tx_manager,
+                           std::shared_ptr<TableRowCounts> row_counts)
+    : db_manager_(db_manager), tx_manager_(tx_manager), row_counts_(row_counts) {
 }
 
 void LineairDBRpc::handle_rpc(uint64_t sender_id, MessageType message_type,
@@ -132,6 +133,14 @@ void LineairDBRpc::handleTxBeginTransaction(const std::string& message, std::str
     tx_manager_->store_transaction(tx_id, &tx);
 
     response.set_transaction_id(tx_id);
+
+    // Piggyback current table row counts so proxy has fresh stats.
+    for (const auto& [name, count] : row_counts_->snapshot()) {
+        auto* ts = response.add_table_stats();
+        ts->set_table_name(name);
+        ts->set_row_count(count);
+    }
+
     result = response.SerializeAsString();
 
     LOG_DEBUG("Created transaction: %ld", tx_id);
@@ -1065,7 +1074,19 @@ void LineairDBRpc::handleDbEndTransaction(const std::string& message, std::strin
         bool aborted = !committed;
         response.set_is_aborted(aborted);
         tx_manager_->remove_transaction(tx_id);
+
+        // Apply row-count deltas on successful commit
+        if (committed && request.row_deltas_size() > 0) {
+            row_counts_->apply_deltas(request.row_deltas());
+        }
+
         LOG_DEBUG("Ended transaction %ld with fence=%s (committed=%s)", tx_id, fence ? "true" : "false", committed ? "true" : "false");
+        // Piggyback updated table row counts for the proxy's next transaction.
+        for (const auto& [name, count] : row_counts_->snapshot()) {
+            auto* ts = response.add_table_stats();
+            ts->set_table_name(name);
+            ts->set_row_count(count);
+        }
     } else {
         response.set_is_aborted(true);
         LOG_WARNING("Transaction not found for end: %ld", tx_id);

@@ -98,7 +98,14 @@ int64_t LineairDBProxy::tx_begin_transaction() {
         return -1;
     }
 
-    LOG_DEBUG("CLIENT: tx_begin_transaction completed, tx_id: %ld", response.transaction_id());
+    // Cache table row counts from server for optimizer stats.
+    table_stats_cache_.clear();
+    for (const auto& ts : response.table_stats()) {
+        table_stats_cache_[ts.table_name()] = ts.row_count();
+    }
+
+    LOG_DEBUG("CLIENT: tx_begin_transaction completed, tx_id: %ld, table_stats: %zu",
+              response.transaction_id(), table_stats_cache_.size());
     return response.transaction_id();
 }
 
@@ -923,8 +930,10 @@ bool LineairDBProxy::db_create_secondary_index(const std::string& table_name,
     return response.success();
 }
 
-bool LineairDBProxy::db_end_transaction(int64_t tx_id, bool isFence) {
-    LOG_DEBUG("CLIENT: db_end_transaction called with tx_id=%ld, fence=%s", tx_id, isFence ? "true" : "false");
+bool LineairDBProxy::db_end_transaction(int64_t tx_id, bool isFence,
+                                        const std::vector<std::pair<std::string, int64_t>>& row_deltas) {
+    LOG_DEBUG("CLIENT: db_end_transaction (with row_deltas) called with tx_id=%ld, fence=%s, deltas=%zu",
+              tx_id, isFence ? "true" : "false", row_deltas.size());
     if (!connected_) {
         LOG_ERROR("RPC failed: Not connected to server");
         return false;
@@ -935,14 +944,24 @@ bool LineairDBProxy::db_end_transaction(int64_t tx_id, bool isFence) {
 
     request.set_transaction_id(tx_id);
     request.set_fence(isFence);
-    LOG_DEBUG("CLIENT: Created end_transaction request");
+    for (const auto& [table, delta] : row_deltas) {
+        auto* rd = request.add_row_deltas();
+        rd->set_table_name(table);
+        rd->set_delta(delta);
+    }
 
     if (!send_protobuf_message(request, response, MessageType::DB_END_TRANSACTION)) {
         LOG_ERROR("RPC failed: Failed to send message to server");
         return false;
     }
 
-    LOG_DEBUG("CLIENT: db_end_transaction completed");
+    // Cache updated table row counts for next transaction.
+    table_stats_cache_.clear();
+    for (const auto& ts : response.table_stats()) {
+        table_stats_cache_[ts.table_name()] = ts.row_count();
+    }
+
+    LOG_DEBUG("CLIENT: db_end_transaction (with row_deltas) completed");
     return !response.is_aborted();
 }
 

@@ -257,17 +257,18 @@ LineairDBTransaction::fetch_last_secondary_entry_in_range(const std::string &ind
 // Row count delta tracking
 
 void LineairDBTransaction::add_rowcount_delta(LineairDB_share *share,
+                                              const std::string &table_name,
                                               int64_t delta) {
   if (share == nullptr || delta == 0) return;
 
   for (auto &entry : rowcount_deltas_) {
-    if (entry.first == share) {
-      entry.second += delta;
+    if (entry.share == share) {
+      entry.delta += delta;
       return;
     }
   }
 
-  rowcount_deltas_.push_back({share, delta});
+  rowcount_deltas_.push_back({share, table_name, delta});
 }
 
 int64_t
@@ -275,8 +276,8 @@ LineairDBTransaction::peek_rowcount_delta(const LineairDB_share *share) const {
   if (share == nullptr) return 0;
 
   for (const auto &entry : rowcount_deltas_) {
-    if (entry.first == share)
-      return entry.second;
+    if (entry.share == share)
+      return entry.delta;
   }
 
   return 0;
@@ -347,26 +348,34 @@ bool LineairDBTransaction::end_transaction() {
   assert(tx_id != -1);
   flush_write_buffer();
   bool was_aborted = is_aborted_;
-  bool committed = lineairdb_proxy->db_end_transaction(tx_id, isFence);
+
+  // Build row-delta pairs for the server (table_name, delta).
+  std::vector<std::pair<std::string, int64_t>> server_deltas;
+  if (!was_aborted && !rowcount_deltas_.empty()) {
+    server_deltas.reserve(rowcount_deltas_.size());
+    for (const auto &entry : rowcount_deltas_) {
+      if (entry.share != nullptr && entry.delta != 0)
+        server_deltas.emplace_back(entry.table_name, entry.delta);
+    }
+  }
+
+  bool committed = lineairdb_proxy->db_end_transaction(tx_id, isFence, server_deltas);
   if (!committed) {
     thd_mark_transaction_to_rollback(thread, 1);
   }
 
-  // Flush committed row-count deltas only when commit succeeds.
-  // Avoid touching shared counters on abort/rollback paths.
+  // Flush committed row-count deltas to local shards (for this proxy's info()).
   if (!was_aborted && committed && !rowcount_deltas_.empty()) {
     const uint64_t tid = static_cast<uint64_t>(thread->thread_id());
     const size_t shard =
         static_cast<size_t>(tid) & (LineairDB_share::kRowCountShards - 1);
 
     for (const auto &entry : rowcount_deltas_) {
-      LineairDB_share *share = entry.first;
-      const int64_t delta = entry.second;
-      if (share == nullptr || delta == 0)
+      if (entry.share == nullptr || entry.delta == 0)
         continue;
 
-      share->rowcount_shards[shard].delta.fetch_add(
-          delta, std::memory_order_relaxed);
+      entry.share->rowcount_shards[shard].delta.fetch_add(
+          entry.delta, std::memory_order_relaxed);
     }
   }
 

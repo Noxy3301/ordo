@@ -526,7 +526,7 @@ int ha_lineairdb::write_row(uchar *buf) {
     return HA_ERR_LOCK_DEADLOCK;
   }
 
-  tx->add_rowcount_delta(share, +1);
+  tx->add_rowcount_delta(share, db_table_name, +1);
 
   return 0;
 }
@@ -642,7 +642,7 @@ int ha_lineairdb::delete_row(const uchar *buf) {
     }
   }
 
-  tx->add_rowcount_delta(share, -1);
+  tx->add_rowcount_delta(share, db_table_name, -1);
 
   return 0;
 }

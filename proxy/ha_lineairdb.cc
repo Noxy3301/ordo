@@ -1954,13 +1954,11 @@ bool ha_lineairdb::inplace_alter_table(TABLE *altered_table [[maybe_unused]],
 
     uint index_type = (key_info->flags & HA_NOSAME) ? DICT_UNIQUE : 0;
 
-    bool is_successful = proxy->db_create_secondary_index(
+    // In a disaggregated setup, another MySQL node may have already created
+    // this secondary index on the shared LineairDB server. Treat "already
+    // exists" as success — the MySQL-side metadata still needs to be updated.
+    proxy->db_create_secondary_index(
         db_table_name, std::string(key_info->name), index_type);
-
-    if (!is_successful) {
-      my_error(ER_DUP_KEYNAME, MYF(0), key_info->name);
-      return true;
-    }
   }
 
   return false;

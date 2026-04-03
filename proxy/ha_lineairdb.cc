@@ -526,7 +526,7 @@ int ha_lineairdb::write_row(uchar *buf) {
     return HA_ERR_LOCK_DEADLOCK;
   }
 
-  tx->add_rowcount_delta(share, +1);
+  tx->add_rowcount_delta(share, db_table_name, +1);
 
   return 0;
 }
@@ -642,7 +642,7 @@ int ha_lineairdb::delete_row(const uchar *buf) {
     }
   }
 
-  tx->add_rowcount_delta(share, -1);
+  tx->add_rowcount_delta(share, db_table_name, -1);
 
   return 0;
 }
@@ -1300,6 +1300,28 @@ int ha_lineairdb::info(uint flag) {
   }
 
   if (flag & (HA_STATUS_VARIABLE | HA_STATUS_CONST)) {
+    // If stats_base_records is still 0, try to sync from proxy cache.
+    // This covers the case where info() is called before external_lock()
+    // (e.g., BenchBase catalog refresh, SHOW TABLE STATUS).
+    if (share->stats_base_records.load(std::memory_order_relaxed) == 0 &&
+        !db_table_name.empty()) {
+      THD *thd = ha_thd();
+      if (thd != nullptr) {
+        LineairDBThdCtx *ctx =
+            *reinterpret_cast<LineairDBThdCtx **>(thd_ha_data(thd, lineairdb_hton));
+        if (ctx != nullptr && ctx->proxy) {
+          const auto &stats_cache = ctx->proxy->cached_table_stats();
+          auto it = stats_cache.find(db_table_name);
+          if (it != stats_cache.end() && it->second > 0) {
+            share->stats_base_records.store(
+                static_cast<uint64_t>(it->second), std::memory_order_relaxed);
+            for (auto &shard : share->rowcount_shards)
+              shard.delta.store(0, std::memory_order_relaxed);
+          }
+        }
+      }
+    }
+
     int64_t delta_sum = 0;
     for (const auto &shard : share->rowcount_shards) {
       delta_sum += shard.delta.load(std::memory_order_relaxed);
@@ -1461,14 +1483,26 @@ int ha_lineairdb::external_lock(THD *thd, int lock_type) {
   }
 
   // get_transaction() will automatically start the transaction if needed
-  // Avoid starting a new transaction on unlock, which can trip rollback
-  // asserts.
   (void)get_transaction(thd);
 
-  // Note: Transaction is already started in get_transaction()
-  // This is intentional to handle cases where MySQL optimizer
-  // calls index_read_map() before external_lock() (e.g., semi-join
-  // optimization)
+  // Stats sync: apply cached table row counts from the server (received
+  // in BEGIN/END responses) so the optimizer sees correct cardinalities.
+  // The server count is authoritative (includes all committed deltas from
+  // all proxies), so we reset local counters to avoid double-counting.
+  if (share != nullptr && !db_table_name.empty()) {
+    auto *proxy = get_proxy();
+    if (proxy != nullptr) {
+      const auto &stats = proxy->cached_table_stats();
+      auto it = stats.find(db_table_name);
+      if (it != stats.end() && it->second > 0) {
+        share->stats_base_records.store(
+            static_cast<uint64_t>(it->second), std::memory_order_relaxed);
+        // Reset local counters: server count already includes our committed deltas.
+        for (auto &shard : share->rowcount_shards)
+          shard.delta.store(0, std::memory_order_relaxed);
+      }
+    }
+  }
 
   return 0;
 }
@@ -1920,13 +1954,11 @@ bool ha_lineairdb::inplace_alter_table(TABLE *altered_table [[maybe_unused]],
 
     uint index_type = (key_info->flags & HA_NOSAME) ? DICT_UNIQUE : 0;
 
-    bool is_successful = proxy->db_create_secondary_index(
+    // In a disaggregated setup, another MySQL node may have already created
+    // this secondary index on the shared LineairDB server. Treat "already
+    // exists" as success — the MySQL-side metadata still needs to be updated.
+    proxy->db_create_secondary_index(
         db_table_name, std::string(key_info->name), index_type);
-
-    if (!is_successful) {
-      my_error(ER_DUP_KEYNAME, MYF(0), key_info->name);
-      return true;
-    }
   }
 
   return false;

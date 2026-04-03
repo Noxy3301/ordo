@@ -60,10 +60,13 @@ message SecondaryIndexEntry {
 }
 
 // Begin a new transaction. Returns a server-assigned transaction ID.
+// Response includes current row counts for all tables so proxies can
+// feed accurate cardinalities to the MySQL optimizer.
 message TxBeginTransaction {
     message Request {}
     message Response {
         int64 transaction_id = 1;
+        repeated TableRowCount table_stats = 2;
     }
 }
 
@@ -152,15 +155,32 @@ message DbFence {
     message Response {}
 }
 
+// Row-count delta reported by proxy on commit (piggybacked on EndTransaction).
+message TableRowDelta {
+    string table_name = 1;
+    int64 delta = 2;
+}
+
+// Snapshot of a single table's row count, returned by server in BEGIN/END.
+message TableRowCount {
+    string table_name = 1;
+    int64 row_count = 2;
+}
+
 // Commit or abort a transaction.
 // @param fence  If true, block until the transaction is durably committed.
+// @param row_deltas  Row-count changes accumulated during this transaction.
+//   Server applies these only on successful commit and returns updated
+//   table_stats in the response for the proxy's next transaction.
 message DbEndTransaction {
     message Request {
         int64 transaction_id = 1;
         bool fence = 2;
+        repeated TableRowDelta row_deltas = 3;
     }
     message Response {
         bool is_aborted = 1;
+        repeated TableRowCount table_stats = 2;
     }
 }
 

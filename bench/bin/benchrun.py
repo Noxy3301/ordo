@@ -496,6 +496,9 @@ def main():
     parser.add_argument("--mysql-port", type=int, default=3307)
     parser.add_argument("--loader-threads", type=int, default=1, help="Number of parallel loader threads (default: 1)")
     parser.add_argument("--exclude-queries", type=str, help="TPC-H: comma-separated query numbers to exclude (e.g. 15,21)")
+    parser.add_argument("--no-setup", action="store_true", help="Skip setup (DROP+CREATE+LOAD), assume data exists")
+    parser.add_argument("--no-load", action="store_true", help="Run setup with CREATE only, skip LOAD")
+    parser.add_argument("--no-exec", action="store_true", help="Run setup only, skip execute phase")
     args = parser.parse_args()
 
     # Validate
@@ -516,8 +519,16 @@ def main():
     config_work = config_dir / f"{args.benchmark}.run.xml"
     shutil.copy2(config_src, config_work)
 
-    # Update config
+    # Update config: scalefactor, time, and JDBC URL (host:port)
     update_xml(config_work, scalefactor=str(args.scalefactor), time=str(args.time))
+    # Rewrite JDBC URL to match --mysql-host/--mysql-port
+    text = config_work.read_text()
+    text = re.sub(
+        r"jdbc:mysql://[^/]+/",
+        f"jdbc:mysql://{args.mysql_host}:{args.mysql_port}/",
+        text,
+    )
+    config_work.write_text(text)
     # TPC-H with multiple terminals needs parallel mode (serial=false + time tag)
     if args.benchmark == "tpch" and (args.sweep or args.terminals > 1):
         text = config_work.read_text()
@@ -539,7 +550,6 @@ def main():
         exclude_set = {int(q.strip()) for q in args.exclude_queries.split(",")}
         text = config_work.read_text()
         # TPC-H has 22 queries, weights is "1,1,...,1" (22 values)
-        import re
         match = re.search(r"<weights>([\d,]+)</weights>", text)
         if match:
             weights = match.group(1).split(",")
@@ -573,11 +583,29 @@ def main():
     print(f"SF={args.scalefactor}, Time={args.time}s, MySQL={args.mysql_host}:{args.mysql_port}")
     print(f"Results:   {result_base}")
 
-    # Setup: create schema + load data (once)
-    load_time = setup_benchmark(args.benchmark, config_work, args.mysql_host, args.mysql_port)
-    if load_time is None:
-        print("Setup failed.", file=sys.stderr)
-        sys.exit(1)
+    # Setup phase
+    load_time = None
+    if args.no_setup:
+        print("  Skipping setup (--no-setup)")
+        load_time = 0
+    elif args.no_load:
+        print("  Setup: CREATE only (--no-load)")
+        db_name = "benchbase"
+        # Create DB if it doesn't exist, but don't DROP (preserves stats/share state).
+        mysql_cmd(args.mysql_port, args.mysql_host, f"CREATE DATABASE IF NOT EXISTS {db_name};")
+        result = run_benchbase(args.benchmark, config_work, create=True, load=False, execute=False)
+        if result.returncode != 0:
+            print(f"  WARNING: CREATE had errors (may be OK for shared-storage)")
+        load_time = 0
+    else:
+        load_time = setup_benchmark(args.benchmark, config_work, args.mysql_host, args.mysql_port)
+        if load_time is None:
+            print("Setup failed.", file=sys.stderr)
+            sys.exit(1)
+
+    if args.no_exec:
+        print("  Skipping execute (--no-exec)")
+        return
 
     # Execute: sweep terminal counts (data is reused)
     all_results = []

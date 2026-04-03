@@ -198,10 +198,17 @@ public:
                                    uint32_t index_type);
 
     // database operations
-    bool db_end_transaction(int64_t tx_id, bool isFence);
+    bool db_end_transaction(int64_t tx_id, bool isFence,
+                            const std::vector<std::pair<std::string, int64_t>>& row_deltas = {});
     void db_fence();
 
+    // statistics: cached table row counts, refreshed on BEGIN/END
+    const std::unordered_map<std::string, int64_t>& cached_table_stats() const {
+        return table_stats_cache_;
+    }
+
 private:
+    std::unordered_map<std::string, int64_t> table_stats_cache_;
     template<typename RequestType, typename ResponseType>
     bool send_protobuf_message(const RequestType& request, ResponseType& response, MessageType message_type);
     // Send protobuf request, receive raw binary response

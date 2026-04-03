@@ -115,7 +115,7 @@ public:
   const std::string& get_pushed_filter() const { return pushed_filter_; }
   void clear_pushed_filter() { pushed_filter_.clear(); }
 
-  void add_rowcount_delta(LineairDB_share *share, int64_t delta);
+  void add_rowcount_delta(LineairDB_share *share, const std::string &table_name, int64_t delta);
   int64_t peek_rowcount_delta(const LineairDB_share *share) const;
 
 
@@ -140,7 +140,12 @@ private:
   // transaction abort status (updated by RPC responses)
   bool is_aborted_;
 
-  std::vector<std::pair<LineairDB_share *, int64_t>> rowcount_deltas_;
+  struct RowCountDelta {
+    LineairDB_share *share;
+    std::string table_name;
+    int64_t delta;
+  };
+  std::vector<RowCountDelta> rowcount_deltas_;
 
   // Predicate pushdown: serialized PushedPredicate for scan filtering
   std::string pushed_filter_;

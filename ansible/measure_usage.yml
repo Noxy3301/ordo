@@ -197,13 +197,10 @@
       shell: |
         mkdir -p {{ sample_dir }}
         nohup bash -c '
-        while true; do
-          pid=$(pgrep -f "java.*benchbase" | head -n1 || true)
-          if [ -n "$pid" ]; then
-            pidstat -u -p "$pid" {{ sample_interval }} 1 2>/dev/null | tail -1
-          fi
-          sleep {{ sample_interval }}
-        done' > {{ sample_dir }}/pidstat-bench-{{ run_id }}.log 2>&1 &
+        while ! pgrep -f "[b]enchbase.jar" > /dev/null 2>&1; do sleep 1; done
+        pid=$(pgrep -f "[b]enchbase.jar" | head -n1)
+        pidstat -u -w -p "$pid" {{ sample_interval }}
+        ' > {{ sample_dir }}/pidstat-bench-{{ run_id }}.log 2>&1 &
         echo $! > {{ sample_dir }}/pidstat-bench-{{ run_id }}.pid
       args:
         executable: /bin/bash
@@ -229,6 +226,49 @@
         echo $! > {{ sample_dir }}/vmstat-{{ run_id }}.pid
       args:
         executable: /bin/bash
+
+- hosts: mysql
+  gather_facts: false
+  vars:
+    run_id: "run"
+    sample_dir: /tmp/metrics
+  tasks:
+    - name: Capture MySQL diagnostics BEFORE benchmark (pre)
+      shell: |
+        MYSQL=~/ordo/build/runtime_output_directory/mysql
+        OUT={{ sample_dir }}/mysql-diag-pre-{{ run_id }}.txt
+        mkdir -p {{ sample_dir }}
+        {
+          echo "=== SHOW TABLE STATUS ==="
+          $MYSQL -u root --protocol=TCP -h 127.0.0.1 -P 3307 benchbase \
+            -e "SHOW TABLE STATUS"
+          echo ""
+          echo "=== SHOW INDEX (all tables) ==="
+          for tbl in warehouse district customer history item new_order oorder order_line stock; do
+            echo "--- $tbl ---"
+            $MYSQL -u root --protocol=TCP -h 127.0.0.1 -P 3307 benchbase \
+              -e "SHOW INDEX FROM $tbl"
+          done
+          echo ""
+          echo "=== EXPLAIN Delivery (customer lookup) ==="
+          $MYSQL -u root --protocol=TCP -h 127.0.0.1 -P 3307 benchbase \
+            -e "EXPLAIN SELECT c_id, c_balance, c_delivery_cnt FROM customer WHERE c_w_id=1 AND c_d_id=1 AND c_id=1"
+          echo ""
+          echo "=== EXPLAIN Payment by name ==="
+          $MYSQL -u root --protocol=TCP -h 127.0.0.1 -P 3307 benchbase \
+            -e "EXPLAIN SELECT c_id FROM customer WHERE c_w_id=1 AND c_d_id=1 AND c_last='BARBARBAR' ORDER BY c_first"
+          echo ""
+          echo "=== EXPLAIN StockLevel ==="
+          $MYSQL -u root --protocol=TCP -h 127.0.0.1 -P 3307 benchbase \
+            -e "EXPLAIN SELECT COUNT(DISTINCT s_i_id) FROM order_line, stock WHERE ol_w_id=1 AND ol_d_id=1 AND ol_o_id BETWEEN 1 AND 100 AND s_w_id=1 AND s_i_id=ol_i_id AND s_quantity<10"
+          echo ""
+          echo "=== LineairDB server variables ==="
+          $MYSQL -u root --protocol=TCP -h 127.0.0.1 -P 3307 \
+            -e "SHOW VARIABLES LIKE 'lineairdb%'"
+        } > "$OUT" 2>&1
+      args:
+        executable: /bin/bash
+      failed_when: false
 
 - import_playbook: measure.yml
 
@@ -396,6 +436,43 @@
         executable: /bin/bash
       failed_when: false
 
+    - name: Capture MySQL diagnostics AFTER benchmark (post)
+      when: inventory_hostname in groups['mysql']
+      shell: |
+        MYSQL=~/ordo/build/runtime_output_directory/mysql
+        OUT={{ sample_dir }}/mysql-diag-post-{{ run_id }}.txt
+        {
+          echo "=== SHOW TABLE STATUS ==="
+          $MYSQL -u root --protocol=TCP -h 127.0.0.1 -P 3307 benchbase \
+            -e "SHOW TABLE STATUS"
+          echo ""
+          echo "=== SHOW INDEX (all tables) ==="
+          for tbl in warehouse district customer history item new_order oorder order_line stock; do
+            echo "--- $tbl ---"
+            $MYSQL -u root --protocol=TCP -h 127.0.0.1 -P 3307 benchbase \
+              -e "SHOW INDEX FROM $tbl"
+          done
+          echo ""
+          echo "=== EXPLAIN Delivery (customer lookup) ==="
+          $MYSQL -u root --protocol=TCP -h 127.0.0.1 -P 3307 benchbase \
+            -e "EXPLAIN SELECT c_id, c_balance, c_delivery_cnt FROM customer WHERE c_w_id=1 AND c_d_id=1 AND c_id=1"
+          echo ""
+          echo "=== EXPLAIN Payment by name ==="
+          $MYSQL -u root --protocol=TCP -h 127.0.0.1 -P 3307 benchbase \
+            -e "EXPLAIN SELECT c_id FROM customer WHERE c_w_id=1 AND c_d_id=1 AND c_last='BARBARBAR' ORDER BY c_first"
+          echo ""
+          echo "=== EXPLAIN StockLevel ==="
+          $MYSQL -u root --protocol=TCP -h 127.0.0.1 -P 3307 benchbase \
+            -e "EXPLAIN SELECT COUNT(DISTINCT s_i_id) FROM order_line, stock WHERE ol_w_id=1 AND ol_d_id=1 AND ol_o_id BETWEEN 1 AND 100 AND s_w_id=1 AND s_i_id=ol_i_id AND s_quantity<10"
+          echo ""
+          echo "=== LineairDB server variables ==="
+          $MYSQL -u root --protocol=TCP -h 127.0.0.1 -P 3307 \
+            -e "SHOW VARIABLES LIKE 'lineairdb%'"
+        } > "$OUT" 2>&1
+      args:
+        executable: /bin/bash
+      failed_when: false
+
     - name: Fetch cpu logs
       when: inventory_hostname not in groups.get('haproxy', [])
       fetch:
@@ -490,6 +567,22 @@
         src: "{{ sample_dir }}/mysql-status-{{ run_id }}.txt"
         dest: "{{ result_dir }}/mysql/{{ inventory_hostname }}/"
         flat: yes
+
+    - name: Fetch MySQL diagnostics (pre)
+      when: inventory_hostname in groups['mysql']
+      fetch:
+        src: "{{ sample_dir }}/mysql-diag-pre-{{ run_id }}.txt"
+        dest: "{{ result_dir }}/mysql/{{ inventory_hostname }}/"
+        flat: yes
+      failed_when: false
+
+    - name: Fetch MySQL diagnostics (post)
+      when: inventory_hostname in groups['mysql']
+      fetch:
+        src: "{{ sample_dir }}/mysql-diag-post-{{ run_id }}.txt"
+        dest: "{{ result_dir }}/mysql/{{ inventory_hostname }}/"
+        flat: yes
+      failed_when: false
 
     - name: Fetch mysqld pidstat logs
       when: inventory_hostname in groups['mysql']

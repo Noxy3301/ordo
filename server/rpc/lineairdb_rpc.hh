@@ -2,15 +2,40 @@
 
 #include <string>
 #include <memory>
+#include <mutex>
+#include <shared_mutex>
+#include <unordered_map>
 
 #include "../protocol/message.hh"
 #include "../storage/database_manager.hh"
 #include "../storage/transaction_manager.hh"
 
+// Server-wide table row count tracker, shared across all connections.
+struct TableRowCounts {
+    std::shared_mutex s_mutex;
+    std::unordered_map<std::string, int64_t> counts;
+
+    template <typename T>
+    void apply_deltas(const T& deltas) {
+        std::unique_lock<std::shared_mutex> lock(s_mutex);
+        for (const auto& row_delta : deltas) {
+            auto& count = counts[row_delta.table_name()];
+            count += row_delta.delta();
+            if (count < 0) count = 0;
+        }
+    }
+
+    std::unordered_map<std::string, int64_t> snapshot() {
+        std::shared_lock<std::shared_mutex> lock(s_mutex);
+        return counts;
+    }
+};
+
 class LineairDBRpc {
 public:
     LineairDBRpc(std::shared_ptr<DatabaseManager> db_manager,
-                 std::shared_ptr<TransactionManager> tx_manager);
+                 std::shared_ptr<TransactionManager> tx_manager,
+                 std::shared_ptr<TableRowCounts> row_counts);
     ~LineairDBRpc() = default;
 
     void handle_rpc(uint64_t sender_id, MessageType message_type,
@@ -19,6 +44,7 @@ public:
 private:
     std::shared_ptr<DatabaseManager> db_manager_;
     std::shared_ptr<TransactionManager> tx_manager_;
+    std::shared_ptr<TableRowCounts> row_counts_;
 
     // Transaction lifecycle
     void handleTxBeginTransaction(const std::string& message, std::string& result);

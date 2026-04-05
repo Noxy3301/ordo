@@ -31,6 +31,7 @@ if pgrep -f "/build/server/lineairdb-server" >/dev/null 2>&1; then
 fi
 
 echo "Starting lineairdb-server (port 9999) ..."
+ulimit -n 1048576 2>/dev/null || ulimit -n 65535 2>/dev/null || true
 nohup "$BIN" > "$LOG_FILE" 2>&1 &
 PID=$!
 echo $PID > "$PID_FILE"

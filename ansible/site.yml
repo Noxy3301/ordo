@@ -1,4 +1,23 @@
 ---
+# Raise file descriptor limits on all nodes to prevent fd exhaustion
+- hosts: all
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Set system-wide nofile limits
+      copy:
+        dest: /etc/security/limits.d/99-ordo.conf
+        content: |
+          * soft nofile 1048576
+          * hard nofile 1048576
+          root soft nofile 1048576
+          root hard nofile 1048576
+    - name: Set sysctl fs.file-max
+      sysctl:
+        name: fs.file-max
+        value: "2097152"
+        sysctl_set: true
+
 - import_playbook: lineairdb.yml
 - import_playbook: mysql.yml
 - import_playbook: haproxy.yml

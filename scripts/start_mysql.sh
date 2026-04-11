@@ -26,7 +26,8 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-cd "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/build"
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$ROOT_DIR/build"
 
 # jemalloc: use LD_PRELOAD to replace glibc malloc
 JEMALLOC="/lib/x86_64-linux-gnu/libjemalloc.so.2"
@@ -45,6 +46,13 @@ if [ "$MYSQLD_PORT" != "3307" ]; then
   PID_FILE="/tmp/mysql_${MYSQLD_PORT}.pid"
 fi
 
+# Per-instance log so the background mysqld does not inherit the caller's
+# stdout/stderr (otherwise subprocess.run() in benchrun.py blocks forever
+# waiting for the inherited pipe to close).
+MYSQL_LOG_DIR="$ROOT_DIR/lineairdb_logs"
+mkdir -p "$MYSQL_LOG_DIR"
+MYSQL_LOG_FILE="$MYSQL_LOG_DIR/mysqld_${MYSQLD_PORT}_$(date +%Y%m%d_%H%M%S).log"
+
 # Step 1: Initialize if data directory doesn't exist
 if [ ! -d "$DATA_DIR" ] || [ ! -f "$DATA_DIR/ibdata1" ]; then
   echo "Step 1/5: Initializing MySQL data directory..."
@@ -57,7 +65,7 @@ echo "Step 2/5: Starting MySQL with InnoDB..."
   --max-connections=16384 \
   --open-files-limit=65535 \
   --table-open-cache=8192 \
-  --disable-log-bin &
+  --disable-log-bin >> "$MYSQL_LOG_FILE" 2>&1 &
 BOOT_PID=$!
 
 echo "Step 3/5: Waiting for MySQL to be ready..."
@@ -74,13 +82,14 @@ kill "$BOOT_PID" 2>/dev/null || true
 wait "$BOOT_PID" 2>/dev/null || true
 sleep 3
 
-./runtime_output_directory/mysqld --datadir="$DATA_DIR" --socket="$SOCKET" --port="$MYSQLD_PORT" \
+nohup ./runtime_output_directory/mysqld --datadir="$DATA_DIR" --socket="$SOCKET" --port="$MYSQLD_PORT" \
   --pid-file="$PID_FILE" --default-storage-engine=lineairdb \
   --max-connections=16384 \
   --open-files-limit=65535 \
   --table-open-cache=8192 \
-  --disable-log-bin &
+  --disable-log-bin >> "$MYSQL_LOG_FILE" 2>&1 &
 MYSQL_PID=$!
+disown "$MYSQL_PID" 2>/dev/null || true
 
 until ./runtime_output_directory/mysqladmin ping -u root --socket="$SOCKET" --port="$MYSQLD_PORT" >/dev/null 2>&1; do
   sleep 1
@@ -95,3 +104,4 @@ echo "Port      : $MYSQLD_PORT"
 echo "Data dir  : $DATA_DIR"
 echo "Socket    : $SOCKET"
 echo "Server    : ${SERVER_HOST}:${SERVER_PORT}"
+echo "Log       : $MYSQL_LOG_FILE"

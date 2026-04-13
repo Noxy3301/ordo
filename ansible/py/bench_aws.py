@@ -73,7 +73,7 @@ AWS_DEFAULTS = {
 # vCPU count for EC2 instance sizes (used to build machine_spec locally)
 _VCPU_BY_SIZE = {
     "xlarge": 4, "2xlarge": 8, "4xlarge": 16, "8xlarge": 32,
-    "12xlarge": 48, "16xlarge": 64, "24xlarge": 96, "metal": 128,
+    "12xlarge": 48, "16xlarge": 64, "24xlarge": 96, "32xlarge": 128, "metal": 128,
 }
 
 

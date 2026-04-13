@@ -344,6 +344,8 @@ def run_benchmarks(args, run_id):
         exec_vars += f" bench_serial={'true' if args.bench_serial else 'false'}"
     if args.bench_profile:
         exec_vars += f" bench_profile={args.bench_profile}"
+    if args.perf:
+        exec_vars += " enable_perf=true"
 
     log(f"Running benchmark: {exec_vars}")
     run_playbook("measure_usage.yml", extra_vars=exec_vars)
@@ -476,6 +478,7 @@ Examples:
     parser.add_argument("--bench-profile", default=None, help="YCSB profile: a,b,c,e,f")
     parser.add_argument("--bench-serial", default=None, type=lambda x: x.lower() == "true",
                         help="TPC-H serial mode (true/false)")
+    parser.add_argument("--perf", action="store_true", help="Enable perf profiling on lineairdb + mysql nodes")
 
     # AWS options
     parser.add_argument("--region", default=AWS_DEFAULTS["region"])

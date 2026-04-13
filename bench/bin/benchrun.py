@@ -267,8 +267,14 @@ def _start_metrics(metrics_dir):
         p = subprocess.Popen(["pidstat", "-t", "-u", "-p", server_pid, "5"], stdout=f, stderr=subprocess.DEVNULL)
         samplers.append(("pidstat-server-threads", p, f))
 
-    # pidstat for mysqld
-    mysql_pid = _find_pid("mysqld.*lineairdb")
+    # pidstat for mysqld — use PID file to get the actual mysqld process,
+    # not the wrapper script that pgrep might pick up first.
+    mysql_pid = None
+    mysql_pidfile = Path("/tmp/mysql.pid")
+    if mysql_pidfile.exists():
+        mysql_pid = mysql_pidfile.read_text().strip()
+    if not mysql_pid:
+        mysql_pid = _find_pid("mysqld.*lineairdb")
     if mysql_pid:
         f = open(metrics_dir / "pidstat-mysql.log", "w")
         p = subprocess.Popen(["pidstat", "-u", "-w", "-p", mysql_pid, interval], stdout=f, stderr=subprocess.DEVNULL)

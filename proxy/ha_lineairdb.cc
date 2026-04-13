@@ -3268,9 +3268,9 @@ int ha_lineairdb::set_fields_from_lineairdb(uchar *buf,
    * if you want to make the first potentially null column to show a non-null
    * value, store 0xfe, or b11111110, in buf
    */
-  auto nullFlags = ldbField.get_null_flags();
+  const auto nullFlags = ldbField.get_null_flags();
   for (size_t i = 0; i < nullFlags.size(); i++) {
-    buf[i] = nullFlags[i];
+    buf[i] = static_cast<uchar>(nullFlags[i]);
   }
 
   /* Avoid asserts in ::store() for columns that are not going to be updated
@@ -3285,7 +3285,7 @@ int ha_lineairdb::set_fields_from_lineairdb(uchar *buf,
     if ((*field)->is_nullable() && (*field)->is_null_in_record(buf)) {
       (*field)->set_null();
     } else {
-      (*field)->store(mysqlFieldValue.c_str(), mysqlFieldValue.length(),
+      (*field)->store(mysqlFieldValue.data(), mysqlFieldValue.size(),
                       &my_charset_bin, CHECK_FIELD_WARN);
       if (store_blob_to_field(field))
         return HA_ERR_OUT_OF_MEM;

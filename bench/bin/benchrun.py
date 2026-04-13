@@ -13,9 +13,14 @@ Usage:
   python3 bench/bin/benchrun.py ycsb --profile a --terminals 8 --scalefactor 100
 
 Prerequisites:
-  - Ordo server running (scripts/start_server.sh)
-  - MySQL running with LineairDB plugin (scripts/start_mysql.sh)
   - BenchBase patched and built (bench/bin/patch_benchbase.py)
+
+Server lifecycle:
+  By default, this script auto-starts lineairdb-server + mysqld at the
+  beginning and stops them at the end. Pass --external-server to opt out
+  (e.g. when running against a remote MySQL or when servers are already
+  managed externally). Auto-detection: if mysqld is already listening on
+  --mysql-port, the script falls back to external mode automatically.
 """
 
 import argparse
@@ -23,11 +28,14 @@ import json
 import os
 import re
 import shutil
+import socket
 import subprocess
 import sys
 import time
 from datetime import datetime
 from pathlib import Path
+
+SCRIPTS_DIR = Path(__file__).resolve().parents[2] / "scripts"
 
 ROOT = Path(__file__).resolve().parents[2]
 BENCHBASE_DIR = ROOT / "third_party" / "benchbase" / "benchbase-mysql"
@@ -42,6 +50,104 @@ YCSB_PROFILES = {
 }
 
 os.environ["LD_PRELOAD"] = "/lib/x86_64-linux-gnu/libjemalloc.so.2"
+
+
+def _is_port_open(host, port, timeout=1.0):
+    """Return True if a TCP listener is accepting connections on host:port."""
+    try:
+        with socket.create_connection((host, port), timeout=timeout):
+            return True
+    except (ConnectionRefusedError, socket.timeout, OSError):
+        return False
+
+
+def _wait_for_port(host, port, timeout=30):
+    """Block until host:port is open or timeout expires. Returns True on success."""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if _is_port_open(host, port):
+            return True
+        time.sleep(0.5)
+    return False
+
+
+def _run_script(argv, timeout):
+    """Run a launcher script with stdin closed and a hard timeout.
+
+    The launcher scripts spawn long-lived background daemons that previously
+    inherited our pipe and blocked subprocess drainage forever. The scripts now
+    redirect those daemons to a log file, but we still close stdin and apply a
+    timeout here as defense in depth.
+    """
+    try:
+        return subprocess.run(
+            argv,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            timeout=timeout,
+        )
+    except subprocess.TimeoutExpired as e:
+        print(f"  ERROR: launcher timed out after {timeout}s: {' '.join(argv)}", file=sys.stderr)
+        if e.stdout:
+            print(e.stdout[-1000:], file=sys.stderr)
+        return None
+
+
+def start_lineairdb_server():
+    """Start lineairdb-server via scripts/start_server.sh and wait for port 9999."""
+    if _is_port_open("127.0.0.1", 9999):
+        print("  lineairdb-server already running on port 9999, reusing")
+        return True
+    print("  Starting lineairdb-server...")
+    result = _run_script([str(SCRIPTS_DIR / "start_server.sh")], timeout=30)
+    if result is None or result.returncode != 0:
+        if result is not None:
+            print(f"  ERROR starting lineairdb-server:\n{result.stdout}", file=sys.stderr)
+        return False
+    if not _wait_for_port("127.0.0.1", 9999, timeout=30):
+        print("  ERROR: lineairdb-server did not become ready within 30s", file=sys.stderr)
+        return False
+    print("  lineairdb-server ready (port 9999)")
+    return True
+
+
+def start_mysql_server(mysqld_port=3307, server_host="127.0.0.1", server_port=9999):
+    """Start mysqld via scripts/start_mysql.sh."""
+    if _is_port_open("127.0.0.1", mysqld_port):
+        print(f"  mysqld already running on port {mysqld_port}, reusing")
+        return True
+    print(f"  Starting mysqld (port {mysqld_port})...")
+    result = _run_script(
+        [str(SCRIPTS_DIR / "start_mysql.sh"),
+         "--mysqld-port", str(mysqld_port),
+         "--server-host", server_host,
+         "--server-port", str(server_port)],
+        timeout=120,  # initialize-insecure on first run can be slow
+    )
+    if result is None or result.returncode != 0:
+        if result is not None:
+            print(f"  ERROR starting mysqld:\n{result.stdout[-1000:]}", file=sys.stderr)
+        return False
+    if not _wait_for_port("127.0.0.1", mysqld_port, timeout=30):
+        print(f"  ERROR: mysqld did not become ready within 30s", file=sys.stderr)
+        return False
+    print(f"  mysqld ready (port {mysqld_port})")
+    return True
+
+
+def stop_all_servers():
+    """Stop mysqld and lineairdb-server via the stop scripts."""
+    print("  Stopping mysqld + lineairdb-server...")
+    subprocess.run([str(SCRIPTS_DIR / "stop_mysql.sh")], capture_output=True)
+    subprocess.run([str(SCRIPTS_DIR / "stop_server.sh")], capture_output=True)
+    time.sleep(2)
+    for f in ["/tmp/lineairdb_server.pid", "/tmp/mysql.pid"]:
+        try:
+            Path(f).unlink()
+        except FileNotFoundError:
+            pass
 
 
 def mysql_cmd(port, host, sql):
@@ -161,8 +267,14 @@ def _start_metrics(metrics_dir):
         p = subprocess.Popen(["pidstat", "-t", "-u", "-p", server_pid, "5"], stdout=f, stderr=subprocess.DEVNULL)
         samplers.append(("pidstat-server-threads", p, f))
 
-    # pidstat for mysqld
-    mysql_pid = _find_pid("mysqld.*lineairdb")
+    # pidstat for mysqld — use PID file to get the actual mysqld process,
+    # not the wrapper script that pgrep might pick up first.
+    mysql_pid = None
+    mysql_pidfile = Path("/tmp/mysql.pid")
+    if mysql_pidfile.exists():
+        mysql_pid = mysql_pidfile.read_text().strip()
+    if not mysql_pid:
+        mysql_pid = _find_pid("mysqld.*lineairdb")
     if mysql_pid:
         f = open(metrics_dir / "pidstat-mysql.log", "w")
         p = subprocess.Popen(["pidstat", "-u", "-w", "-p", mysql_pid, interval], stdout=f, stderr=subprocess.DEVNULL)
@@ -499,6 +611,8 @@ def main():
     parser.add_argument("--no-setup", action="store_true", help="Skip setup (DROP+CREATE+LOAD), assume data exists")
     parser.add_argument("--no-load", action="store_true", help="Run setup with CREATE only, skip LOAD")
     parser.add_argument("--no-exec", action="store_true", help="Run setup only, skip execute phase")
+    parser.add_argument("--external-server", action="store_true",
+                        help="Skip auto start/stop of lineairdb-server and mysqld (assume already running)")
     args = parser.parse_args()
 
     # Validate
@@ -583,6 +697,34 @@ def main():
     print(f"SF={args.scalefactor}, Time={args.time}s, MySQL={args.mysql_host}:{args.mysql_port}")
     print(f"Results:   {result_base}")
 
+    # Decide whether to manage server lifecycle.
+    # Skip management when --external-server is set, when targeting a remote
+    # mysqld (--mysql-host != localhost), or when something is already
+    # listening on the configured mysql port.
+    managed = not args.external_server
+    if managed and args.mysql_host not in ("127.0.0.1", "localhost"):
+        print(f"  --mysql-host={args.mysql_host} is not local, switching to external mode")
+        managed = False
+    if managed and _is_port_open("127.0.0.1", args.mysql_port):
+        print(f"  mysqld already listening on port {args.mysql_port}, switching to external mode")
+        managed = False
+
+    if managed:
+        if not start_lineairdb_server():
+            sys.exit(1)
+        if not start_mysql_server(args.mysql_port, "127.0.0.1", 9999):
+            stop_all_servers()
+            sys.exit(1)
+
+    try:
+        _run_bench(args, config_work, thread_list, result_base)
+    finally:
+        if managed:
+            stop_all_servers()
+
+
+def _run_bench(args, config_work, thread_list, result_base):
+    """Setup + execute sweep + summary + plots. Extracted so main() can wrap it."""
     # Setup phase
     load_time = None
     if args.no_setup:

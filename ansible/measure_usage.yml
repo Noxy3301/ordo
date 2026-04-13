@@ -9,6 +9,8 @@
     run_id: "run"
     sample_dir: /tmp/metrics
     haproxy_stats_interval: 5
+    enable_perf: false
+    perf_freq: 99
     haproxy_stats_auth: "admin:password"
     haproxy_host: "{{ (groups.get('haproxy', []) | length > 0) | ternary(groups['haproxy'][0], '') }}"
   tasks:
@@ -227,6 +229,66 @@
       args:
         executable: /bin/bash
 
+    - name: Install perf and configure sysctl (lineairdb + mysql)
+      when: (enable_perf | bool) and (inventory_hostname in groups.get('lineairdb', []) + groups.get('mysql', []))
+      become: yes
+      shell: |
+        apt-get install -y -qq linux-tools-aws 2>/dev/null || true
+        sysctl -w kernel.perf_event_paranoid=0
+        sysctl -w kernel.kptr_restrict=0
+      args:
+        executable: /bin/bash
+
+    - name: Detect perf binary path (lineairdb + mysql)
+      when: (enable_perf | bool) and (inventory_hostname in groups.get('lineairdb', []) + groups.get('mysql', []))
+      shell: |
+        find /usr/lib/linux-*-tools-* -name perf -type f 2>/dev/null | head -1
+      register: perf_bin_result
+      args:
+        executable: /bin/bash
+
+    - name: Set perf binary fact
+      when: (enable_perf | bool) and (inventory_hostname in groups.get('lineairdb', []) + groups.get('mysql', []))
+      set_fact:
+        perf_bin: "{{ perf_bin_result.stdout | default('') }}"
+
+    - name: Warn if perf not found
+      when: (enable_perf | bool) and (inventory_hostname in groups.get('lineairdb', []) + groups.get('mysql', [])) and (perf_bin is not defined or perf_bin == '')
+      debug:
+        msg: "WARNING: perf binary not found on {{ inventory_hostname }}, skipping profiling"
+
+    - name: Start perf record on lineairdb server
+      when: (enable_perf | bool) and inventory_hostname in groups.get('lineairdb', []) and (perf_bin is defined and perf_bin != '')
+      shell: |
+        mkdir -p {{ sample_dir }}
+        pid=$(pgrep -f '/build/server/lineairdb-server' | head -n1 || true)
+        if [ -z "$pid" ]; then
+          echo "lineairdb-server not running, skipping perf" > {{ sample_dir }}/perf-server-{{ run_id }}.log
+          exit 0
+        fi
+        nohup {{ perf_bin }} record -g -F {{ perf_freq }} -p "$pid" \
+          -o {{ sample_dir }}/perf-server-{{ run_id }}.data \
+          -- sleep 3600 > {{ sample_dir }}/perf-server-{{ run_id }}.log 2>&1 &
+        echo $! > {{ sample_dir }}/perf-server-{{ run_id }}.pid
+      args:
+        executable: /bin/bash
+
+    - name: Start perf record on mysqld
+      when: (enable_perf | bool) and inventory_hostname in groups.get('mysql', []) and (perf_bin is defined and perf_bin != '')
+      shell: |
+        mkdir -p {{ sample_dir }}
+        pid=$(pgrep -f 'mysqld.*lineairdb' | head -n1 || true)
+        if [ -z "$pid" ]; then
+          echo "mysqld not running, skipping perf" > {{ sample_dir }}/perf-proxy-{{ run_id }}.log
+          exit 0
+        fi
+        nohup {{ perf_bin }} record -g -F {{ perf_freq }} -p "$pid" \
+          -o {{ sample_dir }}/perf-proxy-{{ run_id }}.data \
+          -- sleep 3600 > {{ sample_dir }}/perf-proxy-{{ run_id }}.log 2>&1 &
+        echo $! > {{ sample_dir }}/perf-proxy-{{ run_id }}.pid
+      args:
+        executable: /bin/bash
+
 - hosts: mysql
   gather_facts: false
   vars:
@@ -279,6 +341,63 @@
     sample_dir: /tmp/metrics
     haproxy_host: "{{ (groups.get('haproxy', []) | length > 0) | ternary(groups['haproxy'][0], '') }}"
   tasks:
+    # Stop perf FIRST (before any other cleanup) to ensure the target
+    # process is still alive when perf flushes its data.
+    - name: Stop perf and generate reports (lineairdb) [early]
+      when: (enable_perf | bool) and inventory_hostname in groups.get('lineairdb', [])
+      shell: |
+        if [ -f {{ sample_dir }}/perf-server-{{ run_id }}.pid ]; then
+          PID=$(cat {{ sample_dir }}/perf-server-{{ run_id }}.pid)
+          if kill -0 "$PID" 2>/dev/null; then
+            kill -INT "$PID"
+            # Wait for perf to finish writing
+            for i in $(seq 1 30); do
+              kill -0 "$PID" 2>/dev/null || break
+              sleep 1
+            done
+          fi
+        fi
+        if [ -f {{ sample_dir }}/perf-server-{{ run_id }}.data ] && \
+           [ "$(stat -c%s {{ sample_dir }}/perf-server-{{ run_id }}.data 2>/dev/null)" -gt 1000 ]; then
+          {{ perf_bin | default('perf') }} report -i {{ sample_dir }}/perf-server-{{ run_id }}.data \
+            --stdio --no-children -g none --percent-limit 0.1 \
+            > {{ sample_dir }}/perf-report-server-{{ run_id }}.txt 2>&1
+          {{ perf_bin | default('perf') }} report -i {{ sample_dir }}/perf-server-{{ run_id }}.data \
+            --stdio --no-children -g flat,0,caller --percent-limit 0.5 \
+            > {{ sample_dir }}/perf-callers-server-{{ run_id }}.txt 2>&1
+          rm -f {{ sample_dir }}/perf-server-{{ run_id }}.data
+        fi
+      args:
+        executable: /bin/bash
+      failed_when: false
+
+    - name: Stop perf and generate reports (mysql) [early]
+      when: (enable_perf | bool) and inventory_hostname in groups.get('mysql', [])
+      shell: |
+        if [ -f {{ sample_dir }}/perf-proxy-{{ run_id }}.pid ]; then
+          PID=$(cat {{ sample_dir }}/perf-proxy-{{ run_id }}.pid)
+          if kill -0 "$PID" 2>/dev/null; then
+            kill -INT "$PID"
+            for i in $(seq 1 30); do
+              kill -0 "$PID" 2>/dev/null || break
+              sleep 1
+            done
+          fi
+        fi
+        if [ -f {{ sample_dir }}/perf-proxy-{{ run_id }}.data ] && \
+           [ "$(stat -c%s {{ sample_dir }}/perf-proxy-{{ run_id }}.data 2>/dev/null)" -gt 1000 ]; then
+          {{ perf_bin | default('perf') }} report -i {{ sample_dir }}/perf-proxy-{{ run_id }}.data \
+            --stdio --no-children -g none --percent-limit 0.1 \
+            > {{ sample_dir }}/perf-report-proxy-{{ run_id }}.txt 2>&1
+          {{ perf_bin | default('perf') }} report -i {{ sample_dir }}/perf-proxy-{{ run_id }}.data \
+            --stdio --no-children -g flat,0,caller --percent-limit 0.5 \
+            > {{ sample_dir }}/perf-callers-proxy-{{ run_id }}.txt 2>&1
+          rm -f {{ sample_dir }}/perf-proxy-{{ run_id }}.data
+        fi
+      args:
+        executable: /bin/bash
+      failed_when: false
+
     - name: Stop mpstat sampling
       when: inventory_hostname not in groups.get('haproxy', [])
       shell: |
@@ -407,6 +526,20 @@
         fi
       args:
         executable: /bin/bash
+
+    - name: Detect perf binary path for report (lineairdb + mysql)
+      when: (enable_perf | bool) and (inventory_hostname in groups.get('lineairdb', []) + groups.get('mysql', []))
+      shell: |
+        find /usr/lib/linux-*-tools-* -name perf -type f 2>/dev/null | head -1
+      register: perf_bin_report
+      args:
+        executable: /bin/bash
+      failed_when: false
+
+    - name: Set perf binary fact for report
+      when: (enable_perf | bool) and (inventory_hostname in groups.get('lineairdb', []) + groups.get('mysql', []))
+      set_fact:
+        perf_bin: "{{ perf_bin_report.stdout | default('perf') }}"
 
     - name: Package bench logs
       when: inventory_hostname in groups['benchbase']
@@ -613,4 +746,26 @@
         src: "{{ sample_dir }}/vmstat-{{ run_id }}.log"
         dest: "{{ result_dir }}/vmstat/{{ inventory_hostname }}/"
         flat: yes
+      failed_when: false
+
+    - name: Fetch perf reports (lineairdb)
+      when: (enable_perf | bool) and inventory_hostname in groups.get('lineairdb', [])
+      fetch:
+        src: "{{ item }}"
+        dest: "{{ result_dir }}/lineairdb/{{ inventory_hostname }}/"
+        flat: yes
+      loop:
+        - "{{ sample_dir }}/perf-report-server-{{ run_id }}.txt"
+        - "{{ sample_dir }}/perf-callers-server-{{ run_id }}.txt"
+      failed_when: false
+
+    - name: Fetch perf reports (mysql)
+      when: (enable_perf | bool) and inventory_hostname in groups.get('mysql', [])
+      fetch:
+        src: "{{ item }}"
+        dest: "{{ result_dir }}/mysql/{{ inventory_hostname }}/"
+        flat: yes
+      loop:
+        - "{{ sample_dir }}/perf-report-proxy-{{ run_id }}.txt"
+        - "{{ sample_dir }}/perf-callers-proxy-{{ run_id }}.txt"
       failed_when: false

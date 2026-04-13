@@ -3,6 +3,7 @@
 
 #include <climits>
 #include <string>
+#include <string_view>
 #include <variant>
 #include <vector>
 
@@ -44,11 +45,16 @@ class LineairDBField {
 
   /**
    * @brief These methods are called for SELECT statements.
+   *
+   * make_mysql_table_row parses the LineairDB-encoded row and records each
+   * field as a (pointer, length) pair into ldbRawData. No allocations or
+   * copies are performed — the caller MUST keep ldbRawData alive while
+   * iterating via get_column_of_row().
    */
   void make_mysql_table_row(const std::byte* const ldbRawData,
                             const size_t length);
-  const std::string& get_null_flags() const;
-  const std::string& get_column_of_row(const size_t i) const;
+  std::string_view get_null_flags() const { return nullFlagView; }
+  std::string_view get_column_of_row(const size_t i) const { return row[i]; }
 
   LineairDBField() = default;
 
@@ -60,8 +66,9 @@ class LineairDBField {
   std::string valueLength;
   std::string value;
 
-  std::string nullFlag;
-  std::vector<std::string> row;
+  // Zero-copy row parsing: views point into the caller-owned ldbRawData.
+  std::string_view nullFlagView;
+  std::vector<std::string_view> row;
 
   void set_header(const size_t num);
   char convert_numeric_to_a_byte(const size_t num) const;

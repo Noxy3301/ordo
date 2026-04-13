@@ -73,7 +73,10 @@ void LineairDBField::set_lineairdb_field(
 
 void LineairDBField::make_mysql_table_row(const std::byte *const ldbRawData,
                                           const size_t length) {
+  // Zero-copy parse: record each field as a string_view pointing into
+  // ldbRawData. No per-field allocations, no string copies.
   row.clear();
+  nullFlagView = {};
 
   for (size_t offset = 0; offset < length;) {
     const auto ldbField = ldbRawData + offset;
@@ -82,10 +85,8 @@ void LineairDBField::make_mysql_table_row(const std::byte *const ldbRawData,
         static_cast<char>(convert_bytes_to_numeric(ldbField, sizeof(byteSize)));
 
     if (byteSize == noValue) {
-      if (offset == 0) {
-        nullFlag.clear();
-      } else {
-        row.emplace_back("");
+      if (offset != 0) {
+        row.emplace_back();  // empty field
       }
       offset += sizeof(byteSize);
       continue;
@@ -100,17 +101,13 @@ void LineairDBField::make_mysql_table_row(const std::byte *const ldbRawData,
     assert(valueLength <= maxValueLength);
     const auto valueData = ldbField + byteSizeForRead + sizeof(byteSize);
 
-    value.assign(reinterpret_cast<const char *>(valueData), valueLength);
-    if (offset == 0)
-      nullFlag = value;
-    else
-      row.emplace_back(value);
+    std::string_view field_view(reinterpret_cast<const char *>(valueData),
+                                valueLength);
+    if (offset == 0) {
+      nullFlagView = field_view;
+    } else {
+      row.emplace_back(field_view);
+    }
     offset += sizeof(byteSize) + byteSizeForRead + valueLength;
   }
-}
-
-const std::string &LineairDBField::get_null_flags() const { return nullFlag; }
-
-const std::string &LineairDBField::get_column_of_row(const size_t i) const {
-  return row[i];
 }

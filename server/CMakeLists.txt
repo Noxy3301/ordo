@@ -44,6 +44,9 @@ set(SOURCES
     # Network layer
     network/tcp_server.cc
     network/tcp_server.hh
+    network/thread_group.cc
+    network/thread_group.hh
+    network/connection_context.hh
     network/message_handler.cc
     network/message_handler.hh
     

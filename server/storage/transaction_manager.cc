@@ -25,3 +25,16 @@ LineairDB::Transaction* TransactionManager::get_transaction(int64_t tx_id) {
 void TransactionManager::remove_transaction(int64_t tx_id) {
     transactions_.erase(tx_id);
 }
+
+void TransactionManager::abort_all(LineairDB::Database* db) {
+    for (auto& [tx_id, tx] : transactions_) {
+        if (tx) {
+            tx->Abort();
+            // EndTransaction requires the calling thread to be online
+            // (it calls MakeMeOffline internally).
+            db->EnsureThreadOnline();
+            db->EndTransaction(*tx, [](LineairDB::TxStatus) {});
+        }
+    }
+    transactions_.clear();
+}

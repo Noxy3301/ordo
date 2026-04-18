@@ -76,7 +76,8 @@ void ThreadPoolTimer::check_stall(PerGroupState& state, ThreadGroup* group) {
     LOG_INFO("ThreadPoolTimer: stall detected on group %d "
              "(streak=%u, busy=%u/%u, completed=%u)",
              group->group_id(), state.stall_streak, busy, total, completed);
-    // Active mode will ask the group to spawn an extra worker here; that
-    // hook lands in a later commit.
+    if (mode_ == Mode::Active) {
+        group->maybe_spawn_worker();
+    }
     state.stall_streak = 0;
 }

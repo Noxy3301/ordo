@@ -45,7 +45,7 @@ void TcpServer::run() {
     for (auto& group : thread_groups_) group_ptrs.push_back(group.get());
 
     timer_ = std::make_unique<ThreadPoolTimer>(std::move(group_ptrs),
-                                               ThreadPoolTimer::Mode::ObserveOnly);
+                                               ThreadPoolTimer::Mode::Active);
     if (!timer_->start()) {
         LOG_ERROR("Failed to start ThreadPoolTimer, aborting");
         close(server_socket);

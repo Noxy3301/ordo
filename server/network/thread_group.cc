@@ -2,6 +2,7 @@
 #include "../../common/log.h"
 
 #include <sys/epoll.h>
+#include <sys/eventfd.h>
 #include <sys/socket.h>
 #include <unistd.h>
 #include <cerrno>
@@ -28,19 +29,53 @@ bool ThreadGroup::start() {
         LOG_ERROR("ThreadGroup %d: epoll_create1 failed: %s", group_id_, std::strerror(errno));
         return false;
     }
-    try {
-        worker_ = std::thread(&ThreadGroup::worker_main, this);
-    } catch (const std::system_error& e) {
-        LOG_ERROR("ThreadGroup %d: thread creation failed: %s", group_id_, e.what());
+
+    // eventfd: written by shutdown() to wake the worker out of epoll_wait
+    // immediately. Workers blocked in recv() still need SO_RCVTIMEO or a
+    // peer close.
+    shutdown_event_fd_ = eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);
+    if (shutdown_event_fd_ < 0) {
+        LOG_ERROR("ThreadGroup %d: eventfd failed: %s", group_id_, std::strerror(errno));
         close(epoll_fd_);
         epoll_fd_ = -1;
+        return false;
+    }
+    struct epoll_event ev{};
+    ev.events = EPOLLIN;
+    ev.data.fd = shutdown_event_fd_;
+    if (epoll_ctl(epoll_fd_, EPOLL_CTL_ADD, shutdown_event_fd_, &ev) < 0) {
+        LOG_ERROR("ThreadGroup %d: epoll_ctl ADD shutdown_event_fd failed: %s",
+                  group_id_, std::strerror(errno));
+        close(shutdown_event_fd_); shutdown_event_fd_ = -1;
+        close(epoll_fd_); epoll_fd_ = -1;
+        return false;
+    }
+
+    worker_count_.fetch_add(1, std::memory_order_relaxed);
+    try {
+        worker_ = std::thread(&ThreadGroup::worker_main, this);
+    } catch (...) {
+        LOG_ERROR("ThreadGroup %d: thread creation failed", group_id_);
+        worker_count_.fetch_sub(1, std::memory_order_relaxed);
+        close(shutdown_event_fd_); shutdown_event_fd_ = -1;
+        close(epoll_fd_); epoll_fd_ = -1;
         return false;
     }
     return true;
 }
 
 void ThreadGroup::shutdown() {
-    shutdown_.store(true);
+    shutdown_.store(true, std::memory_order_release);
+
+    // Wake the worker if it is sleeping in epoll_wait. Workers blocked in
+    // recv() wait for SO_RCVTIMEO (30s) or a peer close — eventfd cannot
+    // unblock recv.
+    if (shutdown_event_fd_ >= 0) {
+        uint64_t v = 1;
+        ssize_t r = write(shutdown_event_fd_, &v, sizeof(v));
+        (void)r;  // silence -Wunused-result
+    }
+
     if (worker_.joinable()) {
         worker_.join();
     }
@@ -55,6 +90,10 @@ void ThreadGroup::shutdown() {
     }
     connections_.clear();
 
+    if (shutdown_event_fd_ >= 0) {
+        close(shutdown_event_fd_);
+        shutdown_event_fd_ = -1;
+    }
     if (epoll_fd_ >= 0) {
         close(epoll_fd_);
         epoll_fd_ = -1;
@@ -97,9 +136,14 @@ void ThreadGroup::worker_main() {
                       group_id_, std::strerror(errno));
             break;
         }
+        if (n == 0) continue;  // timeout, re-check shutdown flag
 
         for (int i = 0; i < n; i++) {
             int fd = events[i].data.fd;
+            if (fd == shutdown_event_fd_) {
+                shutdown_.store(true, std::memory_order_release);
+                break;
+            }
 
             ConnectionContext* ctx = nullptr;
             {
@@ -137,6 +181,7 @@ void ThreadGroup::worker_main() {
         }
     }
 
+    worker_count_.fetch_sub(1, std::memory_order_relaxed);
     LOG_INFO("ThreadGroup %d: worker stopped", group_id_);
 }
 
@@ -145,18 +190,26 @@ bool ThreadGroup::process_one_rpc(ConnectionContext* ctx) {
     MessageType message_type;
     std::string payload;
 
-    if (!MessageHandler::receive_message(ctx->fd, sender_id, message_type, payload)) {
-        return false;
-    }
+    // Phase 1: blocking recv. Not productive server-side work — the worker is
+    // waiting for the client. Counted as "waiting" only.
+    waiting_worker_count_.fetch_add(1, std::memory_order_relaxed);
+    bool ok = MessageHandler::receive_message(ctx->fd, sender_id, message_type, payload);
+    waiting_worker_count_.fetch_sub(1, std::memory_order_relaxed);
+    if (!ok) return false;
 
+    // Phase 2: server-side work (handler + response). Counted as "busy";
+    // stall detection looks at this counter.
+    busy_worker_count_.fetch_add(1, std::memory_order_relaxed);
     std::string result;
     ctx->rpc_handler->handle_rpc(sender_id, message_type, payload, result);
 
-    if (!MessageHandler::send_response_writev(ctx->fd, 0, message_type, result)) {
-        return false;
-    }
+    // Progress metric: RPC handler completed. Represents handler progress,
+    // not DB commit/abort status.
+    completed_count_.fetch_add(1, std::memory_order_relaxed);
 
-    return true;
+    bool sent = MessageHandler::send_response_writev(ctx->fd, 0, message_type, result);
+    busy_worker_count_.fetch_sub(1, std::memory_order_relaxed);
+    return sent;
 }
 
 void ThreadGroup::remove_connection(int fd) {

@@ -33,15 +33,41 @@ public:
     // stores the context, and arms EPOLLONESHOT on the fd.
     void add_connection(int fd, std::unique_ptr<ConnectionContext> ctx);
 
+    // Observability counters read by a future stall-detection timer. All are
+    // single atomics so a reader never needs a cross-counter consistent
+    // snapshot.
+    uint32_t worker_count() const { return worker_count_.load(std::memory_order_relaxed); }
+    uint32_t busy_count() const { return busy_worker_count_.load(std::memory_order_relaxed); }
+    uint32_t waiting_count() const { return waiting_worker_count_.load(std::memory_order_relaxed); }
+    uint32_t completed_count_reset() {
+        return completed_count_.exchange(0, std::memory_order_relaxed);
+    }
+    int group_id() const { return group_id_; }
+
 private:
     int group_id_;
     int epoll_fd_ = -1;
+    int shutdown_event_fd_ = -1;
     std::atomic<bool> shutdown_{false};
     std::thread worker_;
     std::shared_ptr<DatabaseManager> db_manager_;
 
     std::mutex connections_mutex_;
     std::unordered_map<int, std::unique_ptr<ConnectionContext>> connections_;
+
+    // Total live workers in this group (always 1 for now)
+    std::atomic<uint32_t> worker_count_{0};
+
+    // Workers currently running handle_rpc + send_response; the stall predicate's
+    // "occupancy" signal
+    std::atomic<uint32_t> busy_worker_count_{0};
+
+    // Workers currently blocked in recv waiting for the client; diagnostics only
+    std::atomic<uint32_t> waiting_worker_count_{0};
+
+    // RPC handler completions since the last reset; the stall predicate's
+    // "progress" signal (busy without progress for a tick window = stall)
+    std::atomic<uint32_t> completed_count_{0};
 
     // Main epoll loop: wait for events, dispatch to process_one_rpc,
     // and re-arm EPOLLONESHOT. Exits when shutdown_ is set.

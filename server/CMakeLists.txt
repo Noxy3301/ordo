@@ -46,6 +46,10 @@ set(SOURCES
     network/tcp_server.hh
     network/thread_group.cc
     network/thread_group.hh
+    network/thread_pool_coordinator.cc
+    network/thread_pool_coordinator.hh
+    network/thread_pool_timer.cc
+    network/thread_pool_timer.hh
     network/connection_context.hh
     network/message_handler.cc
     network/message_handler.hh

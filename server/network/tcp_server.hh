@@ -6,6 +6,8 @@
 
 #include "connection_context.hh"
 #include "thread_group.hh"
+#include "thread_pool_coordinator.hh"
+#include "thread_pool_timer.hh"
 
 // Listens on a TCP port and dispatches accepted connections to a fixed
 // pool of ThreadGroups (one per hardware thread, round-robin). Subclasses
@@ -29,7 +31,9 @@ protected:
 
 private:
     uint16_t port_;
+    std::unique_ptr<ThreadPoolCoordinator> coordinator_;
     std::vector<std::unique_ptr<ThreadGroup>> thread_groups_;
+    std::unique_ptr<ThreadPoolTimer> timer_;
 
     bool setup_and_listen(int& server_socket);
     void accept_loop(int server_socket);

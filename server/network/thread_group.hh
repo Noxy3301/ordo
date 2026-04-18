@@ -9,13 +9,14 @@
 #include "connection_context.hh"
 #include "../storage/database_manager.hh"
 #include "message_handler.hh"
+#include "thread_pool_coordinator.hh"
 
 // A self-contained epoll-based worker unit. Owns one epoll_fd and one
 // worker thread that serves multiple client connections.
 // Connections are assigned by TcpServer round-robin at accept time.
 class ThreadGroup {
 public:
-    explicit ThreadGroup(int group_id);
+    ThreadGroup(int group_id, ThreadPoolCoordinator* coordinator);
     ~ThreadGroup();
 
     // Required for disconnect cleanup: abort_all needs a Database handle.
@@ -46,6 +47,7 @@ public:
 
 private:
     int group_id_;
+    ThreadPoolCoordinator* coordinator_;
     int epoll_fd_ = -1;
     int shutdown_event_fd_ = -1;
     std::atomic<bool> shutdown_{false};

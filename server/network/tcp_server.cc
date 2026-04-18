@@ -22,25 +22,44 @@ void TcpServer::run() {
         return;
     }
 
-    // Create thread groups (one per hardware thread)
-    int num_groups = std::thread::hardware_concurrency();
-    if (num_groups <= 0) num_groups = 4;
-    for (int i = 0; i < num_groups; i++) {
-        auto group = std::make_unique<ThreadGroup>(i);
+    // Process-wide worker cap = 4x hardware threads; coordinator enforces it.
+    size_t num_groups = std::thread::hardware_concurrency();
+    uint32_t max_total_workers = static_cast<uint32_t>(num_groups) * 4;
+    coordinator_ = std::make_unique<ThreadPoolCoordinator>(max_total_workers);
+
+    // Create one thread group per hardware thread.
+    // unique_ptr members are torn down by ~TcpServer; only close the raw socket here.
+    for (size_t i = 0; i < num_groups; i++) {
+        auto group = std::make_unique<ThreadGroup>(static_cast<int>(i), coordinator_.get());
         group->set_db_manager(get_db_manager());
         if (!group->start()) {
-            LOG_ERROR("Failed to start ThreadGroup %d, aborting", i);
-            for (auto& g : thread_groups_) g->shutdown();
+            LOG_ERROR("Failed to start ThreadGroup %zu, aborting", i);
             close(server_socket);
             return;
         }
         thread_groups_.push_back(std::move(group));
     }
-    LOG_INFO("Server listening on port %d with %d thread groups", port_, num_groups);
+
+    std::vector<ThreadGroup*> group_ptrs;
+    group_ptrs.reserve(thread_groups_.size());
+    for (auto& group : thread_groups_) group_ptrs.push_back(group.get());
+
+    timer_ = std::make_unique<ThreadPoolTimer>(std::move(group_ptrs),
+                                               ThreadPoolTimer::Mode::ObserveOnly);
+    if (!timer_->start()) {
+        LOG_ERROR("Failed to start ThreadPoolTimer, aborting");
+        close(server_socket);
+        return;
+    }
+
+    LOG_INFO("Server listening on port %d with %zu thread groups "
+             "(max %u total workers)",
+             port_, num_groups, max_total_workers);
 
     accept_loop(server_socket);
 
     // Shutdown
+    timer_->shutdown();
     for (auto& group : thread_groups_) {
         group->shutdown();
     }

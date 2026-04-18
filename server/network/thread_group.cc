@@ -13,7 +13,8 @@ static constexpr int MAX_EVENTS = 64;
 static constexpr int EPOLL_TIMEOUT_MS = 1000;
 static constexpr int SOCKET_TIMEOUT_SEC = 30;
 
-ThreadGroup::ThreadGroup(int group_id) : group_id_(group_id) {}
+ThreadGroup::ThreadGroup(int group_id, ThreadPoolCoordinator* coordinator)
+    : group_id_(group_id), coordinator_(coordinator) {}
 
 ThreadGroup::~ThreadGroup() {
     shutdown();
@@ -51,12 +52,19 @@ bool ThreadGroup::start() {
         return false;
     }
 
+    if (!coordinator_->try_reserve_worker()) {
+        LOG_ERROR("ThreadGroup %d: coordinator refused worker reservation", group_id_);
+        close(shutdown_event_fd_); shutdown_event_fd_ = -1;
+        close(epoll_fd_); epoll_fd_ = -1;
+        return false;
+    }
     worker_count_.fetch_add(1, std::memory_order_relaxed);
     try {
         worker_ = std::thread(&ThreadGroup::worker_main, this);
     } catch (...) {
         LOG_ERROR("ThreadGroup %d: thread creation failed", group_id_);
         worker_count_.fetch_sub(1, std::memory_order_relaxed);
+        coordinator_->release_worker();
         close(shutdown_event_fd_); shutdown_event_fd_ = -1;
         close(epoll_fd_); epoll_fd_ = -1;
         return false;
@@ -182,6 +190,7 @@ void ThreadGroup::worker_main() {
     }
 
     worker_count_.fetch_sub(1, std::memory_order_relaxed);
+    coordinator_->release_worker();
     LOG_INFO("ThreadGroup %d: worker stopped", group_id_);
 }
 

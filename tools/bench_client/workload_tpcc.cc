@@ -79,13 +79,49 @@ inline const std::string& c_last_for(int c_id) {
     return pool[c_id % kNumLastNames];
 }
 
-// Secondary-index key for idx_customer_name: composite of two INT parts and
-// one STRING part, matching the MySQL-side `build_secondary_key_from_row`
-// byte layout for `(c_w_id, c_d_id, c_last)`.
-inline std::string customer_name_si_key(int w_id, int d_id, const std::string& c_last) {
+// c_first deterministic from c_id: zero-padded hex so lex order matches c_id.
+// Matching the MySQL TPCC DDL `idx_customer_name (c_w_id, c_d_id, c_last, c_first)`
+// requires c_first in the SI key; this keeps the 4-part key unique per customer
+// even when many customers share a c_last.
+inline std::string c_first_for(int c_id) {
+    char buf[12];
+    std::snprintf(buf, sizeof(buf), "F%08x", c_id);
+    return std::string(buf);
+}
+
+// Full 4-part SI key (w,d,c_last,c_first). Used for populate (exact insert) and
+// for Payment/OrderStatus by-name (3-part prefix scan over this 4-part index).
+inline std::string customer_name_si_key(int w_id, int d_id,
+                                        const std::string& c_last,
+                                        const std::string& c_first) {
+    KeyBuilder kb;
+    kb.int32(w_id).int32(d_id).string(c_last).string(c_first);
+    return kb.take();
+}
+
+// 3-part prefix for Payment/OrderStatus by-name lookups — matches what MySQL's
+// ha_lineairdb emits on `index_read_map(HA_READ_KEY_EXACT, (w,d,c_last))`.
+inline std::string customer_name_si_prefix(int w_id, int d_id,
+                                           const std::string& c_last) {
     KeyBuilder kb;
     kb.int32(w_id).int32(d_id).string(c_last);
     return kb.take();
+}
+
+// Lexicographic next key of `prefix` (byte-wise +1 with carry). Mirrors
+// `proxy/ha_lineairdb.cc::build_prefix_range_end` exactly — used as the
+// (exclusive) end key for range-style prefix scans.
+inline std::string prefix_end_of(const std::string& prefix) {
+    std::string end = prefix;
+    for (size_t i = end.size(); i-- > 0;) {
+        unsigned char byte = static_cast<unsigned char>(end[i]);
+        if (byte != 0xFF) {
+            end[i] = static_cast<char>(byte + 1);
+            end.resize(i + 1);
+            return end;
+        }
+    }
+    return std::string();  // no upper bound
 }
 
 // One secondary-index entry queued for a populate batch.
@@ -198,9 +234,12 @@ bool populate_customer(Client& c, const TpccConfig& cfg) {
             for (int ci = 1; ci <= cfg.customers_per_district; ++ci) {
                 const std::string pk = make_int_key(w, d, ci);
                 rows.emplace_back(pk, v);
+                // 4-part SI key (w,d,c_last,c_first) matches MySQL TPCC DDL.
+                // Prefix-scan on (w,d,c_last) returns all customers sharing that
+                // c_last, lex-ordered by c_first.
                 si_rows.push_back(SiWriteOp{
                     indexes::kIdxCustomerName,
-                    customer_name_si_key(w, d, c_last_for(ci)),
+                    customer_name_si_key(w, d, c_last_for(ci), c_first_for(ci)),
                     pk});
                 if (static_cast<int>(rows.size()) >= kBatchSize) {
                     if (!flush_batch_with_si(c, tables::kCustomer, rows, si_rows))
@@ -607,24 +646,54 @@ TxOutcome run_payment_once(Client& client, NewOrderWorker& w) {
         if (resp.is_aborted() || !resp.success()) return finish_abort();
     }
 
-    // Resolve customer PK: by SI lookup on c_last (60% per TPC-C) or direct by c_id.
+    // Resolve customer PK. 60% by c_last via SI prefix scan (TPC-C §2.5.1.2):
+    //   - TX_GET_MATCHING_PRIMARY_KEYS_FROM_PREFIX on idx_customer_name with
+    //     3-part prefix (w,d,c_last). Returns all customers with that c_last
+    //     in that district, lex-ordered by c_first (what MySQL sees after
+    //     index_read_map + index_next iteration).
+    //   - TX_READ every returned PK — matches MySQL's ResultSet.next() loop
+    //     fetching full rows via rnd_pos. ~300 reads per by-name Payment.
+    //   - Pick the (n+1)/2-th row by c_first order = middle of the list.
     std::string cu_key;
     if (by_name) {
         const std::string& c_last = kCustomerLastNames[
             xorshift64(w.rng_state) % kNumLastNames];
-        LineairDB::Protocol::TxReadSecondaryIndex::Request req;
-        req.set_transaction_id(tx_id);
-        req.set_table_name(tables::kCustomer);
-        req.set_index_name(indexes::kIdxCustomerName);
-        req.set_secondary_key(customer_name_si_key(w_id, d_id, c_last));
-        LineairDB::Protocol::TxReadSecondaryIndex::Response resp;
-        if (!client.call(MessageType::TX_READ_SECONDARY_INDEX, req, resp))
-            return finish_abort();
-        if (resp.is_aborted()) return finish_abort();
-        if (resp.values_size() == 0) return finish_abort();
-        // TPC-C §2.5.2.2: pick the `(n+1)/2`-th customer by c_first ordering;
-        // SI returns PKs un-sorted but middle-of-list is a reasonable proxy.
-        cu_key = resp.values(resp.values_size() / 2);
+        std::vector<std::string> pks;
+        {
+            // Matches proxy path: kSameKeyMaterialize / kPrefixFirst both use
+            // get_matching_primary_keys_in_range (ha_lineairdb.cc:2468,2516)
+            // with start=prefix, end=exclusive_end=prefix_end_of(prefix).
+            const std::string prefix = customer_name_si_prefix(w_id, d_id, c_last);
+            const std::string pend = prefix_end_of(prefix);
+            LineairDB::Protocol::TxGetMatchingPrimaryKeysInRange::Request req;
+            req.set_transaction_id(tx_id);
+            req.set_table_name(tables::kCustomer);
+            req.set_index_name(indexes::kIdxCustomerName);
+            req.set_start_key(prefix);
+            req.set_end_key(pend);
+            req.set_exclusive_end_key(pend);
+            LineairDB::Protocol::TxGetMatchingPrimaryKeysInRange::Response resp;
+            if (!client.call(MessageType::TX_GET_MATCHING_PRIMARY_KEYS_IN_RANGE, req, resp))
+                return finish_abort();
+            if (resp.is_aborted()) return finish_abort();
+            if (resp.primary_keys_size() == 0) return finish_abort();
+            pks.reserve(resp.primary_keys_size());
+            for (const auto& pk : resp.primary_keys()) pks.push_back(pk);
+        }
+        // Batch-fetch every matching customer row in a single RPC. Mirrors the
+        // MySQL proxy's `batch_fetch_secondary_payloads` (ha_lineairdb.cc:2696)
+        // which issues ONE TX_BATCH_READ for all SI-returned PKs — NOT N
+        // individual reads. All rows enter read_set_ for validation.
+        {
+            LineairDB::Protocol::TxBatchRead::Request req;
+            req.set_transaction_id(tx_id);
+            req.set_table_name(tables::kCustomer);
+            for (const auto& pk : pks) req.add_keys(pk);
+            LineairDB::Protocol::TxBatchRead::Response resp;
+            if (!client.call(MessageType::TX_BATCH_READ, req, resp)) return finish_abort();
+            if (resp.is_aborted()) return finish_abort();
+        }
+        cu_key = pks[pks.size() / 2];
     } else {
         const int c_id = 1 + rand_range(w.rng_state, 0, w.cfg->customers_per_district - 1);
         cu_key = make_int_key(w_id, d_id, c_id);
@@ -710,22 +779,45 @@ TxOutcome run_order_status_once(Client& client, NewOrderWorker& w) {
         return TxOutcome::kAborted;
     };
 
-    // Resolve customer: 60% by SI lookup (real TX_READ_SECONDARY_INDEX), 40% by PK.
+    // Resolve customer. 60% via SI prefix scan (same MySQL-equivalent path as
+    // Payment): 3-part prefix (w,d,c_last) → list of matching PKs → read each
+    // row → pick middle. Scan response is a protobuf list (not flat binary).
     std::string cu_key;
     if (by_name) {
         const std::string& c_last = kCustomerLastNames[
             xorshift64(w.rng_state) % kNumLastNames];
-        LineairDB::Protocol::TxReadSecondaryIndex::Request req;
-        req.set_transaction_id(tx_id);
-        req.set_table_name(tables::kCustomer);
-        req.set_index_name(indexes::kIdxCustomerName);
-        req.set_secondary_key(customer_name_si_key(w_id, d_id, c_last));
-        LineairDB::Protocol::TxReadSecondaryIndex::Response resp;
-        if (!client.call(MessageType::TX_READ_SECONDARY_INDEX, req, resp))
-            return finish_abort();
-        if (resp.is_aborted()) return finish_abort();
-        if (resp.values_size() == 0) return finish_abort();
-        cu_key = resp.values(resp.values_size() / 2);
+        std::vector<std::string> pks;
+        {
+            // Matches proxy path: kSameKeyMaterialize / kPrefixFirst both use
+            // get_matching_primary_keys_in_range (ha_lineairdb.cc:2468,2516)
+            // with start=prefix, end=exclusive_end=prefix_end_of(prefix).
+            const std::string prefix = customer_name_si_prefix(w_id, d_id, c_last);
+            const std::string pend = prefix_end_of(prefix);
+            LineairDB::Protocol::TxGetMatchingPrimaryKeysInRange::Request req;
+            req.set_transaction_id(tx_id);
+            req.set_table_name(tables::kCustomer);
+            req.set_index_name(indexes::kIdxCustomerName);
+            req.set_start_key(prefix);
+            req.set_end_key(pend);
+            req.set_exclusive_end_key(pend);
+            LineairDB::Protocol::TxGetMatchingPrimaryKeysInRange::Response resp;
+            if (!client.call(MessageType::TX_GET_MATCHING_PRIMARY_KEYS_IN_RANGE, req, resp))
+                return finish_abort();
+            if (resp.is_aborted()) return finish_abort();
+            if (resp.primary_keys_size() == 0) return finish_abort();
+            pks.reserve(resp.primary_keys_size());
+            for (const auto& pk : resp.primary_keys()) pks.push_back(pk);
+        }
+        for (const auto& pk : pks) {
+            LineairDB::Protocol::TxRead::Request req;
+            req.set_transaction_id(tx_id);
+            req.set_table_name(tables::kCustomer);
+            req.set_key(pk);
+            LineairDB::Protocol::TxRead::Response resp;
+            if (!client.call(MessageType::TX_READ, req, resp)) return finish_abort();
+            if (resp.is_aborted()) return finish_abort();
+        }
+        cu_key = pks[pks.size() / 2];
     } else {
         const int c_id = 1 + rand_range(w.rng_state, 0, w.cfg->customers_per_district - 1);
         cu_key = make_int_key(w_id, d_id, c_id);

@@ -37,7 +37,8 @@ struct Args {
     int districts_per_warehouse = 10;
     int customers_per_district = 3000;
     int items = 100000;
-    int retry_limit = 3;  // BenchBase default
+    int retry_limit = 3;        // BenchBase default (MAX ATTEMPTS per tx)
+    double warmup_sec = 0.0;    // let the dynamic tables fill up before timing
 
     // Mix selection (weights, summed internally). 0 means disabled.
     // BenchBase TPC-C defaults: 45 / 43 / 4 / 4 / 4.
@@ -76,6 +77,7 @@ bool parse_args(int argc, char** argv, Args* a) {
         else if (std::strcmp(k, "--customers-per-dist") == 0) { const char* v = next(); if (!v) return false; a->customers_per_district = std::atoi(v); }
         else if (std::strcmp(k, "--items") == 0) { const char* v = next(); if (!v) return false; a->items = std::atoi(v); }
         else if (std::strcmp(k, "--retry-limit") == 0) { const char* v = next(); if (!v) return false; a->retry_limit = std::atoi(v); }
+        else if (std::strcmp(k, "--warmup") == 0) { const char* v = next(); if (!v) return false; a->warmup_sec = std::atof(v); }
         else if (std::strcmp(k, "--payment-ratio") == 0) { const char* v = next(); if (!v) return false; a->payment_ratio = std::atof(v); }
         else if (std::strcmp(k, "--mix-newOrder") == 0) { const char* v = next(); if (!v) return false; a->mix_new_order = std::atoi(v); }
         else if (std::strcmp(k, "--mix-payment") == 0) { const char* v = next(); if (!v) return false; a->mix_payment = std::atoi(v); }
@@ -232,6 +234,8 @@ int run_new_order(const Args& args) {
         args.customers_per_district, args.items};
 
     std::atomic<bool> stop_flag{false};
+    // Flag flipped at end of warmup — stats collected only after this is true.
+    std::atomic<bool> warm_flag{args.warmup_sec <= 0.0};
     std::vector<bench_client::WorkerStats> per_thread(args.threads);
     std::vector<std::thread> workers;
     workers.reserve(args.threads);
@@ -285,9 +289,12 @@ int run_new_order(const Args& args) {
         while (!stop_flag.load(std::memory_order_relaxed)) {
             const auto t_begin = std::chrono::steady_clock::now();
             const TxKind kind = pick_tx();
+            // BenchBase retry policy: `retry_limit` = MAX ATTEMPTS (default 3),
+            // i.e. attempts 0..retry_limit-1 inclusive.
             int attempt = 0;
+            int intermediate_retries = 0;
             bench_client::TxOutcome outcome = bench_client::TxOutcome::kAborted;
-            for (; attempt <= args.retry_limit; ++attempt) {
+            for (; attempt < args.retry_limit; ++attempt) {
                 switch (kind) {
                     case kNO:  outcome = bench_client::run_new_order_once(client, w); break;
                     case kPay: outcome = bench_client::run_payment_once(client, w); break;
@@ -296,29 +303,39 @@ int run_new_order(const Args& args) {
                     case kSL:  outcome = bench_client::run_stock_level_once(client, w); break;
                 }
                 if (outcome == bench_client::TxOutcome::kCommitted) break;
-                if (attempt < args.retry_limit) {
-                    ++stats.retries;  // counts a retry about to happen
+                if (attempt + 1 < args.retry_limit) {
+                    ++intermediate_retries;  // buffered; committed to stats below only if past warmup
                 }
             }
             const auto t_end = std::chrono::steady_clock::now();
             const uint64_t ns = static_cast<uint64_t>(
                 std::chrono::duration_cast<std::chrono::nanoseconds>(t_end - t_begin).count());
 
-            if (outcome == bench_client::TxOutcome::kCommitted) {
-                ++stats.commits;
-            } else {
-                ++stats.aborts_final;
+            // Drop work done during warmup: we want steady-state measurements
+            // with dynamic tables already populated and OCC state warm.
+            if (warm_flag.load(std::memory_order_relaxed)) {
+                if (outcome == bench_client::TxOutcome::kCommitted) {
+                    ++stats.commits;
+                } else {
+                    ++stats.aborts_final;
+                }
+                stats.retries += intermediate_retries;
+                stats.latencies_ns.push_back(ns);
             }
-            stats.latencies_ns.push_back(ns);
         }
 
         client.disconnect();
     };
 
-    const auto t0 = std::chrono::steady_clock::now();
     for (int i = 0; i < args.threads; ++i) {
         workers.emplace_back(worker_main, i);
     }
+    if (args.warmup_sec > 0.0) {
+        std::this_thread::sleep_for(std::chrono::duration<double>(args.warmup_sec));
+        warm_flag.store(true, std::memory_order_relaxed);
+        std::printf("warmup=%.1fs done, measuring...\n", args.warmup_sec);
+    }
+    const auto t0 = std::chrono::steady_clock::now();
     std::this_thread::sleep_for(std::chrono::duration<double>(args.duration_sec));
     stop_flag.store(true, std::memory_order_relaxed);
     for (auto& th : workers) th.join();

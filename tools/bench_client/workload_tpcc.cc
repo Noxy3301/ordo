@@ -3,6 +3,7 @@
 #include "key_encoder.hh"
 #include "lineairdb.pb.h"
 
+#include <atomic>
 #include <chrono>
 #include <cstdio>
 #include <cstdint>
@@ -575,8 +576,6 @@ TxOutcome run_order_status_once(Client& client, NewOrderWorker& w) {
     const int w_id = 1 + rand_range(w.rng_state, 0, w.cfg->warehouses - 1);
     const int d_id = 1 + rand_range(w.rng_state, 0, w.cfg->districts_per_warehouse - 1);
     const int c_id = 1 + rand_range(w.rng_state, 0, w.cfg->customers_per_district - 1);
-    // Pick an o_id in the range NewOrder has been producing.
-    const int32_t o_id = 3001 + static_cast<int32_t>(xorshift64(w.rng_state) % 1024);
 
     int64_t tx_id = 0;
     {
@@ -593,6 +592,33 @@ TxOutcome run_order_status_once(Client& client, NewOrderWorker& w) {
         (void)client.call(MessageType::DB_END_TRANSACTION, req, resp);
         return TxOutcome::kAborted;
     };
+
+    // district READ → get live d_next_o_id so we hit the latest-order prefix,
+    // not a stale fixed [3001,4024) window.
+    int32_t d_next_o_id = 3001;
+    {
+        LineairDB::Protocol::TxRead::Request req;
+        req.set_transaction_id(tx_id);
+        req.set_table_name(tables::kDistrict);
+        req.set_key(make_int_key(w_id, d_id));
+        LineairDB::Protocol::TxRead::Response resp;
+        if (!client.call(MessageType::TX_READ, req, resp)) return finish_abort();
+        if (resp.is_aborted()) return finish_abort();
+        if (resp.found() && resp.value().size() >= 4) {
+            d_next_o_id = read_int32_le_at(resp.value(), 0);
+        }
+    }
+    // Pick o_id uniformly over the last up-to-1024 committed orders. The
+    // window is `[max(3001, d_next_o_id - 1024), d_next_o_id - 1]`, so during
+    // warmup it may be narrower than 1024 entries. TPC-C §2.6.1.2 only
+    // requires picking *a* recent order; the 1024 cap bounds workload spread.
+    int32_t o_id = 3001;
+    {
+        const int32_t top = (d_next_o_id > 3001) ? (d_next_o_id - 1) : 3001;
+        const int32_t bottom = (top > 3001 + 1023) ? (top - 1023) : 3001;
+        const uint32_t span = static_cast<uint32_t>(top - bottom + 1);
+        o_id = bottom + static_cast<int32_t>(xorshift64(w.rng_state) % span);
+    }
 
     // customer READ
     {
@@ -642,11 +668,28 @@ TxOutcome run_order_status_once(Client& client, NewOrderWorker& w) {
 // -----------------------------------------------------------------------------
 
 namespace {
-// Per-(w,d) delivery cursor, so each district delivers sequentially from its
-// earliest un-delivered o_id. Worker-local (racey across threads, but each
-// thread has its own cursor; inter-thread races just mean some o_ids get
-// "delivered" multiple times — doesn't matter for bench load shape).
-thread_local int32_t s_delivery_cursor[64] = {};  // up to 64 districts
+// Process-wide per-(w, d) delivery cursor, incremented atomically so threads
+// never redeliver the same o_id. Sized for up to 64 warehouses × 64 districts;
+// larger configurations would need a map, but bench_client targets SF=1.
+constexpr int kMaxWh = 64;
+constexpr int kMaxDi = 64;
+std::atomic<int32_t> g_delivery_cursor[kMaxWh][kMaxDi];
+
+// Lazy init: first read returns 3001 (TPC-C initial d_next_o_id) without
+// double-initializing across threads.
+int32_t next_delivery_oid(int w_id, int d_id) {
+    auto& slot = g_delivery_cursor[w_id - 1][d_id - 1];
+    int32_t cur = slot.load(std::memory_order_relaxed);
+    while (cur == 0) {
+        int32_t expected = 0;
+        if (slot.compare_exchange_weak(expected, 3001, std::memory_order_relaxed)) {
+            cur = 3001;
+            break;
+        }
+        cur = slot.load(std::memory_order_relaxed);
+    }
+    return slot.fetch_add(1, std::memory_order_relaxed);
+}
 }
 
 TxOutcome run_delivery_once(Client& client, NewOrderWorker& w) {
@@ -670,12 +713,15 @@ TxOutcome run_delivery_once(Client& client, NewOrderWorker& w) {
         return TxOutcome::kAborted;
     };
 
-    for (int d_id = 1; d_id <= w.cfg->districts_per_warehouse && d_id <= 64; ++d_id) {
-        int32_t& cursor = s_delivery_cursor[d_id - 1];
-        if (cursor == 0) cursor = 3001;  // lazy init to TPC-C baseline
-        const int32_t o_id = cursor++;
+    for (int d_id = 1;
+         d_id <= w.cfg->districts_per_warehouse && d_id <= kMaxDi && w_id <= kMaxWh;
+         ++d_id) {
+        const int32_t o_id = next_delivery_oid(w_id, d_id);
 
-        // oorder RMW (set o_carrier_id into value bytes — we just rewrite same bytes)
+        // Check oorder exists first. If the NewOrder that produced this o_id
+        // hasn't committed yet (or we're ahead of NewOrder), skip this district
+        // without mutating new_order — avoids emitting tombstones for rows that
+        // don't yet have a real insertion.
         {
             LineairDB::Protocol::TxRead::Request req;
             req.set_transaction_id(tx_id);
@@ -684,7 +730,21 @@ TxOutcome run_delivery_once(Client& client, NewOrderWorker& w) {
             LineairDB::Protocol::TxRead::Response resp;
             if (!client.call(MessageType::TX_READ, req, resp)) return finish_abort();
             if (resp.is_aborted()) return finish_abort();
-            if (!resp.found()) continue;  // this o_id hasn't been created yet; skip district
+            if (!resp.found()) continue;
+        }
+
+        // new_order DELETE (queue-drain semantics). Uses the dedicated TX_DELETE
+        // RPC, which LDB routes through Transaction::Impl::Delete — this path
+        // bumps the item's TID via an actual tombstone operation, so any
+        // concurrent reader's validation_set_ entry becomes stale.
+        {
+            LineairDB::Protocol::TxDelete::Request req;
+            req.set_transaction_id(tx_id);
+            req.set_table_name(tables::kNewOrder);
+            req.set_key(make_int_key(w_id, d_id, o_id));
+            LineairDB::Protocol::TxDelete::Response resp;
+            if (!client.call(MessageType::TX_DELETE, req, resp)) return finish_abort();
+            if (resp.is_aborted() || !resp.success()) return finish_abort();
         }
         {
             LineairDB::Protocol::TxWrite::Request req;

@@ -81,3 +81,34 @@ target_include_directories(lineairdb-server PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
 
 # Compiler flags to suppress warnings
 target_compile_options(lineairdb-server PRIVATE -O3 -Wno-error -Wno-unused-parameter)
+
+# ----------------------------------------------------------------------------
+# bench_client: LDB 直撃ベンチツール。MySQL をバイパスして lineairdb-server に
+# 直接 TCP+protobuf で RPC を叩く。LDB 最適化の local 回帰検知用。
+# 共有リソース: ${PROTO_SRCS}, protocol/message.hh
+# ----------------------------------------------------------------------------
+set(BENCH_CLIENT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../tools/bench_client")
+set(BENCH_CLIENT_SOURCES
+    ${BENCH_CLIENT_DIR}/main.cc
+    ${BENCH_CLIENT_DIR}/wire.cc
+    ${BENCH_CLIENT_DIR}/client.cc
+    ${BENCH_CLIENT_DIR}/key_encoder.cc
+    ${BENCH_CLIENT_DIR}/workload_tpcc.cc
+    ${BENCH_CLIENT_DIR}/stats.cc
+    ${PROTO_SRCS}
+)
+
+add_executable(bench_client ${BENCH_CLIENT_SOURCES})
+
+target_link_libraries(bench_client
+    ${Protobuf_LIBRARIES}
+    pthread
+)
+
+target_include_directories(bench_client PRIVATE
+    ${BENCH_CLIENT_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}       # for protocol/message.hh
+    ${CMAKE_CURRENT_BINARY_DIR}       # for lineairdb.pb.h
+)
+
+target_compile_options(bench_client PRIVATE -O3 -Wno-error -Wno-unused-parameter)

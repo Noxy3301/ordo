@@ -265,7 +265,14 @@ bool populate(Client& client, const TpccConfig& cfg) {
     // so each SI entry accumulates a list of primary keys.
     if (!create_secondary_index(client, tables::kCustomer,
                                 indexes::kIdxCustomerName, 0)) {
-        std::fprintf(stderr, "populate: CREATE_SECONDARY_INDEX failed\n");
+        std::fprintf(stderr, "populate: CREATE_SECONDARY_INDEX customer failed\n");
+        return false;
+    }
+    // idx_oorder_customer: non-unique SI on (w, d, c_id). Populated during
+    // NewOrder runtime so the measured phase drives WriteSecondaryIndex.
+    if (!create_secondary_index(client, tables::kOorder,
+                                indexes::kIdxOorderCustomer, 0)) {
+        std::fprintf(stderr, "populate: CREATE_SECONDARY_INDEX oorder failed\n");
         return false;
     }
     std::printf("populate: tables + secondary indexes created\n");
@@ -408,14 +415,21 @@ TxOutcome run_new_order_once(Client& client, NewOrderWorker& w) {
         if (resp.is_aborted() || !resp.success()) return finish_abort();
     }
 
-    // BATCH_WRITE [oorder (w,d,o_id)] then [new_order (w,d,o_id)]
+    // BATCH_WRITE [oorder (w,d,o_id)] + SI [idx_oorder_customer (w,d,c_id) → oorder PK]
+    // then [new_order (w,d,o_id)]. The oorder SI write exercises the LDB
+    // WriteSecondaryIndex hotpath on every NewOrder commit (45% of mix).
     {
         LineairDB::Protocol::TxBatchWrite::Request req;
         req.set_transaction_id(tx_id);
         req.set_table_name(tables::kOorder);
+        const std::string oorder_pk = make_int_key(w_id, d_id, o_id);
         auto* op = req.add_writes();
-        op->set_key(make_int_key(w_id, d_id, o_id));
+        op->set_key(oorder_pk);
         op->set_value(value_of(tables::kOorder));
+        auto* si = req.add_secondary_index_writes();
+        si->set_index_name(indexes::kIdxOorderCustomer);
+        si->set_secondary_key(make_int_key(w_id, d_id, c_id));
+        si->set_primary_key(oorder_pk);
         LineairDB::Protocol::TxBatchWrite::Response resp;
         if (!client.call(MessageType::TX_BATCH_WRITE, req, resp)) return finish_abort();
         if (resp.is_aborted() || !resp.success()) return finish_abort();
@@ -728,22 +742,34 @@ TxOutcome run_order_status_once(Client& client, NewOrderWorker& w) {
         if (resp.is_aborted()) return finish_abort();
     }
 
-    // Fetch latest oorder in district: TX_FETCH_LAST_KEY_IN_RANGE over prefix (w,d).
-    // start=encode(w,d), end=encode(w,d+1) covers all (w,d,*) oorder PKs.
+    // Resolve c_id from cu_key (3rd int32 part) so we can look up the customer's
+    // own orders via idx_oorder_customer instead of district-latest. Each key
+    // part is 8 bytes; 3rd part payload is at offset 20..23.
+    int32_t c_id = 0;
+    if (cu_key.size() >= 3 * 8) {
+        uint32_t be = 0;
+        be |= static_cast<uint8_t>(cu_key[20]); be <<= 8;
+        be |= static_cast<uint8_t>(cu_key[21]); be <<= 8;
+        be |= static_cast<uint8_t>(cu_key[22]); be <<= 8;
+        be |= static_cast<uint8_t>(cu_key[23]);
+        c_id = static_cast<int32_t>(be ^ 0x80000000u);
+    }
+
+    // Fetch this customer's oorders via idx_oorder_customer (w,d,c_id). Picks
+    // the last in the returned list as the "latest" (SI accumulates in insertion
+    // order). If SI lookup returns empty (customer has no orders yet), commit.
     std::string latest_o_key;
     {
-        LineairDB::Protocol::TxFetchLastKeyInRange::Request req;
+        LineairDB::Protocol::TxReadSecondaryIndex::Request req;
         req.set_transaction_id(tx_id);
         req.set_table_name(tables::kOorder);
-        req.set_start_key(make_int_key(w_id, d_id));
-        req.set_end_key(make_int_key(w_id, d_id + 1));
-        LineairDB::Protocol::TxFetchLastKeyInRange::Response resp;
-        if (!client.call(MessageType::TX_FETCH_LAST_KEY_IN_RANGE, req, resp))
+        req.set_index_name(indexes::kIdxOorderCustomer);
+        req.set_secondary_key(make_int_key(w_id, d_id, c_id));
+        LineairDB::Protocol::TxReadSecondaryIndex::Response resp;
+        if (!client.call(MessageType::TX_READ_SECONDARY_INDEX, req, resp))
             return finish_abort();
         if (resp.is_aborted()) return finish_abort();
-        if (!resp.found()) {
-            // No oorder for this district yet (pre-warmup). Skip the rest,
-            // commit anyway (empty result is valid per TPC-C).
+        if (resp.values_size() == 0) {
             LineairDB::Protocol::DbEndTransaction::Request end_req;
             end_req.set_transaction_id(tx_id);
             end_req.set_fence(false);
@@ -752,7 +778,7 @@ TxOutcome run_order_status_once(Client& client, NewOrderWorker& w) {
             if (end_resp.is_aborted()) return TxOutcome::kAborted;
             return TxOutcome::kCommitted;
         }
-        latest_o_key = resp.key();
+        latest_o_key = resp.values(resp.values_size() - 1);
     }
 
     // READ that oorder by its PK (registers in read_set_ for validation).
@@ -1000,12 +1026,14 @@ TxOutcome run_stock_level_once(Client& client, NewOrderWorker& w) {
     i_ids.reserve(200);
     {
         const int32_t o_lo = (d_next_o_id > 20 + 3001) ? (d_next_o_id - 20) : 3001;
-        const int32_t o_hi = d_next_o_id;  // treated as exclusive upper bound by LDB
+        const int32_t o_hi = d_next_o_id;  // TPC-C §2.8.2.2: ol_o_id < d_next_o_id
         LineairDB::Protocol::TxGetMatchingKeysAndValuesInRange::Request req;
         req.set_transaction_id(tx_id);
         req.set_table_name(tables::kOrderLine);
         req.set_start_key(make_int_key(w_id, d_id, o_lo));
+        // LDB scan end_key is inclusive; use exclusive_end_key to enforce `< o_hi`.
         req.set_end_key(make_int_key(w_id, d_id, o_hi));
+        req.set_exclusive_end_key(make_int_key(w_id, d_id, o_hi));
         bool aborted = false;
         std::vector<std::pair<std::string, std::string>> kvs;
         if (!client.call_flat_scan(MessageType::TX_GET_MATCHING_KEYS_AND_VALUES_IN_RANGE,

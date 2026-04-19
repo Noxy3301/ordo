@@ -87,6 +87,10 @@ constexpr const char* kHistory = "history";
 namespace indexes {
 // Customer-by-name secondary index (non-unique). Key = (c_w_id, c_d_id, c_last).
 constexpr const char* kIdxCustomerName = "idx_customer_name";
+// Oorder-by-customer secondary index (non-unique). Key = (o_w_id, o_d_id, o_c_id).
+// Populated on every NewOrder so OrderStatus can resolve "latest order for
+// customer X". This is the measured-phase WriteSecondaryIndex hotpath driver.
+constexpr const char* kIdxOorderCustomer = "idx_oorder_customer";
 }  // namespace indexes
 
 // Value-size constants (~BenchBase sizes; only size matters for LDB load).

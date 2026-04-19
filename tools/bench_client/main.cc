@@ -38,6 +38,17 @@ struct Args {
     int customers_per_district = 3000;
     int items = 100000;
     int retry_limit = 3;  // BenchBase default
+
+    // Mix selection (weights, summed internally). 0 means disabled.
+    // BenchBase TPC-C defaults: 45 / 43 / 4 / 4 / 4.
+    // --mix-newOrder / --mix-payment / --mix-orderStatus / --mix-delivery / --mix-stockLevel
+    int mix_new_order = 0;
+    int mix_payment = 0;
+    int mix_order_status = 0;
+    int mix_delivery = 0;
+    int mix_stock_level = 0;
+    // Legacy single-knob for 2-way NewOrder/Payment experiments.
+    double payment_ratio = 0.0;
 };
 
 void print_usage() {
@@ -65,6 +76,12 @@ bool parse_args(int argc, char** argv, Args* a) {
         else if (std::strcmp(k, "--customers-per-dist") == 0) { const char* v = next(); if (!v) return false; a->customers_per_district = std::atoi(v); }
         else if (std::strcmp(k, "--items") == 0) { const char* v = next(); if (!v) return false; a->items = std::atoi(v); }
         else if (std::strcmp(k, "--retry-limit") == 0) { const char* v = next(); if (!v) return false; a->retry_limit = std::atoi(v); }
+        else if (std::strcmp(k, "--payment-ratio") == 0) { const char* v = next(); if (!v) return false; a->payment_ratio = std::atof(v); }
+        else if (std::strcmp(k, "--mix-newOrder") == 0) { const char* v = next(); if (!v) return false; a->mix_new_order = std::atoi(v); }
+        else if (std::strcmp(k, "--mix-payment") == 0) { const char* v = next(); if (!v) return false; a->mix_payment = std::atoi(v); }
+        else if (std::strcmp(k, "--mix-orderStatus") == 0) { const char* v = next(); if (!v) return false; a->mix_order_status = std::atoi(v); }
+        else if (std::strcmp(k, "--mix-delivery") == 0) { const char* v = next(); if (!v) return false; a->mix_delivery = std::atoi(v); }
+        else if (std::strcmp(k, "--mix-stockLevel") == 0) { const char* v = next(); if (!v) return false; a->mix_stock_level = std::atoi(v); }
         else { std::fprintf(stderr, "unknown arg: %s\n", k); return false; }
     }
     return true;
@@ -236,12 +253,48 @@ int run_new_order(const Args& args) {
         bench_client::WorkerStats& stats = per_thread[tid];
         stats.latencies_ns.reserve(1 << 15);
 
+        // Per-worker RNG for tx-type selection — independent from the workload
+        // RNG so mix probabilities aren't skewed by in-tx consumption.
+        uint64_t type_rng = 0xC0FFEE0000000001ULL ^ (static_cast<uint64_t>(tid) + 1) * 2654435761ULL;
+
+        // Resolve tx-selection scheme:
+        //   1. If any --mix-* weight is non-zero, use weighted selection across 5 tx types.
+        //   2. Else if --payment-ratio > 0, use 2-way NO/Payment split.
+        //   3. Else NewOrder only.
+        enum TxKind { kNO, kPay, kOS, kDel, kSL };
+        const int mix_sum = args.mix_new_order + args.mix_payment +
+                            args.mix_order_status + args.mix_delivery + args.mix_stock_level;
+        auto pick_tx = [&]() -> TxKind {
+            type_rng ^= type_rng >> 12; type_rng ^= type_rng << 25; type_rng ^= type_rng >> 27;
+            if (mix_sum > 0) {
+                const int r = static_cast<int>(type_rng % static_cast<uint64_t>(mix_sum));
+                int acc = 0;
+                acc += args.mix_new_order;    if (r < acc) return kNO;
+                acc += args.mix_payment;      if (r < acc) return kPay;
+                acc += args.mix_order_status; if (r < acc) return kOS;
+                acc += args.mix_delivery;     if (r < acc) return kDel;
+                return kSL;
+            }
+            if (args.payment_ratio > 0.0) {
+                double u = static_cast<double>(type_rng & 0xFFFFFFFFFFFFULL) / static_cast<double>(1ULL << 48);
+                return (u < args.payment_ratio) ? kPay : kNO;
+            }
+            return kNO;
+        };
+
         while (!stop_flag.load(std::memory_order_relaxed)) {
             const auto t_begin = std::chrono::steady_clock::now();
+            const TxKind kind = pick_tx();
             int attempt = 0;
             bench_client::TxOutcome outcome = bench_client::TxOutcome::kAborted;
             for (; attempt <= args.retry_limit; ++attempt) {
-                outcome = bench_client::run_new_order_once(client, w);
+                switch (kind) {
+                    case kNO:  outcome = bench_client::run_new_order_once(client, w); break;
+                    case kPay: outcome = bench_client::run_payment_once(client, w); break;
+                    case kOS:  outcome = bench_client::run_order_status_once(client, w); break;
+                    case kDel: outcome = bench_client::run_delivery_once(client, w); break;
+                    case kSL:  outcome = bench_client::run_stock_level_once(client, w); break;
+                }
                 if (outcome == bench_client::TxOutcome::kCommitted) break;
                 if (attempt < args.retry_limit) {
                     ++stats.retries;  // counts a retry about to happen
@@ -278,8 +331,20 @@ int run_new_order(const Args& args) {
     }
 
     auto agg = bench_client::aggregate(per_thread, elapsed);
-    std::printf("newOrder[threads=%d wh=%d items=%d]: %s\n",
-                args.threads, args.warehouses, args.items,
+    char mix_label[96];
+    const int mix_sum = args.mix_new_order + args.mix_payment +
+                        args.mix_order_status + args.mix_delivery + args.mix_stock_level;
+    if (mix_sum > 0) {
+        std::snprintf(mix_label, sizeof(mix_label),
+                      "mix=%d/%d/%d/%d/%d",
+                      args.mix_new_order, args.mix_payment,
+                      args.mix_order_status, args.mix_delivery, args.mix_stock_level);
+    } else {
+        std::snprintf(mix_label, sizeof(mix_label),
+                      "payment_ratio=%.2f", args.payment_ratio);
+    }
+    std::printf("tpcc[threads=%d wh=%d items=%d %s]: %s\n",
+                args.threads, args.warehouses, args.items, mix_label,
                 bench_client::format_summary(agg).c_str());
     return 0;
 }

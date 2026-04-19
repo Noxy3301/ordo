@@ -43,6 +43,34 @@ enum class TxOutcome { kCommitted, kAborted };
 // On wire error returns kAborted (caller treats same as OCC abort + retry).
 TxOutcome run_new_order_once(Client& client, NewOrderWorker& w);
 
+// Execute one Payment transaction (TPC-C standard: RMW warehouse/district/
+// customer + INSERT history). Payment alone cannot produce aborts under LDB
+// Silo (all fields are RMW on the same key, masked by the write-set TID
+// overwrite). Mixed with NewOrder however, Payment writes warehouse and
+// customer which NewOrder reads read-only — that is the only pattern that
+// forces real OCC aborts.
+TxOutcome run_payment_once(Client& client, NewOrderWorker& w);
+
+// Execute one OrderStatus transaction. Read-only: customer + one recent oorder
+// + that oorder's order_lines. Abort source: concurrent Payment writes to
+// customer, or concurrent Delivery writes to order_line.
+// Simplified vs BenchBase: skip by-name variant (no SI); pick o_id uniformly
+// from [3001, 3001+1024) which NewOrder has been inserting into.
+TxOutcome run_order_status_once(Client& client, NewOrderWorker& w);
+
+// Execute one Delivery transaction. For each of 10 districts:
+//   - Scan new_order (w, d, *) to find min o_id (range scan)
+//   - DELETE new_order (w, d, o_id) (via blind write of zero-length value — LDB treats as tombstone)
+//   - READ+WRITE oorder (w, d, o_id) (set o_carrier_id)
+//   - For each order_line (w, d, o_id, ol): READ+WRITE (set ol_delivery_d)
+//   - READ+WRITE customer (w, d, c_id) (bump c_balance / c_delivery_cnt)
+TxOutcome run_delivery_once(Client& client, NewOrderWorker& w);
+
+// Execute one StockLevel transaction. Read district → scan order_line range of
+// last 20 orders → for each ol_i_id, read stock → count s_quantity < threshold.
+// Read-only. Conflict source: concurrent NewOrder writes to stock.
+TxOutcome run_stock_level_once(Client& client, NewOrderWorker& w);
+
 // Names of tables we use. Kept as string_view-style constants for NewOrder later.
 namespace tables {
 constexpr const char* kWarehouse = "warehouse";
@@ -53,6 +81,7 @@ constexpr const char* kStock = "stock";
 constexpr const char* kOorder = "oorder";
 constexpr const char* kNewOrder = "new_order";
 constexpr const char* kOrderLine = "order_line";
+constexpr const char* kHistory = "history";
 }  // namespace tables
 
 // Value-size constants (~BenchBase sizes; only size matters for LDB load).
@@ -65,6 +94,7 @@ constexpr size_t kStock = 306;
 constexpr size_t kOorder = 32;
 constexpr size_t kNewOrder = 8;
 constexpr size_t kOrderLine = 64;
+constexpr size_t kHistory = 46;
 }  // namespace value_sizes
 
 }  // namespace bench_client

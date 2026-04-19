@@ -100,17 +100,23 @@ bool flush_batch(Client& c, const std::string& table,
 bool populate_warehouse(Client& c, const TpccConfig& cfg) {
     std::vector<std::pair<std::string, std::string>> rows;
     rows.reserve(cfg.warehouses);
+    // Initial w_ytd = 300000 at offset 0 (TPC-C spec, cents). Payment RMW target.
+    std::string v = dummy_value(value_sizes::kWarehouse, 'w');
+    write_int32_le_at(v, 0, 300000);
     for (int w = 1; w <= cfg.warehouses; ++w) {
-        rows.emplace_back(make_int_key(w), dummy_value(value_sizes::kWarehouse, 'w'));
+        rows.emplace_back(make_int_key(w), v);
     }
     return flush_batch(c, tables::kWarehouse, rows);
 }
 
 bool populate_district(Client& c, const TpccConfig& cfg) {
     std::vector<std::pair<std::string, std::string>> rows;
-    // Initial d_next_o_id = 3001 at offset 0 (TPC-C spec after history load).
+    // District layout:
+    //   offset 0: d_next_o_id (int32, NewOrder RMW target), init 3001
+    //   offset 4: d_ytd       (int32, Payment RMW target),  init 30000
     std::string v = dummy_value(value_sizes::kDistrict, 'd');
     write_int32_le_at(v, 0, 3001);
+    write_int32_le_at(v, 4, 30000);
     for (int w = 1; w <= cfg.warehouses; ++w) {
         for (int d = 1; d <= cfg.districts_per_warehouse; ++d) {
             rows.emplace_back(make_int_key(w, d), v);
@@ -122,7 +128,9 @@ bool populate_district(Client& c, const TpccConfig& cfg) {
 bool populate_customer(Client& c, const TpccConfig& cfg) {
     std::vector<std::pair<std::string, std::string>> rows;
     rows.reserve(kBatchSize);
-    const std::string v = dummy_value(value_sizes::kCustomer, 'c');
+    // Initial c_balance = -10 at offset 0 (TPC-C spec cents). Payment RMW target.
+    std::string v = dummy_value(value_sizes::kCustomer, 'c');
+    write_int32_le_at(v, 0, -10);
     for (int w = 1; w <= cfg.warehouses; ++w) {
         for (int d = 1; d <= cfg.districts_per_warehouse; ++d) {
             for (int ci = 1; ci <= cfg.customers_per_district; ++ci) {
@@ -178,7 +186,7 @@ bool populate(Client& client, const TpccConfig& cfg) {
     // runtime by NewOrder; still create them up front so SET_TABLE works.
     for (const char* name : {tables::kWarehouse, tables::kDistrict, tables::kCustomer,
                              tables::kItem, tables::kStock, tables::kOorder,
-                             tables::kNewOrder, tables::kOrderLine}) {
+                             tables::kNewOrder, tables::kOrderLine, tables::kHistory}) {
         if (!create_table(client, name)) {
             std::fprintf(stderr, "populate: CREATE_TABLE %s failed\n", name);
             return false;
@@ -226,19 +234,18 @@ inline int rand_range(uint64_t& s, int lo, int hi) {
 }
 
 // Thread-local scratch values, sized to match the schema. Same bytes every tx
-// except for district/stock which carry the RMW-mutated fields.
+// except for district/stock/warehouse/customer which carry RMW-mutated fields
+// (those tables go through explicit decode+re-encode in the tx body).
 const std::string& value_of(const char* table) {
-    static const std::string v_wh = std::string(value_sizes::kWarehouse, 'w');
-    static const std::string v_cu = std::string(value_sizes::kCustomer, 'c');
     static const std::string v_it = std::string(value_sizes::kItem, 'i');
     static const std::string v_oo = std::string(value_sizes::kOorder, 'o');
     static const std::string v_no = std::string(value_sizes::kNewOrder, 'n');
     static const std::string v_ol = std::string(value_sizes::kOrderLine, 'l');
-    if (table == tables::kWarehouse) return v_wh;
-    if (table == tables::kCustomer) return v_cu;
+    static const std::string v_hi = std::string(value_sizes::kHistory, 'h');
     if (table == tables::kItem) return v_it;
     if (table == tables::kOorder) return v_oo;
     if (table == tables::kNewOrder) return v_no;
+    if (table == tables::kHistory) return v_hi;
     return v_ol;
 }
 
@@ -416,6 +423,424 @@ TxOutcome run_new_order_once(Client& client, NewOrderWorker& w) {
         if (resp.is_aborted()) return TxOutcome::kAborted;
     }
 
+    return TxOutcome::kCommitted;
+}
+
+// -----------------------------------------------------------------------------
+// Payment execution
+// -----------------------------------------------------------------------------
+
+namespace {
+// Per-worker rolling counter for history INSERT key uniqueness. Thread-local
+// (one counter per thread) via function-static + thread_local.
+thread_local uint64_t s_history_seq = 0;
+}
+
+TxOutcome run_payment_once(Client& client, NewOrderWorker& w) {
+    const int w_id = 1 + rand_range(w.rng_state, 0, w.cfg->warehouses - 1);
+    const int d_id = 1 + rand_range(w.rng_state, 0, w.cfg->districts_per_warehouse - 1);
+    const int c_id = 1 + rand_range(w.rng_state, 0, w.cfg->customers_per_district - 1);
+    const int32_t h_amount = 1 + static_cast<int32_t>(xorshift64(w.rng_state) % 5000);
+
+    // BEGIN
+    int64_t tx_id = 0;
+    {
+        LineairDB::Protocol::TxBeginTransaction::Request req;
+        LineairDB::Protocol::TxBeginTransaction::Response resp;
+        if (!client.call(MessageType::TX_BEGIN_TRANSACTION, req, resp)) return TxOutcome::kAborted;
+        tx_id = resp.transaction_id();
+    }
+
+    auto finish_abort = [&]() -> TxOutcome {
+        LineairDB::Protocol::DbEndTransaction::Request req;
+        req.set_transaction_id(tx_id);
+        req.set_fence(false);
+        LineairDB::Protocol::DbEndTransaction::Response resp;
+        (void)client.call(MessageType::DB_END_TRANSACTION, req, resp);
+        return TxOutcome::kAborted;
+    };
+
+    // warehouse RMW (w_ytd += h_amount)
+    const std::string wh_key = make_int_key(w_id);
+    std::string wh_value;
+    {
+        LineairDB::Protocol::TxRead::Request req;
+        req.set_transaction_id(tx_id);
+        req.set_table_name(tables::kWarehouse);
+        req.set_key(wh_key);
+        LineairDB::Protocol::TxRead::Response resp;
+        if (!client.call(MessageType::TX_READ, req, resp)) return finish_abort();
+        if (resp.is_aborted()) return finish_abort();
+        if (!resp.found() || resp.value().size() < 4) return finish_abort();
+        wh_value = resp.value();
+    }
+    {
+        LineairDB::Protocol::TxWrite::Request req;
+        req.set_transaction_id(tx_id);
+        req.set_table_name(tables::kWarehouse);
+        req.set_key(wh_key);
+        int32_t w_ytd = read_int32_le_at(wh_value, 0);
+        write_int32_le_at(wh_value, 0, w_ytd + h_amount);
+        req.set_value(wh_value);
+        LineairDB::Protocol::TxWrite::Response resp;
+        if (!client.call(MessageType::TX_WRITE, req, resp)) return finish_abort();
+        if (resp.is_aborted() || !resp.success()) return finish_abort();
+    }
+
+    // district RMW (d_ytd += h_amount, offset 4 — leaves d_next_o_id at offset 0)
+    const std::string di_key = make_int_key(w_id, d_id);
+    std::string di_value;
+    {
+        LineairDB::Protocol::TxRead::Request req;
+        req.set_transaction_id(tx_id);
+        req.set_table_name(tables::kDistrict);
+        req.set_key(di_key);
+        LineairDB::Protocol::TxRead::Response resp;
+        if (!client.call(MessageType::TX_READ, req, resp)) return finish_abort();
+        if (resp.is_aborted()) return finish_abort();
+        if (!resp.found() || resp.value().size() < 8) return finish_abort();
+        di_value = resp.value();
+    }
+    {
+        LineairDB::Protocol::TxWrite::Request req;
+        req.set_transaction_id(tx_id);
+        req.set_table_name(tables::kDistrict);
+        req.set_key(di_key);
+        int32_t d_ytd = read_int32_le_at(di_value, 4);
+        write_int32_le_at(di_value, 4, d_ytd + h_amount);
+        req.set_value(di_value);
+        LineairDB::Protocol::TxWrite::Response resp;
+        if (!client.call(MessageType::TX_WRITE, req, resp)) return finish_abort();
+        if (resp.is_aborted() || !resp.success()) return finish_abort();
+    }
+
+    // customer RMW (c_balance -= h_amount)
+    const std::string cu_key = make_int_key(w_id, d_id, c_id);
+    std::string cu_value;
+    {
+        LineairDB::Protocol::TxRead::Request req;
+        req.set_transaction_id(tx_id);
+        req.set_table_name(tables::kCustomer);
+        req.set_key(cu_key);
+        LineairDB::Protocol::TxRead::Response resp;
+        if (!client.call(MessageType::TX_READ, req, resp)) return finish_abort();
+        if (resp.is_aborted()) return finish_abort();
+        if (!resp.found() || resp.value().size() < 4) return finish_abort();
+        cu_value = resp.value();
+    }
+    {
+        LineairDB::Protocol::TxWrite::Request req;
+        req.set_transaction_id(tx_id);
+        req.set_table_name(tables::kCustomer);
+        req.set_key(cu_key);
+        int32_t c_balance = read_int32_le_at(cu_value, 0);
+        write_int32_le_at(cu_value, 0, c_balance - h_amount);
+        req.set_value(cu_value);
+        LineairDB::Protocol::TxWrite::Response resp;
+        if (!client.call(MessageType::TX_WRITE, req, resp)) return finish_abort();
+        if (resp.is_aborted() || !resp.success()) return finish_abort();
+    }
+
+    // history INSERT — thread-unique key so no cross-tx collision.
+    {
+        LineairDB::Protocol::TxBatchWrite::Request req;
+        req.set_transaction_id(tx_id);
+        req.set_table_name(tables::kHistory);
+        auto* op = req.add_writes();
+        // key = (thread_id, seq). Both int32, no collision across threads.
+        op->set_key(make_int_key(w.thread_id, static_cast<int32_t>(s_history_seq++)));
+        op->set_value(value_of(tables::kHistory));
+        LineairDB::Protocol::TxBatchWrite::Response resp;
+        if (!client.call(MessageType::TX_BATCH_WRITE, req, resp)) return finish_abort();
+        if (resp.is_aborted() || !resp.success()) return finish_abort();
+    }
+
+    // END
+    {
+        LineairDB::Protocol::DbEndTransaction::Request req;
+        req.set_transaction_id(tx_id);
+        req.set_fence(false);
+        LineairDB::Protocol::DbEndTransaction::Response resp;
+        if (!client.call(MessageType::DB_END_TRANSACTION, req, resp)) return TxOutcome::kAborted;
+        if (resp.is_aborted()) return TxOutcome::kAborted;
+    }
+    return TxOutcome::kCommitted;
+}
+
+// -----------------------------------------------------------------------------
+// OrderStatus execution (simplified: PK-only, skip by-name variant)
+// -----------------------------------------------------------------------------
+
+TxOutcome run_order_status_once(Client& client, NewOrderWorker& w) {
+    const int w_id = 1 + rand_range(w.rng_state, 0, w.cfg->warehouses - 1);
+    const int d_id = 1 + rand_range(w.rng_state, 0, w.cfg->districts_per_warehouse - 1);
+    const int c_id = 1 + rand_range(w.rng_state, 0, w.cfg->customers_per_district - 1);
+    // Pick an o_id in the range NewOrder has been producing.
+    const int32_t o_id = 3001 + static_cast<int32_t>(xorshift64(w.rng_state) % 1024);
+
+    int64_t tx_id = 0;
+    {
+        LineairDB::Protocol::TxBeginTransaction::Request req;
+        LineairDB::Protocol::TxBeginTransaction::Response resp;
+        if (!client.call(MessageType::TX_BEGIN_TRANSACTION, req, resp)) return TxOutcome::kAborted;
+        tx_id = resp.transaction_id();
+    }
+    auto finish_abort = [&]() -> TxOutcome {
+        LineairDB::Protocol::DbEndTransaction::Request req;
+        req.set_transaction_id(tx_id);
+        req.set_fence(false);
+        LineairDB::Protocol::DbEndTransaction::Response resp;
+        (void)client.call(MessageType::DB_END_TRANSACTION, req, resp);
+        return TxOutcome::kAborted;
+    };
+
+    // customer READ
+    {
+        LineairDB::Protocol::TxRead::Request req;
+        req.set_transaction_id(tx_id);
+        req.set_table_name(tables::kCustomer);
+        req.set_key(make_int_key(w_id, d_id, c_id));
+        LineairDB::Protocol::TxRead::Response resp;
+        if (!client.call(MessageType::TX_READ, req, resp)) return finish_abort();
+        if (resp.is_aborted()) return finish_abort();
+    }
+    // oorder READ (may not exist if o_id wasn't produced yet — ignore not-found)
+    {
+        LineairDB::Protocol::TxRead::Request req;
+        req.set_transaction_id(tx_id);
+        req.set_table_name(tables::kOorder);
+        req.set_key(make_int_key(w_id, d_id, o_id));
+        LineairDB::Protocol::TxRead::Response resp;
+        if (!client.call(MessageType::TX_READ, req, resp)) return finish_abort();
+        if (resp.is_aborted()) return finish_abort();
+    }
+    // order_line READ ×10 (ol_number 1..10)
+    for (int ol = 1; ol <= 10; ++ol) {
+        LineairDB::Protocol::TxRead::Request req;
+        req.set_transaction_id(tx_id);
+        req.set_table_name(tables::kOrderLine);
+        req.set_key(make_int_key(w_id, d_id, o_id, ol));
+        LineairDB::Protocol::TxRead::Response resp;
+        if (!client.call(MessageType::TX_READ, req, resp)) return finish_abort();
+        if (resp.is_aborted()) return finish_abort();
+    }
+
+    {
+        LineairDB::Protocol::DbEndTransaction::Request req;
+        req.set_transaction_id(tx_id);
+        req.set_fence(false);
+        LineairDB::Protocol::DbEndTransaction::Response resp;
+        if (!client.call(MessageType::DB_END_TRANSACTION, req, resp)) return TxOutcome::kAborted;
+        if (resp.is_aborted()) return TxOutcome::kAborted;
+    }
+    return TxOutcome::kCommitted;
+}
+
+// -----------------------------------------------------------------------------
+// Delivery execution (simplified: skip scan-for-min-o_id, use deterministic
+// per-(w,d) counter for which o_id to "deliver")
+// -----------------------------------------------------------------------------
+
+namespace {
+// Per-(w,d) delivery cursor, so each district delivers sequentially from its
+// earliest un-delivered o_id. Worker-local (racey across threads, but each
+// thread has its own cursor; inter-thread races just mean some o_ids get
+// "delivered" multiple times — doesn't matter for bench load shape).
+thread_local int32_t s_delivery_cursor[64] = {};  // up to 64 districts
+}
+
+TxOutcome run_delivery_once(Client& client, NewOrderWorker& w) {
+    const int w_id = 1 + rand_range(w.rng_state, 0, w.cfg->warehouses - 1);
+    const int carrier_id = 1 + rand_range(w.rng_state, 0, 9);
+    (void)carrier_id;  // value is written into oorder bytes; we don't decode it
+
+    int64_t tx_id = 0;
+    {
+        LineairDB::Protocol::TxBeginTransaction::Request req;
+        LineairDB::Protocol::TxBeginTransaction::Response resp;
+        if (!client.call(MessageType::TX_BEGIN_TRANSACTION, req, resp)) return TxOutcome::kAborted;
+        tx_id = resp.transaction_id();
+    }
+    auto finish_abort = [&]() -> TxOutcome {
+        LineairDB::Protocol::DbEndTransaction::Request req;
+        req.set_transaction_id(tx_id);
+        req.set_fence(false);
+        LineairDB::Protocol::DbEndTransaction::Response resp;
+        (void)client.call(MessageType::DB_END_TRANSACTION, req, resp);
+        return TxOutcome::kAborted;
+    };
+
+    for (int d_id = 1; d_id <= w.cfg->districts_per_warehouse && d_id <= 64; ++d_id) {
+        int32_t& cursor = s_delivery_cursor[d_id - 1];
+        if (cursor == 0) cursor = 3001;  // lazy init to TPC-C baseline
+        const int32_t o_id = cursor++;
+
+        // oorder RMW (set o_carrier_id into value bytes — we just rewrite same bytes)
+        {
+            LineairDB::Protocol::TxRead::Request req;
+            req.set_transaction_id(tx_id);
+            req.set_table_name(tables::kOorder);
+            req.set_key(make_int_key(w_id, d_id, o_id));
+            LineairDB::Protocol::TxRead::Response resp;
+            if (!client.call(MessageType::TX_READ, req, resp)) return finish_abort();
+            if (resp.is_aborted()) return finish_abort();
+            if (!resp.found()) continue;  // this o_id hasn't been created yet; skip district
+        }
+        {
+            LineairDB::Protocol::TxWrite::Request req;
+            req.set_transaction_id(tx_id);
+            req.set_table_name(tables::kOorder);
+            req.set_key(make_int_key(w_id, d_id, o_id));
+            req.set_value(value_of(tables::kOorder));
+            LineairDB::Protocol::TxWrite::Response resp;
+            if (!client.call(MessageType::TX_WRITE, req, resp)) return finish_abort();
+            if (resp.is_aborted() || !resp.success()) return finish_abort();
+        }
+        // order_line RMW ×10 (set ol_delivery_d)
+        for (int ol = 1; ol <= 10; ++ol) {
+            {
+                LineairDB::Protocol::TxRead::Request req;
+                req.set_transaction_id(tx_id);
+                req.set_table_name(tables::kOrderLine);
+                req.set_key(make_int_key(w_id, d_id, o_id, ol));
+                LineairDB::Protocol::TxRead::Response resp;
+                if (!client.call(MessageType::TX_READ, req, resp)) return finish_abort();
+                if (resp.is_aborted()) return finish_abort();
+                if (!resp.found()) continue;
+            }
+            {
+                LineairDB::Protocol::TxWrite::Request req;
+                req.set_transaction_id(tx_id);
+                req.set_table_name(tables::kOrderLine);
+                req.set_key(make_int_key(w_id, d_id, o_id, ol));
+                req.set_value(value_of(tables::kOrderLine));
+                LineairDB::Protocol::TxWrite::Response resp;
+                if (!client.call(MessageType::TX_WRITE, req, resp)) return finish_abort();
+                if (resp.is_aborted() || !resp.success()) return finish_abort();
+            }
+        }
+        // customer RMW (c_balance += sum; pick random c_id since we didn't look it up)
+        const int c_id = 1 + rand_range(w.rng_state, 0, w.cfg->customers_per_district - 1);
+        const std::string cu_key = make_int_key(w_id, d_id, c_id);
+        std::string cu_value;
+        {
+            LineairDB::Protocol::TxRead::Request req;
+            req.set_transaction_id(tx_id);
+            req.set_table_name(tables::kCustomer);
+            req.set_key(cu_key);
+            LineairDB::Protocol::TxRead::Response resp;
+            if (!client.call(MessageType::TX_READ, req, resp)) return finish_abort();
+            if (resp.is_aborted()) return finish_abort();
+            if (!resp.found() || resp.value().size() < 4) return finish_abort();
+            cu_value = resp.value();
+        }
+        {
+            LineairDB::Protocol::TxWrite::Request req;
+            req.set_transaction_id(tx_id);
+            req.set_table_name(tables::kCustomer);
+            req.set_key(cu_key);
+            int32_t balance = read_int32_le_at(cu_value, 0);
+            write_int32_le_at(cu_value, 0, balance + 100);
+            req.set_value(cu_value);
+            LineairDB::Protocol::TxWrite::Response resp;
+            if (!client.call(MessageType::TX_WRITE, req, resp)) return finish_abort();
+            if (resp.is_aborted() || !resp.success()) return finish_abort();
+        }
+    }
+
+    {
+        LineairDB::Protocol::DbEndTransaction::Request req;
+        req.set_transaction_id(tx_id);
+        req.set_fence(false);
+        LineairDB::Protocol::DbEndTransaction::Response resp;
+        if (!client.call(MessageType::DB_END_TRANSACTION, req, resp)) return TxOutcome::kAborted;
+        if (resp.is_aborted()) return TxOutcome::kAborted;
+    }
+    return TxOutcome::kCommitted;
+}
+
+// -----------------------------------------------------------------------------
+// StockLevel execution (read-only; uses point reads, skips the real scan to
+// avoid needing range-scan RPC infrastructure)
+// -----------------------------------------------------------------------------
+
+TxOutcome run_stock_level_once(Client& client, NewOrderWorker& w) {
+    const int w_id = 1 + rand_range(w.rng_state, 0, w.cfg->warehouses - 1);
+    const int d_id = 1 + rand_range(w.rng_state, 0, w.cfg->districts_per_warehouse - 1);
+
+    int64_t tx_id = 0;
+    {
+        LineairDB::Protocol::TxBeginTransaction::Request req;
+        LineairDB::Protocol::TxBeginTransaction::Response resp;
+        if (!client.call(MessageType::TX_BEGIN_TRANSACTION, req, resp)) return TxOutcome::kAborted;
+        tx_id = resp.transaction_id();
+    }
+    auto finish_abort = [&]() -> TxOutcome {
+        LineairDB::Protocol::DbEndTransaction::Request req;
+        req.set_transaction_id(tx_id);
+        req.set_fence(false);
+        LineairDB::Protocol::DbEndTransaction::Response resp;
+        (void)client.call(MessageType::DB_END_TRANSACTION, req, resp);
+        return TxOutcome::kAborted;
+    };
+
+    // District READ to find d_next_o_id
+    int32_t d_next_o_id = 3001;
+    {
+        LineairDB::Protocol::TxRead::Request req;
+        req.set_transaction_id(tx_id);
+        req.set_table_name(tables::kDistrict);
+        req.set_key(make_int_key(w_id, d_id));
+        LineairDB::Protocol::TxRead::Response resp;
+        if (!client.call(MessageType::TX_READ, req, resp)) return finish_abort();
+        if (resp.is_aborted()) return finish_abort();
+        if (resp.found() && resp.value().size() >= 4) {
+            d_next_o_id = read_int32_le_at(resp.value(), 0);
+        }
+    }
+    // For the last 20 orders × up to 10 order_lines: READ order_line → READ stock
+    const int32_t o_lo = d_next_o_id - 20;
+    for (int32_t o = o_lo; o < d_next_o_id; ++o) {
+        for (int ol = 1; ol <= 10; ++ol) {
+            int32_t ol_i_id = 0;
+            {
+                LineairDB::Protocol::TxRead::Request req;
+                req.set_transaction_id(tx_id);
+                req.set_table_name(tables::kOrderLine);
+                req.set_key(make_int_key(w_id, d_id, o, ol));
+                LineairDB::Protocol::TxRead::Response resp;
+                if (!client.call(MessageType::TX_READ, req, resp)) return finish_abort();
+                if (resp.is_aborted()) return finish_abort();
+                if (!resp.found()) continue;
+                // ol_i_id isn't encoded in our dummy order_line value; fake it
+                // with a hash of (w,d,o,ol) so each order_line reads a different
+                // stock row (realistic access pattern even without real data).
+                ol_i_id = 1 + static_cast<int32_t>((static_cast<uint64_t>(w_id) * 31ULL
+                                                    + static_cast<uint64_t>(d_id) * 101ULL
+                                                    + static_cast<uint64_t>(o) * 7919ULL
+                                                    + static_cast<uint64_t>(ol) * 997ULL)
+                                                   % static_cast<uint64_t>(w.cfg->items));
+            }
+            {
+                LineairDB::Protocol::TxRead::Request req;
+                req.set_transaction_id(tx_id);
+                req.set_table_name(tables::kStock);
+                req.set_key(make_int_key(w_id, ol_i_id));
+                LineairDB::Protocol::TxRead::Response resp;
+                if (!client.call(MessageType::TX_READ, req, resp)) return finish_abort();
+                if (resp.is_aborted()) return finish_abort();
+            }
+        }
+    }
+
+    {
+        LineairDB::Protocol::DbEndTransaction::Request req;
+        req.set_transaction_id(tx_id);
+        req.set_fence(false);
+        LineairDB::Protocol::DbEndTransaction::Response resp;
+        if (!client.call(MessageType::DB_END_TRANSACTION, req, resp)) return TxOutcome::kAborted;
+        if (resp.is_aborted()) return TxOutcome::kAborted;
+    }
     return TxOutcome::kCommitted;
 }
 

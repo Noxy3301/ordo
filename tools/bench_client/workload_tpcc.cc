@@ -3,7 +3,6 @@
 #include "key_encoder.hh"
 #include "lineairdb.pb.h"
 
-#include <atomic>
 #include <chrono>
 #include <cstdio>
 #include <cstdint>
@@ -46,11 +45,62 @@ bool create_table(Client& c, const std::string& name) {
     return true;
 }
 
-// Open a batch-write transaction, flush N WriteOps into it, commit.
+bool create_secondary_index(Client& c, const std::string& table,
+                            const std::string& index, uint32_t index_type) {
+    LineairDB::Protocol::DbCreateSecondaryIndex::Request req;
+    req.set_table_name(table);
+    req.set_index_name(index);
+    req.set_index_type(index_type);
+    LineairDB::Protocol::DbCreateSecondaryIndex::Response resp;
+    if (!c.call(MessageType::DB_CREATE_SECONDARY_INDEX, req, resp)) return false;
+    // success may be false if already exists; ok.
+    return true;
+}
+
+// ---------------------------------------------------------------------------
+// c_last pool — 10 canned names, assigned deterministically from c_id via
+// TPC-C-ish NURand-free mapping. Uniform distribution so ~300 customers share
+// each name in a 3000-cust district (creates real SI lookup fan-out).
+// ---------------------------------------------------------------------------
+
+constexpr const char* kCustomerLastNames[] = {
+    "BARBARBAR", "BARBAROUGHT", "BAROUGHTBAR", "BAROUGHTOUGHT",
+    "OUGHTBARBAR", "OUGHTBAROUGHT", "OUGHTOUGHTBAR", "OUGHTOUGHTOUGHT",
+    "ABLEABLEABLE", "ABLEABLEBAR",
+};
+constexpr int kNumLastNames = sizeof(kCustomerLastNames) / sizeof(kCustomerLastNames[0]);
+
+inline const std::string& c_last_for(int c_id) {
+    static const std::string pool[kNumLastNames] = {
+        kCustomerLastNames[0], kCustomerLastNames[1], kCustomerLastNames[2],
+        kCustomerLastNames[3], kCustomerLastNames[4], kCustomerLastNames[5],
+        kCustomerLastNames[6], kCustomerLastNames[7], kCustomerLastNames[8],
+        kCustomerLastNames[9]};
+    return pool[c_id % kNumLastNames];
+}
+
+// Secondary-index key for idx_customer_name: composite of two INT parts and
+// one STRING part, matching the MySQL-side `build_secondary_key_from_row`
+// byte layout for `(c_w_id, c_d_id, c_last)`.
+inline std::string customer_name_si_key(int w_id, int d_id, const std::string& c_last) {
+    KeyBuilder kb;
+    kb.int32(w_id).int32(d_id).string(c_last);
+    return kb.take();
+}
+
+// One secondary-index entry queued for a populate batch.
+struct SiWriteOp {
+    std::string index_name;
+    std::string secondary_key;
+    std::string primary_key;
+};
+
+// Open a batch-write transaction, flush N WriteOps + optional SI writes, commit.
 // Returns true if committed (not aborted).
-bool flush_batch(Client& c, const std::string& table,
-                 const std::vector<std::pair<std::string, std::string>>& rows) {
-    if (rows.empty()) return true;
+bool flush_batch_with_si(Client& c, const std::string& table,
+                         const std::vector<std::pair<std::string, std::string>>& rows,
+                         const std::vector<SiWriteOp>& si_rows) {
+    if (rows.empty() && si_rows.empty()) return true;
 
     // BEGIN
     int64_t tx_id = 0;
@@ -60,7 +110,6 @@ bool flush_batch(Client& c, const std::string& table,
         if (!c.call(MessageType::TX_BEGIN_TRANSACTION, req, resp)) return false;
         tx_id = resp.transaction_id();
     }
-
     // SET_TABLE
     {
         LineairDB::Protocol::DbSetTable::Request req;
@@ -70,8 +119,7 @@ bool flush_batch(Client& c, const std::string& table,
         if (!c.call(MessageType::DB_SET_TABLE, req, resp)) return false;
         if (!resp.success()) return false;
     }
-
-    // BATCH_WRITE
+    // BATCH_WRITE with PK + SI
     {
         LineairDB::Protocol::TxBatchWrite::Request req;
         req.set_transaction_id(tx_id);
@@ -81,11 +129,16 @@ bool flush_batch(Client& c, const std::string& table,
             op->set_key(kv.first);
             op->set_value(kv.second);
         }
+        for (const auto& si : si_rows) {
+            auto* op = req.add_secondary_index_writes();
+            op->set_index_name(si.index_name);
+            op->set_secondary_key(si.secondary_key);
+            op->set_primary_key(si.primary_key);
+        }
         LineairDB::Protocol::TxBatchWrite::Response resp;
         if (!c.call(MessageType::TX_BATCH_WRITE, req, resp)) return false;
         if (resp.is_aborted() || !resp.success()) return false;
     }
-
     // END
     {
         LineairDB::Protocol::DbEndTransaction::Request req;
@@ -97,6 +150,12 @@ bool flush_batch(Client& c, const std::string& table,
     }
     return true;
 }
+
+bool flush_batch(Client& c, const std::string& table,
+                 const std::vector<std::pair<std::string, std::string>>& rows) {
+    return flush_batch_with_si(c, table, rows, {});
+}
+
 
 bool populate_warehouse(Client& c, const TpccConfig& cfg) {
     std::vector<std::pair<std::string, std::string>> rows;
@@ -128,22 +187,31 @@ bool populate_district(Client& c, const TpccConfig& cfg) {
 
 bool populate_customer(Client& c, const TpccConfig& cfg) {
     std::vector<std::pair<std::string, std::string>> rows;
+    std::vector<SiWriteOp> si_rows;
     rows.reserve(kBatchSize);
+    si_rows.reserve(kBatchSize);
     // Initial c_balance = -10 at offset 0 (TPC-C spec cents). Payment RMW target.
     std::string v = dummy_value(value_sizes::kCustomer, 'c');
     write_int32_le_at(v, 0, -10);
     for (int w = 1; w <= cfg.warehouses; ++w) {
         for (int d = 1; d <= cfg.districts_per_warehouse; ++d) {
             for (int ci = 1; ci <= cfg.customers_per_district; ++ci) {
-                rows.emplace_back(make_int_key(w, d, ci), v);
+                const std::string pk = make_int_key(w, d, ci);
+                rows.emplace_back(pk, v);
+                si_rows.push_back(SiWriteOp{
+                    indexes::kIdxCustomerName,
+                    customer_name_si_key(w, d, c_last_for(ci)),
+                    pk});
                 if (static_cast<int>(rows.size()) >= kBatchSize) {
-                    if (!flush_batch(c, tables::kCustomer, rows)) return false;
+                    if (!flush_batch_with_si(c, tables::kCustomer, rows, si_rows))
+                        return false;
                     rows.clear();
+                    si_rows.clear();
                 }
             }
         }
     }
-    return flush_batch(c, tables::kCustomer, rows);
+    return flush_batch_with_si(c, tables::kCustomer, rows, si_rows);
 }
 
 bool populate_item(Client& c, const TpccConfig& cfg) {
@@ -193,7 +261,14 @@ bool populate(Client& client, const TpccConfig& cfg) {
             return false;
         }
     }
-    std::printf("populate: tables created\n");
+    // idx_customer_name is non-unique (type=0). Multiple customers share a c_last,
+    // so each SI entry accumulates a list of primary keys.
+    if (!create_secondary_index(client, tables::kCustomer,
+                                indexes::kIdxCustomerName, 0)) {
+        std::fprintf(stderr, "populate: CREATE_SECONDARY_INDEX failed\n");
+        return false;
+    }
+    std::printf("populate: tables + secondary indexes created\n");
 
     if (!populate_warehouse(client, cfg)) { std::fprintf(stderr, "populate: warehouse failed\n"); return false; }
     std::printf("populate: warehouse %d rows\n", cfg.warehouses);
@@ -440,8 +515,11 @@ thread_local uint64_t s_history_seq = 0;
 TxOutcome run_payment_once(Client& client, NewOrderWorker& w) {
     const int w_id = 1 + rand_range(w.rng_state, 0, w.cfg->warehouses - 1);
     const int d_id = 1 + rand_range(w.rng_state, 0, w.cfg->districts_per_warehouse - 1);
-    const int c_id = 1 + rand_range(w.rng_state, 0, w.cfg->customers_per_district - 1);
     const int32_t h_amount = 1 + static_cast<int32_t>(xorshift64(w.rng_state) % 5000);
+    // TPC-C §2.5.1.2: 60% of Payments resolve customer by last name (SI lookup),
+    // 40% by primary key. The by-name path exercises TxReadSecondaryIndex and
+    // the customer-by-last-name MPMC.
+    const bool by_name = (xorshift64(w.rng_state) % 100) < 60;
 
     // BEGIN
     int64_t tx_id = 0;
@@ -515,8 +593,28 @@ TxOutcome run_payment_once(Client& client, NewOrderWorker& w) {
         if (resp.is_aborted() || !resp.success()) return finish_abort();
     }
 
-    // customer RMW (c_balance -= h_amount)
-    const std::string cu_key = make_int_key(w_id, d_id, c_id);
+    // Resolve customer PK: by SI lookup on c_last (60% per TPC-C) or direct by c_id.
+    std::string cu_key;
+    if (by_name) {
+        const std::string& c_last = kCustomerLastNames[
+            xorshift64(w.rng_state) % kNumLastNames];
+        LineairDB::Protocol::TxReadSecondaryIndex::Request req;
+        req.set_transaction_id(tx_id);
+        req.set_table_name(tables::kCustomer);
+        req.set_index_name(indexes::kIdxCustomerName);
+        req.set_secondary_key(customer_name_si_key(w_id, d_id, c_last));
+        LineairDB::Protocol::TxReadSecondaryIndex::Response resp;
+        if (!client.call(MessageType::TX_READ_SECONDARY_INDEX, req, resp))
+            return finish_abort();
+        if (resp.is_aborted()) return finish_abort();
+        if (resp.values_size() == 0) return finish_abort();
+        // TPC-C §2.5.2.2: pick the `(n+1)/2`-th customer by c_first ordering;
+        // SI returns PKs un-sorted but middle-of-list is a reasonable proxy.
+        cu_key = resp.values(resp.values_size() / 2);
+    } else {
+        const int c_id = 1 + rand_range(w.rng_state, 0, w.cfg->customers_per_district - 1);
+        cu_key = make_int_key(w_id, d_id, c_id);
+    }
     std::string cu_value;
     {
         LineairDB::Protocol::TxRead::Request req;
@@ -569,13 +667,18 @@ TxOutcome run_payment_once(Client& client, NewOrderWorker& w) {
 }
 
 // -----------------------------------------------------------------------------
-// OrderStatus execution (simplified: PK-only, skip by-name variant)
+// OrderStatus execution. TPC-C §2.6:
+//   - 60% resolve customer by c_last (SI lookup); 40% by c_id
+//   - find latest oorder for the customer → in our bench we use TX_FETCH_LAST_KEY_IN_RANGE
+//     over the district's oorder range (approximation: latest order in district,
+//     not latest for the specific customer — avoids needing a customer→order SI)
+//   - read order_line via TX_GET_MATCHING_KEYS_AND_VALUES_FROM_PREFIX
 // -----------------------------------------------------------------------------
 
 TxOutcome run_order_status_once(Client& client, NewOrderWorker& w) {
     const int w_id = 1 + rand_range(w.rng_state, 0, w.cfg->warehouses - 1);
     const int d_id = 1 + rand_range(w.rng_state, 0, w.cfg->districts_per_warehouse - 1);
-    const int c_id = 1 + rand_range(w.rng_state, 0, w.cfg->customers_per_district - 1);
+    const bool by_name = (xorshift64(w.rng_state) % 100) < 60;
 
     int64_t tx_id = 0;
     {
@@ -593,31 +696,25 @@ TxOutcome run_order_status_once(Client& client, NewOrderWorker& w) {
         return TxOutcome::kAborted;
     };
 
-    // district READ → get live d_next_o_id so we hit the latest-order prefix,
-    // not a stale fixed [3001,4024) window.
-    int32_t d_next_o_id = 3001;
-    {
-        LineairDB::Protocol::TxRead::Request req;
+    // Resolve customer: 60% by SI lookup (real TX_READ_SECONDARY_INDEX), 40% by PK.
+    std::string cu_key;
+    if (by_name) {
+        const std::string& c_last = kCustomerLastNames[
+            xorshift64(w.rng_state) % kNumLastNames];
+        LineairDB::Protocol::TxReadSecondaryIndex::Request req;
         req.set_transaction_id(tx_id);
-        req.set_table_name(tables::kDistrict);
-        req.set_key(make_int_key(w_id, d_id));
-        LineairDB::Protocol::TxRead::Response resp;
-        if (!client.call(MessageType::TX_READ, req, resp)) return finish_abort();
+        req.set_table_name(tables::kCustomer);
+        req.set_index_name(indexes::kIdxCustomerName);
+        req.set_secondary_key(customer_name_si_key(w_id, d_id, c_last));
+        LineairDB::Protocol::TxReadSecondaryIndex::Response resp;
+        if (!client.call(MessageType::TX_READ_SECONDARY_INDEX, req, resp))
+            return finish_abort();
         if (resp.is_aborted()) return finish_abort();
-        if (resp.found() && resp.value().size() >= 4) {
-            d_next_o_id = read_int32_le_at(resp.value(), 0);
-        }
-    }
-    // Pick o_id uniformly over the last up-to-1024 committed orders. The
-    // window is `[max(3001, d_next_o_id - 1024), d_next_o_id - 1]`, so during
-    // warmup it may be narrower than 1024 entries. TPC-C §2.6.1.2 only
-    // requires picking *a* recent order; the 1024 cap bounds workload spread.
-    int32_t o_id = 3001;
-    {
-        const int32_t top = (d_next_o_id > 3001) ? (d_next_o_id - 1) : 3001;
-        const int32_t bottom = (top > 3001 + 1023) ? (top - 1023) : 3001;
-        const uint32_t span = static_cast<uint32_t>(top - bottom + 1);
-        o_id = bottom + static_cast<int32_t>(xorshift64(w.rng_state) % span);
+        if (resp.values_size() == 0) return finish_abort();
+        cu_key = resp.values(resp.values_size() / 2);
+    } else {
+        const int c_id = 1 + rand_range(w.rng_state, 0, w.cfg->customers_per_district - 1);
+        cu_key = make_int_key(w_id, d_id, c_id);
     }
 
     // customer READ
@@ -625,30 +722,64 @@ TxOutcome run_order_status_once(Client& client, NewOrderWorker& w) {
         LineairDB::Protocol::TxRead::Request req;
         req.set_transaction_id(tx_id);
         req.set_table_name(tables::kCustomer);
-        req.set_key(make_int_key(w_id, d_id, c_id));
+        req.set_key(cu_key);
         LineairDB::Protocol::TxRead::Response resp;
         if (!client.call(MessageType::TX_READ, req, resp)) return finish_abort();
         if (resp.is_aborted()) return finish_abort();
     }
-    // oorder READ (may not exist if o_id wasn't produced yet — ignore not-found)
+
+    // Fetch latest oorder in district: TX_FETCH_LAST_KEY_IN_RANGE over prefix (w,d).
+    // start=encode(w,d), end=encode(w,d+1) covers all (w,d,*) oorder PKs.
+    std::string latest_o_key;
+    {
+        LineairDB::Protocol::TxFetchLastKeyInRange::Request req;
+        req.set_transaction_id(tx_id);
+        req.set_table_name(tables::kOorder);
+        req.set_start_key(make_int_key(w_id, d_id));
+        req.set_end_key(make_int_key(w_id, d_id + 1));
+        LineairDB::Protocol::TxFetchLastKeyInRange::Response resp;
+        if (!client.call(MessageType::TX_FETCH_LAST_KEY_IN_RANGE, req, resp))
+            return finish_abort();
+        if (resp.is_aborted()) return finish_abort();
+        if (!resp.found()) {
+            // No oorder for this district yet (pre-warmup). Skip the rest,
+            // commit anyway (empty result is valid per TPC-C).
+            LineairDB::Protocol::DbEndTransaction::Request end_req;
+            end_req.set_transaction_id(tx_id);
+            end_req.set_fence(false);
+            LineairDB::Protocol::DbEndTransaction::Response end_resp;
+            if (!client.call(MessageType::DB_END_TRANSACTION, end_req, end_resp)) return TxOutcome::kAborted;
+            if (end_resp.is_aborted()) return TxOutcome::kAborted;
+            return TxOutcome::kCommitted;
+        }
+        latest_o_key = resp.key();
+    }
+
+    // READ that oorder by its PK (registers in read_set_ for validation).
     {
         LineairDB::Protocol::TxRead::Request req;
         req.set_transaction_id(tx_id);
         req.set_table_name(tables::kOorder);
-        req.set_key(make_int_key(w_id, d_id, o_id));
+        req.set_key(latest_o_key);
         LineairDB::Protocol::TxRead::Response resp;
         if (!client.call(MessageType::TX_READ, req, resp)) return finish_abort();
         if (resp.is_aborted()) return finish_abort();
     }
-    // order_line READ ×10 (ol_number 1..10)
-    for (int ol = 1; ol <= 10; ++ol) {
-        LineairDB::Protocol::TxRead::Request req;
+
+    // Scan all order_lines for this order (prefix scan). The response is flat
+    // binary format (not protobuf), emitted by handleTxGetMatchingKeysAndValuesFromPrefix.
+    {
+        LineairDB::Protocol::TxGetMatchingKeysAndValuesFromPrefix::Request req;
         req.set_transaction_id(tx_id);
         req.set_table_name(tables::kOrderLine);
-        req.set_key(make_int_key(w_id, d_id, o_id, ol));
-        LineairDB::Protocol::TxRead::Response resp;
-        if (!client.call(MessageType::TX_READ, req, resp)) return finish_abort();
-        if (resp.is_aborted()) return finish_abort();
+        req.set_prefix(latest_o_key);   // (w,d,o_id) is the order_line PK prefix
+        bool aborted = false;
+        std::vector<std::pair<std::string, std::string>> kvs;
+        if (!client.call_flat_scan(MessageType::TX_GET_MATCHING_KEYS_AND_VALUES_FROM_PREFIX,
+                                   req, &aborted, &kvs))
+            return finish_abort();
+        if (aborted) return finish_abort();
+        (void)kvs.size();
     }
 
     {
@@ -668,28 +799,10 @@ TxOutcome run_order_status_once(Client& client, NewOrderWorker& w) {
 // -----------------------------------------------------------------------------
 
 namespace {
-// Process-wide per-(w, d) delivery cursor, incremented atomically so threads
-// never redeliver the same o_id. Sized for up to 64 warehouses × 64 districts;
-// larger configurations would need a map, but bench_client targets SF=1.
+// Config sanity bounds for Delivery loop — bench_client targets SF=1 so 10
+// districts is the expected upper bound; the constant guards against misconfig.
 constexpr int kMaxWh = 64;
 constexpr int kMaxDi = 64;
-std::atomic<int32_t> g_delivery_cursor[kMaxWh][kMaxDi];
-
-// Lazy init: first read returns 3001 (TPC-C initial d_next_o_id) without
-// double-initializing across threads.
-int32_t next_delivery_oid(int w_id, int d_id) {
-    auto& slot = g_delivery_cursor[w_id - 1][d_id - 1];
-    int32_t cur = slot.load(std::memory_order_relaxed);
-    while (cur == 0) {
-        int32_t expected = 0;
-        if (slot.compare_exchange_weak(expected, 3001, std::memory_order_relaxed)) {
-            cur = 3001;
-            break;
-        }
-        cur = slot.load(std::memory_order_relaxed);
-    }
-    return slot.fetch_add(1, std::memory_order_relaxed);
-}
 }
 
 TxOutcome run_delivery_once(Client& client, NewOrderWorker& w) {
@@ -716,12 +829,35 @@ TxOutcome run_delivery_once(Client& client, NewOrderWorker& w) {
     for (int d_id = 1;
          d_id <= w.cfg->districts_per_warehouse && d_id <= kMaxDi && w_id <= kMaxWh;
          ++d_id) {
-        const int32_t o_id = next_delivery_oid(w_id, d_id);
+        // TPC-C §2.7: SELECT MIN(no_o_id) FROM new_order WHERE (w,d) ORDER BY ASC LIMIT 1.
+        // At RPC level: TX_FETCH_FIRST_KEY_WITH_PREFIX, prefix=(w,d), prefix_end=(w,d+1).
+        int32_t o_id = 0;
+        {
+            LineairDB::Protocol::TxFetchFirstKeyWithPrefix::Request req;
+            req.set_transaction_id(tx_id);
+            req.set_table_name(tables::kNewOrder);
+            req.set_prefix(make_int_key(w_id, d_id));
+            req.set_prefix_end(make_int_key(w_id, d_id + 1));
+            LineairDB::Protocol::TxFetchFirstKeyWithPrefix::Response resp;
+            if (!client.call(MessageType::TX_FETCH_FIRST_KEY_WITH_PREFIX, req, resp))
+                return finish_abort();
+            if (resp.is_aborted()) return finish_abort();
+            if (!resp.found()) continue;  // queue empty for this district
 
-        // Check oorder exists first. If the NewOrder that produced this o_id
-        // hasn't committed yet (or we're ahead of NewOrder), skip this district
-        // without mutating new_order — avoids emitting tombstones for rows that
-        // don't yet have a real insertion.
+            // Decode o_id from the 3rd int32 key-part. Format per part:
+            // [1B null][1B type=0x10][2B len=0x0004][4B sign-flipped BE int32].
+            const std::string& k = resp.key();
+            if (k.size() < 3 * 8) return finish_abort();
+            // offset of 3rd part payload = 2*8 + 4 = 20; length 4.
+            uint32_t be = 0;
+            be |= static_cast<uint8_t>(k[20]); be <<= 8;
+            be |= static_cast<uint8_t>(k[21]); be <<= 8;
+            be |= static_cast<uint8_t>(k[22]); be <<= 8;
+            be |= static_cast<uint8_t>(k[23]);
+            o_id = static_cast<int32_t>(be ^ 0x80000000u);  // undo sign-flip
+        }
+
+        // oorder sanity check (should exist if new_order was drained).
         {
             LineairDB::Protocol::TxRead::Request req;
             req.set_transaction_id(tx_id);
@@ -733,10 +869,7 @@ TxOutcome run_delivery_once(Client& client, NewOrderWorker& w) {
             if (!resp.found()) continue;
         }
 
-        // new_order DELETE (queue-drain semantics). Uses the dedicated TX_DELETE
-        // RPC, which LDB routes through Transaction::Impl::Delete — this path
-        // bumps the item's TID via an actual tombstone operation, so any
-        // concurrent reader's validation_set_ entry becomes stale.
+        // new_order DELETE via dedicated TX_DELETE (tombstone with TID bump).
         {
             LineairDB::Protocol::TxDelete::Request req;
             req.set_transaction_id(tx_id);
@@ -844,7 +977,7 @@ TxOutcome run_stock_level_once(Client& client, NewOrderWorker& w) {
         return TxOutcome::kAborted;
     };
 
-    // District READ to find d_next_o_id
+    // District READ to find d_next_o_id.
     int32_t d_next_o_id = 3001;
     {
         LineairDB::Protocol::TxRead::Request req;
@@ -858,39 +991,47 @@ TxOutcome run_stock_level_once(Client& client, NewOrderWorker& w) {
             d_next_o_id = read_int32_le_at(resp.value(), 0);
         }
     }
-    // For the last 20 orders × up to 10 order_lines: READ order_line → READ stock
-    const int32_t o_lo = d_next_o_id - 20;
-    for (int32_t o = o_lo; o < d_next_o_id; ++o) {
-        for (int ol = 1; ol <= 10; ++ol) {
-            int32_t ol_i_id = 0;
-            {
-                LineairDB::Protocol::TxRead::Request req;
-                req.set_transaction_id(tx_id);
-                req.set_table_name(tables::kOrderLine);
-                req.set_key(make_int_key(w_id, d_id, o, ol));
-                LineairDB::Protocol::TxRead::Response resp;
-                if (!client.call(MessageType::TX_READ, req, resp)) return finish_abort();
-                if (resp.is_aborted()) return finish_abort();
-                if (!resp.found()) continue;
-                // ol_i_id isn't encoded in our dummy order_line value; fake it
-                // with a hash of (w,d,o,ol) so each order_line reads a different
-                // stock row (realistic access pattern even without real data).
-                ol_i_id = 1 + static_cast<int32_t>((static_cast<uint64_t>(w_id) * 31ULL
-                                                    + static_cast<uint64_t>(d_id) * 101ULL
-                                                    + static_cast<uint64_t>(o) * 7919ULL
-                                                    + static_cast<uint64_t>(ol) * 997ULL)
-                                                   % static_cast<uint64_t>(w.cfg->items));
+
+    // Range-scan order_line where (w,d,o_id) ∈ [d_next-20, d_next). This is the
+    // primary PL (precision_locking) exerciser: the scan registers a predicate
+    // so concurrent NewOrder inserting new order_lines into this range can abort.
+    // Response is flat binary (not protobuf).
+    std::vector<int32_t> i_ids;
+    i_ids.reserve(200);
+    {
+        const int32_t o_lo = (d_next_o_id > 20 + 3001) ? (d_next_o_id - 20) : 3001;
+        const int32_t o_hi = d_next_o_id;  // treated as exclusive upper bound by LDB
+        LineairDB::Protocol::TxGetMatchingKeysAndValuesInRange::Request req;
+        req.set_transaction_id(tx_id);
+        req.set_table_name(tables::kOrderLine);
+        req.set_start_key(make_int_key(w_id, d_id, o_lo));
+        req.set_end_key(make_int_key(w_id, d_id, o_hi));
+        bool aborted = false;
+        std::vector<std::pair<std::string, std::string>> kvs;
+        if (!client.call_flat_scan(MessageType::TX_GET_MATCHING_KEYS_AND_VALUES_IN_RANGE,
+                                   req, &aborted, &kvs))
+            return finish_abort();
+        if (aborted) return finish_abort();
+        // Derive a plausible ol_i_id per returned order_line for stock reads.
+        for (const auto& kv : kvs) {
+            uint64_t h = 1469598103934665603ULL;  // FNV offset
+            for (unsigned char c : kv.first) {
+                h = (h ^ c) * 1099511628211ULL;
             }
-            {
-                LineairDB::Protocol::TxRead::Request req;
-                req.set_transaction_id(tx_id);
-                req.set_table_name(tables::kStock);
-                req.set_key(make_int_key(w_id, ol_i_id));
-                LineairDB::Protocol::TxRead::Response resp;
-                if (!client.call(MessageType::TX_READ, req, resp)) return finish_abort();
-                if (resp.is_aborted()) return finish_abort();
-            }
+            i_ids.push_back(1 + static_cast<int32_t>(h % static_cast<uint64_t>(w.cfg->items)));
         }
+    }
+
+    // For each ol_i_id: READ stock. This exercises the stock-primary MPMC path
+    // under the umbrella of a tx that ALSO registered a PL predicate above.
+    for (int32_t i_id : i_ids) {
+        LineairDB::Protocol::TxRead::Request req;
+        req.set_transaction_id(tx_id);
+        req.set_table_name(tables::kStock);
+        req.set_key(make_int_key(w_id, i_id));
+        LineairDB::Protocol::TxRead::Response resp;
+        if (!client.call(MessageType::TX_READ, req, resp)) return finish_abort();
+        if (resp.is_aborted()) return finish_abort();
     }
 
     {

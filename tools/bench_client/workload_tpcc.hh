@@ -84,6 +84,11 @@ constexpr const char* kOrderLine = "order_line";
 constexpr const char* kHistory = "history";
 }  // namespace tables
 
+namespace indexes {
+// Customer-by-name secondary index (non-unique). Key = (c_w_id, c_d_id, c_last).
+constexpr const char* kIdxCustomerName = "idx_customer_name";
+}  // namespace indexes
+
 // Value-size constants (~BenchBase sizes; only size matters for LDB load).
 namespace value_sizes {
 constexpr size_t kWarehouse = 96;     // w_name + w_street + w_city + tax/ytd

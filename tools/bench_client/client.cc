@@ -122,4 +122,69 @@ bool Client::call(MessageType type, const google::protobuf::MessageLite& req,
     return true;
 }
 
+bool Client::call_flat_scan(MessageType type,
+                            const google::protobuf::MessageLite& req,
+                            bool* is_aborted,
+                            std::vector<std::pair<std::string, std::string>>* out_kvs) {
+    if (fd_ < 0) return false;
+
+    // Serialize request identically to call().
+    const size_t payload_size = req.ByteSizeLong();
+    send_buf_.resize(sizeof(MessageHeader) + payload_size);
+    pack_header(1, type, static_cast<uint32_t>(payload_size), send_buf_.data());
+    if (payload_size > 0 &&
+        !req.SerializeToArray(send_buf_.data() + sizeof(MessageHeader),
+                              static_cast<int>(payload_size))) {
+        std::fprintf(stderr, "bench_client: SerializeToArray failed\n");
+        return false;
+    }
+    size_t sent = 0;
+    while (sent < send_buf_.size()) {
+        ssize_t n = ::send(fd_, send_buf_.data() + sent, send_buf_.size() - sent, 0);
+        if (n <= 0) return false;
+        sent += static_cast<size_t>(n);
+    }
+    char header_buf[sizeof(MessageHeader)];
+    ssize_t got = ::recv(fd_, header_buf, sizeof(header_buf), MSG_WAITALL);
+    if (got != static_cast<ssize_t>(sizeof(header_buf))) return false;
+    uint64_t resp_sender_id;
+    MessageType resp_type;
+    uint32_t resp_payload_size;
+    unpack_header(header_buf, &resp_sender_id, &resp_type, &resp_payload_size);
+    if (resp_type != type) {
+        std::fprintf(stderr, "bench_client: flat_scan response type mismatch %u != %u\n",
+                     static_cast<uint32_t>(resp_type), static_cast<uint32_t>(type));
+        return false;
+    }
+    recv_buf_.resize(resp_payload_size);
+    if (resp_payload_size > 0) {
+        got = ::recv(fd_, recv_buf_.data(), resp_payload_size, MSG_WAITALL);
+        if (got != static_cast<ssize_t>(resp_payload_size)) return false;
+    }
+
+    // Parse flat format: [1B aborted] ([4B klen][key][4B vlen][value])* [4B sentinel=0]
+    if (recv_buf_.empty()) return false;
+    *is_aborted = recv_buf_[0] != 0;
+    out_kvs->clear();
+    size_t p = 1;
+    const size_t end = recv_buf_.size();
+    while (p + 4 <= end) {
+        uint32_t klen;
+        std::memcpy(&klen, recv_buf_.data() + p, 4);
+        p += 4;
+        if (klen == 0) break;  // sentinel
+        if (p + klen + 4 > end) return false;
+        std::string key(recv_buf_.data() + p, klen);
+        p += klen;
+        uint32_t vlen;
+        std::memcpy(&vlen, recv_buf_.data() + p, 4);
+        p += 4;
+        if (p + vlen > end) return false;
+        std::string val(recv_buf_.data() + p, vlen);
+        p += vlen;
+        out_kvs->emplace_back(std::move(key), std::move(val));
+    }
+    return true;
+}
+
 }  // namespace bench_client

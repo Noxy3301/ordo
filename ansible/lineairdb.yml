@@ -6,8 +6,9 @@
   tasks:
     - name: Sync ordo repo + submodules
       shell: |
+        set -euo pipefail
         cd ~/ordo
-        ./scripts/stop_server.sh
+        ./scripts/stop_server.sh || true
         git fetch origin
         git checkout {{ ordo_branch | default('main') }}
         git pull --ff-only
@@ -27,6 +28,7 @@
 
     - name: Build server + proxy
       shell: |
+        set -euo pipefail
         cd ~/ordo
         ./scripts/build_partial.sh 2>&1 | tail -40
       args:
@@ -39,6 +41,7 @@
 
     - name: Start LineairDB-Server
       shell: |
+        set -euo pipefail
         cd ~/ordo
         ulimit -n {{ lineairdb_nofile_limit }}
         ./scripts/start_server.sh

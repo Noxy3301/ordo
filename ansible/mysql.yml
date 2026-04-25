@@ -4,8 +4,9 @@
   tasks:
     - name: Sync ordo repo + submodules
       shell: |
+        set -euo pipefail
         cd ~/ordo
-        ./scripts/stop_mysql.sh
+        ./scripts/stop_mysql.sh || true
         git fetch origin
         git checkout {{ ordo_branch | default('main') }}
         git pull --ff-only
@@ -25,6 +26,7 @@
 
     - name: Build server + proxy
       shell: |
+        set -euo pipefail
         cd ~/ordo
         ./scripts/build_partial.sh 2>&1 | tail -40
       args:
@@ -37,6 +39,7 @@
 
     - name: Start MySQL with LineairDB-Proxy
       shell: |
+        set -euo pipefail
         cd ~/ordo
         ./scripts/start_mysql.sh \
           --mysqld-port 3307 \
@@ -47,6 +50,7 @@
 
     - name: apply bench/setup.sql
       shell: |
+        set -euo pipefail
         ~/ordo/build/runtime_output_directory/mysql \
           -u root --protocol=TCP -h 127.0.0.1 -P 3307 \
           < ~/ordo/bench/setup.sql
@@ -56,6 +60,7 @@
     # Note: BenchBase connects directly to each MySQL for setup to avoid DDL sync issues via HAProxy.
     - name: Create HAProxy and BenchBase access users
       shell: |
+        set -euo pipefail
         ~/ordo/build/runtime_output_directory/mysql \
           -u root --protocol=TCP -h 127.0.0.1 -P 3307 \
           -e "CREATE USER IF NOT EXISTS 'haproxy_check'@'%' IDENTIFIED WITH mysql_native_password BY '';

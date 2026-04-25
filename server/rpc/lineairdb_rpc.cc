@@ -465,15 +465,12 @@ void LineairDBRpc::handleTxGetMatchingKeysInRange(const std::string& message, st
         }
         std::string start_key = request.start_key();
         std::string end_key = request.end_key();
-        std::string exclusive_end_key = request.exclusive_end_key();
 
         std::optional<std::string_view> end_opt;
         if (!end_key.empty()) { end_opt = end_key; }
 
         auto scan_result = tx->Scan(
-            start_key, end_opt, [&response, &exclusive_end_key](auto key, auto) {
-                // Skip if key matches exclusive end key (HA_READ_BEFORE_KEY)
-                if (!exclusive_end_key.empty() && key == exclusive_end_key) { return false; }
+            start_key, end_opt, [&response](auto key, auto) {
                 response.add_keys(std::string(key));
                 return false;
             });
@@ -515,7 +512,6 @@ void LineairDBRpc::handleTxGetMatchingKeysAndValuesInRange(const std::string& me
         }
         std::string start_key = request.start_key();
         std::string end_key = request.end_key();
-        std::string exclusive_end_key = request.exclusive_end_key();
 
         std::optional<std::string_view> end_opt;
         if (!end_key.empty()) { end_opt = end_key; }
@@ -528,10 +524,8 @@ void LineairDBRpc::handleTxGetMatchingKeysAndValuesInRange(const std::string& me
 
         // Scan callback: value is pair<const void*, size_t> from LineairDB
         auto scan_result = tx->Scan(
-            start_key, end_opt, [&result, &exclusive_end_key,
+            start_key, end_opt, [&result,
                                   filter_expr, filter_num_cols, &evaluator](auto key, auto value) {
-                // Skip if key matches exclusive end key (HA_READ_BEFORE_KEY)
-                if (!exclusive_end_key.empty() && key == exclusive_end_key) { return false; }
                 // Skip tombstones (deleted rows)
                 if (value.first == nullptr || value.second == 0) { return false; }
                 // Predicate pushdown: evaluate filter if present
@@ -667,15 +661,13 @@ void LineairDBRpc::handleTxFetchLastKeyInRange(const std::string& message, std::
         }
         std::string start_key = request.start_key();
         std::string end_key = request.end_key();
-        std::string exclusive_end_key = request.exclusive_end_key();
 
         std::optional<std::string_view> end_opt;
         if (!end_key.empty()) { end_opt = end_key; }
 
         std::optional<std::string> result;
         auto scan_result = tx->ScanReverse(
-            start_key, end_opt, [&result, &exclusive_end_key](auto key, auto) {
-                if (!exclusive_end_key.empty() && key == exclusive_end_key) { return false; }
+            start_key, end_opt, [&result](auto key, auto) {
                 result = std::string(key);
                 return true;
             });
@@ -846,17 +838,14 @@ void LineairDBRpc::handleTxGetMatchingPrimaryKeysInRange(const std::string& mess
         std::string index_name = request.index_name();
         std::string start_key = request.start_key();
         std::string end_key = request.end_key();
-        std::string exclusive_end_key = request.exclusive_end_key();
 
         std::optional<std::string_view> end_opt;
         if (!end_key.empty()) { end_opt = end_key; }
 
         auto scan_result = tx->ScanSecondaryIndex(
             index_name, start_key, end_opt,
-            [&response, &exclusive_end_key](std::string_view secondary_key,
-                                            const std::vector<std::string>& primary_keys) {
-                // Skip if secondary_key matches exclusive end key (HA_READ_BEFORE_KEY)
-                if (!exclusive_end_key.empty() && secondary_key == exclusive_end_key) { return false; }
+            [&response]([[maybe_unused]] std::string_view secondary_key,
+                        const std::vector<std::string>& primary_keys) {
                 for (const auto& pk : primary_keys) { response.add_primary_keys(pk); }
                 return false;
             });
@@ -945,7 +934,6 @@ void LineairDBRpc::handleTxFetchLastPrimaryKeyInSecondaryRange(const std::string
         std::string index_name = request.index_name();
         std::string start_key = request.start_key();
         std::string end_key = request.end_key();
-        std::string exclusive_end_key = request.exclusive_end_key();
 
         std::optional<std::string_view> end_opt;
         if (!end_key.empty()) { end_opt = end_key; }
@@ -953,9 +941,8 @@ void LineairDBRpc::handleTxFetchLastPrimaryKeyInSecondaryRange(const std::string
         std::optional<std::string> result;
         auto scan_result = tx->ScanSecondaryIndexReverse(
             index_name, start_key, end_opt,
-            [&result, &exclusive_end_key](std::string_view secondary_key,
-                                            const std::vector<std::string>& primary_keys) {
-                if (!exclusive_end_key.empty() && secondary_key == exclusive_end_key) { return false; }
+            [&result]([[maybe_unused]] std::string_view secondary_key,
+                      const std::vector<std::string>& primary_keys) {
                 if (primary_keys.empty()) { return false; }
                 result = primary_keys.back();
                 return true;
@@ -1003,7 +990,6 @@ void LineairDBRpc::handleTxFetchLastSecondaryEntryInRange(const std::string& mes
         std::string index_name = request.index_name();
         std::string start_key = request.start_key();
         std::string end_key = request.end_key();
-        std::string exclusive_end_key = request.exclusive_end_key();
 
         std::optional<std::string_view> end_opt;
         if (!end_key.empty()) { end_opt = end_key; }
@@ -1011,9 +997,8 @@ void LineairDBRpc::handleTxFetchLastSecondaryEntryInRange(const std::string& mes
         bool found = false;
         auto scan_result = tx->ScanSecondaryIndexReverse(
             index_name, start_key, end_opt,
-            [&response, &found, &exclusive_end_key](std::string_view secondary_key,
-                                                     const std::vector<std::string>& primary_keys) {
-                if (!exclusive_end_key.empty() && secondary_key == exclusive_end_key) { return false; }
+            [&response, &found](std::string_view secondary_key,
+                                const std::vector<std::string>& primary_keys) {
                 if (primary_keys.empty()) { return false; }
                 found = true;
                 auto* entry = response.mutable_entry();

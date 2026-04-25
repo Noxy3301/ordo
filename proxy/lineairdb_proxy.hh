@@ -144,12 +144,10 @@ public:
     // primary key scan operations
     std::vector<std::string> tx_get_matching_keys_in_range(LineairDBTransaction* tx,
                                                            const std::string& start_key,
-                                                           const std::string& end_key,
-                                                           const std::string& exclusive_end_key);
+                                                           const std::string& end_key);
     std::vector<KeyValue> tx_get_matching_keys_and_values_in_range(LineairDBTransaction* tx,
                                                                     const std::string& start_key,
-                                                                    const std::string& end_key,
-                                                                    const std::string& exclusive_end_key);
+                                                                    const std::string& end_key);
     std::vector<KeyValue> tx_get_matching_keys_and_values_from_prefix(LineairDBTransaction* tx,
                                                                        const std::string& prefix);
     // Zero-copy variant: parse binary response directly into caller-provided buffers.
@@ -161,8 +159,7 @@ public:
                              std::unordered_map<std::string, size_t>& out_cache);
     std::optional<std::string> tx_fetch_last_key_in_range(LineairDBTransaction* tx,
                                                            const std::string& start_key,
-                                                           const std::string& end_key,
-                                                           const std::string& exclusive_end_key);
+                                                           const std::string& end_key);
     std::optional<std::string> tx_fetch_first_key_with_prefix(LineairDBTransaction* tx,
                                                                const std::string& prefix,
                                                                const std::string& prefix_end);
@@ -174,21 +171,18 @@ public:
     std::vector<std::string> tx_get_matching_primary_keys_in_range(LineairDBTransaction* tx,
                                                                     const std::string& index_name,
                                                                     const std::string& start_key,
-                                                                    const std::string& end_key,
-                                                                    const std::string& exclusive_end_key);
+                                                                    const std::string& end_key);
     std::vector<std::string> tx_get_matching_primary_keys_from_prefix(LineairDBTransaction* tx,
                                                                        const std::string& index_name,
                                                                        const std::string& prefix);
     std::optional<std::string> tx_fetch_last_primary_key_in_secondary_range(LineairDBTransaction* tx,
                                                                              const std::string& index_name,
                                                                              const std::string& start_key,
-                                                                             const std::string& end_key,
-                                                                             const std::string& exclusive_end_key);
+                                                                             const std::string& end_key);
     std::optional<SecondaryIndexEntry> tx_fetch_last_secondary_entry_in_range(LineairDBTransaction* tx,
                                                                                const std::string& index_name,
                                                                                const std::string& start_key,
-                                                                               const std::string& end_key,
-                                                                               const std::string& exclusive_end_key);
+                                                                               const std::string& end_key);
 
     // table/index management (non-transactional)
     bool db_create_table(const std::string& table_name);

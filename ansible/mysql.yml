@@ -2,19 +2,45 @@
 - hosts: mysql
   gather_facts: false
   tasks:
-    - name: Start MySQL with LineairDB-Proxy
+    - name: Sync ordo repo + submodules
       shell: |
+        set -euo pipefail
         cd ~/ordo
-        ./scripts/stop_mysql.sh
+        ./scripts/stop_mysql.sh || true
         git fetch origin
         git checkout {{ ordo_branch | default('main') }}
-        git pull --ff-only || true
-        git submodule update --init --recursive || true
-        echo "Ordo($(git rev-parse --abbrev-ref HEAD)@$(git rev-parse --short HEAD)),"\
-             "LineairDB($(cd third_party/LineairDB && git rev-parse --abbrev-ref HEAD)@$(cd third_party/LineairDB && git rev-parse --short HEAD)),"\
-             "mysql-server($(cd third_party/mysql-server && git rev-parse --abbrev-ref HEAD)@$(cd third_party/mysql-server && git rev-parse --short HEAD)),"\
-             "benchbase($(cd third_party/benchbase && git rev-parse --abbrev-ref HEAD)@$(cd third_party/benchbase && git rev-parse --short HEAD))"
-        ./scripts/build_partial.sh
+        git pull --ff-only
+        git submodule update --init --recursive
+        echo "=== SHAs ==="
+        echo "Ordo($(git rev-parse --abbrev-ref HEAD)@$(git rev-parse --short HEAD))"
+        echo "LineairDB($(cd third_party/LineairDB && git rev-parse --abbrev-ref HEAD)@$(cd third_party/LineairDB && git rev-parse --short HEAD))"
+        echo "mysql-server($(cd third_party/mysql-server && git rev-parse --abbrev-ref HEAD)@$(cd third_party/mysql-server && git rev-parse --short HEAD))"
+        echo "benchbase($(cd third_party/benchbase && git rev-parse --abbrev-ref HEAD)@$(cd third_party/benchbase && git rev-parse --short HEAD))"
+      args:
+        executable: /bin/bash
+      register: sync_result
+
+    - name: Show repo / submodule SHAs
+      debug:
+        var: sync_result.stdout_lines
+
+    - name: Build server + proxy
+      shell: |
+        set -euo pipefail
+        cd ~/ordo
+        ./scripts/build_partial.sh 2>&1 | tail -40
+      args:
+        executable: /bin/bash
+      register: build_result
+
+    - name: Show build tail
+      debug:
+        var: build_result.stdout_lines
+
+    - name: Start MySQL with LineairDB-Proxy
+      shell: |
+        set -euo pipefail
+        cd ~/ordo
         ./scripts/start_mysql.sh \
           --mysqld-port 3307 \
           --server-host {{ hostvars['lineairdb-1'].private_ip }} \
@@ -24,6 +50,7 @@
 
     - name: apply bench/setup.sql
       shell: |
+        set -euo pipefail
         ~/ordo/build/runtime_output_directory/mysql \
           -u root --protocol=TCP -h 127.0.0.1 -P 3307 \
           < ~/ordo/bench/setup.sql
@@ -33,6 +60,7 @@
     # Note: BenchBase connects directly to each MySQL for setup to avoid DDL sync issues via HAProxy.
     - name: Create HAProxy and BenchBase access users
       shell: |
+        set -euo pipefail
         ~/ordo/build/runtime_output_directory/mysql \
           -u root --protocol=TCP -h 127.0.0.1 -P 3307 \
           -e "CREATE USER IF NOT EXISTS 'haproxy_check'@'%' IDENTIFIED WITH mysql_native_password BY '';

@@ -144,22 +144,20 @@ bool LineairDBTransaction::update_secondary_index(std::string index_name,
 
 std::vector<std::string>
 LineairDBTransaction::get_matching_keys_in_range(std::string start_key,
-                                                 std::string end_key,
-                                                 const std::string &exclusive_end_key) {
+                                                 std::string end_key) {
   if (table_is_not_chosen()) return {};
   flush_write_buffer();
 
-  return lineairdb_proxy->tx_get_matching_keys_in_range(this, start_key, end_key, exclusive_end_key);
+  return lineairdb_proxy->tx_get_matching_keys_in_range(this, start_key, end_key);
 }
 
 std::vector<std::pair<std::string, std::string>>
 LineairDBTransaction::get_matching_keys_and_values_in_range(std::string start_key,
-                                                            std::string end_key,
-                                                            const std::string &exclusive_end_key) {
+                                                            std::string end_key) {
   if (table_is_not_chosen()) return {};
   flush_write_buffer();
 
-  auto results = lineairdb_proxy->tx_get_matching_keys_and_values_in_range(this, start_key, end_key, exclusive_end_key);
+  auto results = lineairdb_proxy->tx_get_matching_keys_and_values_in_range(this, start_key, end_key);
 
   std::vector<std::pair<std::string, std::string>> pairs;
   for (const auto& kv : results) {
@@ -184,12 +182,11 @@ LineairDBTransaction::get_matching_keys_and_values_from_prefix(std::string prefi
 
 std::optional<std::string>
 LineairDBTransaction::fetch_last_key_in_range(const std::string &start_key,
-                                              const std::string &end_key,
-                                              const std::string &exclusive_end_key) {
+                                              const std::string &end_key) {
   if (table_is_not_chosen()) return std::nullopt;
   flush_write_buffer();
 
-  return lineairdb_proxy->tx_fetch_last_key_in_range(this, start_key, end_key, exclusive_end_key);
+  return lineairdb_proxy->tx_fetch_last_key_in_range(this, start_key, end_key);
 }
 
 std::optional<std::string>
@@ -215,12 +212,11 @@ LineairDBTransaction::fetch_next_key_with_prefix(const std::string &last_key,
 std::vector<std::string>
 LineairDBTransaction::get_matching_primary_keys_in_range(std::string index_name,
                                                          std::string start_key,
-                                                         std::string end_key,
-                                                         const std::string &exclusive_end_key) {
+                                                         std::string end_key) {
   if (table_is_not_chosen()) return {};
   flush_write_buffer();
 
-  return lineairdb_proxy->tx_get_matching_primary_keys_in_range(this, index_name, start_key, end_key, exclusive_end_key);
+  return lineairdb_proxy->tx_get_matching_primary_keys_in_range(this, index_name, start_key, end_key);
 }
 
 std::vector<std::string>
@@ -235,23 +231,21 @@ LineairDBTransaction::get_matching_primary_keys_from_prefix(std::string index_na
 std::optional<std::string>
 LineairDBTransaction::fetch_last_primary_key_in_secondary_range(const std::string &index_name,
                                                                 const std::string &start_key,
-                                                                const std::string &end_key,
-                                                                const std::string &exclusive_end_key) {
+                                                                const std::string &end_key) {
   if (table_is_not_chosen()) return std::nullopt;
   flush_write_buffer();
 
-  return lineairdb_proxy->tx_fetch_last_primary_key_in_secondary_range(this, index_name, start_key, end_key, exclusive_end_key);
+  return lineairdb_proxy->tx_fetch_last_primary_key_in_secondary_range(this, index_name, start_key, end_key);
 }
 
 std::optional<SecondaryIndexEntry>
 LineairDBTransaction::fetch_last_secondary_entry_in_range(const std::string &index_name,
                                                           const std::string &start_key,
-                                                          const std::string &end_key,
-                                                          const std::string &exclusive_end_key) {
+                                                          const std::string &end_key) {
   if (table_is_not_chosen()) return std::nullopt;
   flush_write_buffer();
 
-  return lineairdb_proxy->tx_fetch_last_secondary_entry_in_range(this, index_name, start_key, end_key, exclusive_end_key);
+  return lineairdb_proxy->tx_fetch_last_secondary_entry_in_range(this, index_name, start_key, end_key);
 }
 
 // Row count delta tracking

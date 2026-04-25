@@ -40,7 +40,6 @@ struct IndexSearchPlan
     // boundary information (serialized)
     std::string start_key_serialized;
     std::string end_key_serialized;
-    std::string exclusive_end_key_serialized; // for HA_READ_BEFORE_KEY
 
     // same group boundary (for index_next_same)
     std::string same_group_prefix_serialized;
@@ -57,7 +56,6 @@ struct IndexSearchPlan
         find_flag = HA_READ_KEY_EXACT;
         start_key_serialized.clear();
         end_key_serialized.clear();
-        exclusive_end_key_serialized.clear();
         same_group_prefix_serialized.clear();
         same_group_end_serialized.clear();
     }

@@ -299,14 +299,13 @@ message DbCreateSecondaryIndex {
     }
 }
 
-// Scan keys in [start_key, end_key] range, excluding exclusive_end_key.
+// Scan keys in [start_key, end_key) range.
 // @see LineairDBTransaction::get_matching_keys_in_range()
 message TxGetMatchingKeysInRange {
     message Request {
         int64 transaction_id = 1;
         bytes start_key = 2;
         bytes end_key = 3;
-        bytes exclusive_end_key = 4;
         string table_name = 5;
     }
     message Response {
@@ -315,7 +314,7 @@ message TxGetMatchingKeysInRange {
     }
 }
 
-// Scan key-value pairs in [start_key, end_key] range, excluding exclusive_end_key.
+// Scan key-value pairs in [start_key, end_key) range.
 // Skips tombstones (null/zero-length values).
 // @see LineairDBTransaction::get_matching_keys_and_values_in_range()
 message TxGetMatchingKeysAndValuesInRange {
@@ -323,7 +322,6 @@ message TxGetMatchingKeysAndValuesInRange {
         int64 transaction_id = 1;
         bytes start_key = 2;
         bytes end_key = 3;
-        bytes exclusive_end_key = 4;
         PushedPredicate filter = 5;
         string table_name = 6;
     }
@@ -349,15 +347,13 @@ message TxGetMatchingKeysAndValuesFromPrefix {
     }
 }
 
-// Reverse scan to find the last key in [start_key, end_key] range,
-// excluding exclusive_end_key.
+// Reverse scan to find the last key in [start_key, end_key) range.
 // @see LineairDBTransaction::fetch_last_key_in_range()
 message TxFetchLastKeyInRange {
     message Request {
         int64 transaction_id = 1;
         bytes start_key = 2;
         bytes end_key = 3;
-        bytes exclusive_end_key = 4;
         string table_name = 5;
     }
     message Response {
@@ -399,8 +395,7 @@ message TxFetchNextKeyWithPrefix {
     }
 }
 
-// Scan primary keys from a secondary index in [start_key, end_key] range,
-// excluding exclusive_end_key.
+// Scan primary keys from a secondary index in [start_key, end_key) range.
 // @see LineairDBTransaction::get_matching_primary_keys_in_range()
 message TxGetMatchingPrimaryKeysInRange {
     message Request {
@@ -408,7 +403,6 @@ message TxGetMatchingPrimaryKeysInRange {
         string index_name = 2;
         bytes start_key = 3;
         bytes end_key = 4;
-        bytes exclusive_end_key = 5;
         string table_name = 6;
     }
     message Response {
@@ -433,7 +427,7 @@ message TxGetMatchingPrimaryKeysFromPrefix {
 }
 
 // Reverse scan to find the last primary key in a secondary index range
-// [start_key, end_key], excluding exclusive_end_key.
+// [start_key, end_key).
 // @see LineairDBTransaction::fetch_last_primary_key_in_secondary_range()
 message TxFetchLastPrimaryKeyInSecondaryRange {
     message Request {
@@ -441,7 +435,6 @@ message TxFetchLastPrimaryKeyInSecondaryRange {
         string index_name = 2;
         bytes start_key = 3;
         bytes end_key = 4;
-        bytes exclusive_end_key = 5;
         string table_name = 6;
     }
     message Response {
@@ -452,7 +445,7 @@ message TxFetchLastPrimaryKeyInSecondaryRange {
 }
 
 // Reverse scan to find the last secondary index entry (secondary key + primary keys)
-// in [start_key, end_key] range, excluding exclusive_end_key.
+// in [start_key, end_key) range.
 // @see LineairDBTransaction::fetch_last_secondary_entry_in_range()
 message TxFetchLastSecondaryEntryInRange {
     message Request {
@@ -460,7 +453,6 @@ message TxFetchLastSecondaryEntryInRange {
         string index_name = 2;
         bytes start_key = 3;
         bytes end_key = 4;
-        bytes exclusive_end_key = 5;
         string table_name = 6;
     }
     message Response {

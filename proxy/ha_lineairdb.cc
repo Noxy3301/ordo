@@ -784,14 +784,14 @@ int ha_lineairdb::index_last(uchar *buf) {
   tx->choose_table(db_table_name);
 
   if (active_index == table->s->primary_key) {
-    auto key_values = tx->get_matching_keys_and_values_in_range("", "", "");
+    auto key_values = tx->get_matching_keys_and_values_in_range("", "");
     for (auto &kv : key_values) {
       secondary_index_results_.push_back(kv.first);
       secondary_index_payloads_.push_back(std::move(kv.second));
     }
   } else {
     secondary_index_results_ =
-        tx->get_matching_primary_keys_in_range(current_index_name, "", "", "");
+        tx->get_matching_primary_keys_in_range(current_index_name, "", "");
     batch_fetch_secondary_payloads(tx);
   }
 
@@ -2303,23 +2303,12 @@ void ha_lineairdb::build_search_plan(const uchar *key, key_part_map keypart_map,
     current_plan_.end_key_serialized =
         convert_key_to_ldbformat(end_range->key, end_range->keypart_map);
 
-    if (end_range->flag == HA_READ_BEFORE_KEY) {
-      // exclusive end (Note: Scan is inclusive)
-      current_plan_.exclusive_end_key_serialized =
-          current_plan_.end_key_serialized;
-    } else {
-      // inclusive end: check if prefix extension is needed
-      uint end_used_parts =
-          count_used_key_parts(key_info, end_range->keypart_map);
-      if (end_used_parts < key_info->user_defined_key_parts) {
-        current_plan_.end_key_serialized =
-            build_prefix_range_end(current_plan_.end_key_serialized);
-        if (!current_plan_.end_key_serialized.empty()) {
-          // treat prefix range as exclusive upper bound
-          current_plan_.exclusive_end_key_serialized =
-              current_plan_.end_key_serialized;
-        }
-      }
+    if (end_range->flag != HA_READ_BEFORE_KEY) {
+      // SQL inclusive upper bound must become LineairDB's exclusive upper
+      // bound. This is required for both full keys (k <= 30) and partial-key
+      // prefix ranges.
+      current_plan_.end_key_serialized =
+          build_prefix_range_end(current_plan_.end_key_serialized);
     }
   }
 }
@@ -2360,15 +2349,14 @@ int ha_lineairdb::execute_index_first(uchar *buf, LineairDBTransaction *tx) {
 
   if (current_plan_.is_primary) {
     auto key_values = tx->get_matching_keys_and_values_in_range(
-        start_key, end_key, current_plan_.exclusive_end_key_serialized);
+        start_key, end_key);
     for (auto &kv : key_values) {
       secondary_index_results_.push_back(kv.first);
       secondary_index_payloads_.push_back(std::move(kv.second));
     }
   } else {
     secondary_index_results_ = tx->get_matching_primary_keys_in_range(
-        current_index_name, start_key, end_key,
-        current_plan_.exclusive_end_key_serialized);
+        current_index_name, start_key, end_key);
     batch_fetch_secondary_payloads(tx);
   }
 
@@ -2447,7 +2435,7 @@ int ha_lineairdb::execute_same_key_materialize(uchar *buf,
 
   if (current_plan_.is_primary) {
     auto key_values = tx->get_matching_keys_and_values_in_range(
-        prefix, prefix_end, prefix_end);
+        prefix, prefix_end);
     for (auto &kv : key_values) {
       secondary_index_results_.push_back(kv.first);
       secondary_index_payloads_.push_back(std::move(kv.second));
@@ -2466,7 +2454,7 @@ int ha_lineairdb::execute_same_key_materialize(uchar *buf,
   }
 
   secondary_index_results_ = tx->get_matching_primary_keys_in_range(
-      current_index_name, prefix, prefix_end, prefix_end);
+      current_index_name, prefix, prefix_end);
   batch_fetch_secondary_payloads(tx);
 
   if (tx->is_aborted()) {
@@ -2493,7 +2481,7 @@ int ha_lineairdb::execute_prefix_first(uchar *buf, LineairDBTransaction *tx) {
     // Restrict to [prefix, prefix_end) so index_next never leaks non-prefix
     // rows.
     auto key_values = tx->get_matching_keys_and_values_in_range(
-        prefix, prefix_end, prefix_end);
+        prefix, prefix_end);
     for (auto &kv : key_values) {
       secondary_index_results_.push_back(kv.first);
       secondary_index_payloads_.push_back(std::move(kv.second));
@@ -2514,7 +2502,7 @@ int ha_lineairdb::execute_prefix_first(uchar *buf, LineairDBTransaction *tx) {
   // Restrict to [prefix, prefix_end) so index_next never leaks non-prefix
   // rows.
   secondary_index_results_ = tx->get_matching_primary_keys_in_range(
-      current_index_name, prefix, prefix_end, prefix_end);
+      current_index_name, prefix, prefix_end);
   batch_fetch_secondary_payloads(tx);
 
   if (tx->is_aborted()) {
@@ -2545,16 +2533,14 @@ int ha_lineairdb::execute_range_materialize(uchar *buf,
   // execute scan
   if (current_plan_.is_primary) {
     auto key_values = tx->get_matching_keys_and_values_in_range(
-        effective_start, effective_end,
-        current_plan_.exclusive_end_key_serialized);
+        effective_start, effective_end);
     for (auto &kv : key_values) {
       secondary_index_results_.push_back(kv.first);
       secondary_index_payloads_.push_back(std::move(kv.second));
     }
   } else {
     secondary_index_results_ = tx->get_matching_primary_keys_in_range(
-        current_index_name, effective_start, effective_end,
-        current_plan_.exclusive_end_key_serialized);
+        current_index_name, effective_start, effective_end);
     batch_fetch_secondary_payloads(tx);
   }
 
@@ -2577,19 +2563,23 @@ int ha_lineairdb::execute_range_materialize(uchar *buf,
  */
 int ha_lineairdb::execute_prev_key(uchar *buf, LineairDBTransaction *tx) {
   const std::string &target_key = current_plan_.start_key_serialized;
+  // HA_READ_BEFORE_KEY : SQL < target → already exclusive end.
+  // HA_READ_KEY_OR_PREV: SQL <= target → convert via build_prefix_range_end so
+  //                      [begin, end) scan keeps target itself.
   const bool exclude_target = (current_plan_.find_flag == HA_READ_BEFORE_KEY);
-  const std::string exclusive_end = exclude_target ? target_key : std::string();
+  const std::string effective_end =
+      exclude_target ? target_key : build_prefix_range_end(target_key);
 
   if (current_plan_.is_primary) {
-    auto key_values = tx->get_matching_keys_and_values_in_range("", target_key,
-                                                                exclusive_end);
+    auto key_values =
+        tx->get_matching_keys_and_values_in_range("", effective_end);
     for (auto &kv : key_values) {
       secondary_index_results_.push_back(kv.first);
       secondary_index_payloads_.push_back(std::move(kv.second));
     }
   } else {
     secondary_index_results_ = tx->get_matching_primary_keys_in_range(
-        current_index_name, "", target_key, exclusive_end);
+        current_index_name, "", effective_end);
     batch_fetch_secondary_payloads(tx);
   }
 
@@ -2616,11 +2606,10 @@ int ha_lineairdb::execute_prefix_last(uchar *buf, LineairDBTransaction *tx) {
     const std::string &prefix_end = current_plan_.same_group_end_serialized;
 
     if (current_plan_.is_primary) {
-      auto key_values = tx->get_matching_keys_and_values_in_range(
-          prefix, prefix_end, prefix_end);
+      auto key_values =
+          tx->get_matching_keys_and_values_in_range(prefix, prefix_end);
       if (key_values.empty()) {
-        key_values =
-            tx->get_matching_keys_and_values_in_range("", prefix, prefix);
+        key_values = tx->get_matching_keys_and_values_in_range("", prefix);
       }
       for (auto &kv : key_values) {
         secondary_index_results_.push_back(kv.first);
@@ -2628,10 +2617,10 @@ int ha_lineairdb::execute_prefix_last(uchar *buf, LineairDBTransaction *tx) {
       }
     } else {
       secondary_index_results_ = tx->get_matching_primary_keys_in_range(
-          current_index_name, prefix, prefix_end, prefix_end);
+          current_index_name, prefix, prefix_end);
       if (secondary_index_results_.empty()) {
         secondary_index_results_ = tx->get_matching_primary_keys_in_range(
-            current_index_name, "", prefix, prefix);
+            current_index_name, "", prefix);
       }
       batch_fetch_secondary_payloads(tx);
     }
@@ -2653,7 +2642,6 @@ int ha_lineairdb::execute_prefix_last(uchar *buf, LineairDBTransaction *tx) {
   if (current_plan_.is_primary) {
     auto key_values = tx->get_matching_keys_and_values_in_range(
         current_plan_.same_group_prefix_serialized,
-        current_plan_.same_group_end_serialized,
         current_plan_.same_group_end_serialized);
     for (auto &kv : key_values) {
       secondary_index_results_.push_back(kv.first);
@@ -2662,7 +2650,6 @@ int ha_lineairdb::execute_prefix_last(uchar *buf, LineairDBTransaction *tx) {
   } else {
     secondary_index_results_ = tx->get_matching_primary_keys_in_range(
         current_index_name, current_plan_.same_group_prefix_serialized,
-        current_plan_.same_group_end_serialized,
         current_plan_.same_group_end_serialized);
     batch_fetch_secondary_payloads(tx);
   }

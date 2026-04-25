@@ -421,8 +421,7 @@ bool LineairDBProxy::tx_update_secondary_index(LineairDBTransaction* tx,
 
 std::vector<std::string> LineairDBProxy::tx_get_matching_keys_in_range(LineairDBTransaction* tx,
                                                                         const std::string& start_key,
-                                                                        const std::string& end_key,
-                                                                        const std::string& exclusive_end_key) {
+                                                                        const std::string& end_key) {
     int64_t tx_id = tx->get_tx_id();
     LOG_DEBUG("CLIENT: tx_get_matching_keys_in_range called with tx_id=%ld", tx_id);
     if (!connected_) {
@@ -437,7 +436,6 @@ std::vector<std::string> LineairDBProxy::tx_get_matching_keys_in_range(LineairDB
     request.set_table_name(tx->get_selected_table_name());
     request.set_start_key(start_key);
     request.set_end_key(end_key);
-    request.set_exclusive_end_key(exclusive_end_key);
 
     if (!send_protobuf_message(request, response, MessageType::TX_GET_MATCHING_KEYS_IN_RANGE)) {
         LOG_ERROR("RPC failed: Failed to send message to server");
@@ -457,8 +455,7 @@ std::vector<std::string> LineairDBProxy::tx_get_matching_keys_in_range(LineairDB
 
 std::vector<KeyValue> LineairDBProxy::tx_get_matching_keys_and_values_in_range(LineairDBTransaction* tx,
                                                                                 const std::string& start_key,
-                                                                                const std::string& end_key,
-                                                                                const std::string& exclusive_end_key) {
+                                                                                const std::string& end_key) {
     int64_t tx_id = tx->get_tx_id();
     LOG_DEBUG("CLIENT: tx_get_matching_keys_and_values_in_range called with tx_id=%ld", tx_id);
     if (!connected_) {
@@ -471,7 +468,6 @@ std::vector<KeyValue> LineairDBProxy::tx_get_matching_keys_and_values_in_range(L
     request.set_table_name(tx->get_selected_table_name());
     request.set_start_key(start_key);
     request.set_end_key(end_key);
-    request.set_exclusive_end_key(exclusive_end_key);
 
     // Attach pushed predicate filter if available
     const auto& filter = tx->get_pushed_filter();
@@ -618,8 +614,7 @@ int LineairDBProxy::tx_scan_into_buffers(LineairDBTransaction* tx,
 
 std::optional<std::string> LineairDBProxy::tx_fetch_last_key_in_range(LineairDBTransaction* tx,
                                                                        const std::string& start_key,
-                                                                       const std::string& end_key,
-                                                                       const std::string& exclusive_end_key) {
+                                                                       const std::string& end_key) {
     int64_t tx_id = tx->get_tx_id();
     LOG_DEBUG("CLIENT: tx_fetch_last_key_in_range called with tx_id=%ld", tx_id);
     if (!connected_) {
@@ -634,7 +629,6 @@ std::optional<std::string> LineairDBProxy::tx_fetch_last_key_in_range(LineairDBT
     request.set_table_name(tx->get_selected_table_name());
     request.set_start_key(start_key);
     request.set_end_key(end_key);
-    request.set_exclusive_end_key(exclusive_end_key);
 
     if (!send_protobuf_message(request, response, MessageType::TX_FETCH_LAST_KEY_IN_RANGE)) {
         LOG_ERROR("RPC failed: Failed to send message to server");
@@ -716,8 +710,7 @@ std::optional<std::string> LineairDBProxy::tx_fetch_next_key_with_prefix(Lineair
 std::vector<std::string> LineairDBProxy::tx_get_matching_primary_keys_in_range(LineairDBTransaction* tx,
                                                                                 const std::string& index_name,
                                                                                 const std::string& start_key,
-                                                                                const std::string& end_key,
-                                                                                const std::string& exclusive_end_key) {
+                                                                                const std::string& end_key) {
     int64_t tx_id = tx->get_tx_id();
     LOG_DEBUG("CLIENT: tx_get_matching_primary_keys_in_range called with tx_id=%ld, index=%s", tx_id, index_name.c_str());
     if (!connected_) {
@@ -733,7 +726,6 @@ std::vector<std::string> LineairDBProxy::tx_get_matching_primary_keys_in_range(L
     request.set_index_name(index_name);
     request.set_start_key(start_key);
     request.set_end_key(end_key);
-    request.set_exclusive_end_key(exclusive_end_key);
 
     if (!send_protobuf_message(request, response, MessageType::TX_GET_MATCHING_PRIMARY_KEYS_IN_RANGE)) {
         LOG_ERROR("RPC failed: Failed to send message to server");
@@ -789,8 +781,7 @@ std::vector<std::string> LineairDBProxy::tx_get_matching_primary_keys_from_prefi
 std::optional<std::string> LineairDBProxy::tx_fetch_last_primary_key_in_secondary_range(LineairDBTransaction* tx,
                                                                                           const std::string& index_name,
                                                                                           const std::string& start_key,
-                                                                                          const std::string& end_key,
-                                                                                          const std::string& exclusive_end_key) {
+                                                                                          const std::string& end_key) {
     int64_t tx_id = tx->get_tx_id();
     LOG_DEBUG("CLIENT: tx_fetch_last_primary_key_in_secondary_range called with tx_id=%ld, index=%s", tx_id, index_name.c_str());
     if (!connected_) {
@@ -806,7 +797,6 @@ std::optional<std::string> LineairDBProxy::tx_fetch_last_primary_key_in_secondar
     request.set_index_name(index_name);
     request.set_start_key(start_key);
     request.set_end_key(end_key);
-    request.set_exclusive_end_key(exclusive_end_key);
 
     if (!send_protobuf_message(request, response, MessageType::TX_FETCH_LAST_PRIMARY_KEY_IN_SECONDARY_RANGE)) {
         LOG_ERROR("RPC failed: Failed to send message to server");
@@ -824,8 +814,7 @@ std::optional<std::string> LineairDBProxy::tx_fetch_last_primary_key_in_secondar
 std::optional<SecondaryIndexEntry> LineairDBProxy::tx_fetch_last_secondary_entry_in_range(LineairDBTransaction* tx,
                                                                                             const std::string& index_name,
                                                                                             const std::string& start_key,
-                                                                                            const std::string& end_key,
-                                                                                            const std::string& exclusive_end_key) {
+                                                                                            const std::string& end_key) {
     int64_t tx_id = tx->get_tx_id();
     LOG_DEBUG("CLIENT: tx_fetch_last_secondary_entry_in_range called with tx_id=%ld, index=%s", tx_id, index_name.c_str());
     if (!connected_) {
@@ -841,7 +830,6 @@ std::optional<SecondaryIndexEntry> LineairDBProxy::tx_fetch_last_secondary_entry
     request.set_index_name(index_name);
     request.set_start_key(start_key);
     request.set_end_key(end_key);
-    request.set_exclusive_end_key(exclusive_end_key);
 
     if (!send_protobuf_message(request, response, MessageType::TX_FETCH_LAST_SECONDARY_ENTRY_IN_RANGE)) {
         LOG_ERROR("RPC failed: Failed to send message to server");

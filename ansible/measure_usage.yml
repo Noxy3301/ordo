@@ -339,6 +339,7 @@
   vars:
     run_id: "run"
     sample_dir: /tmp/metrics
+    enable_perf: false
     haproxy_host: "{{ (groups.get('haproxy', []) | length > 0) | ternary(groups['haproxy'][0], '') }}"
   tasks:
     # Stop perf FIRST (before any other cleanup) to ensure the target

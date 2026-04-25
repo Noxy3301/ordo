@@ -48,12 +48,12 @@ CLUSTER = {
     },
     "haproxy": {
         "tag": "ordo-haproxy",
-        "instance_type": "c6i.4xlarge",
+        "instance_type": "c6i.8xlarge",
         "count": 1,
     },
     "benchbase": {
         "tag": "ordo-bench",
-        "instance_type": "c6i.4xlarge",
+        "instance_type": "c6i.16xlarge",
         "count": 1,
     },
 }
@@ -65,7 +65,7 @@ AWS_DEFAULTS = {
     "ssh_key": "~/.ssh/ordo-aws.pem",
     "ssh_user": "ubuntu",
     # On-demand fallback params (extracted from launch template)
-    "ami_id": "ami-03ce71439341a2e5f",
+    "ami_id": "ami-0dcfb21660acb41dd",
     "security_group": "sg-02d9a0d5948d02dbb",
     "subnet": "subnet-0a15ff55a4cae198b",  # ap-southeast-2c (same-AZ pinning)
 }

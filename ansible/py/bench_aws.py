@@ -359,9 +359,35 @@ def run_benchmarks(args, run_id):
         run(f"python3 {SCRIPT_DIR / 'plot_tpcc.py'} --root {result_root}", check=False)
     if args.bench_type == "tpch":
         run(f"python3 {SCRIPT_DIR / 'plot_tpch.py'} --root {result_root}", check=False)
+    if args.perf:
+        _plot_perf_reports(result_root)
 
     log(f"Benchmark complete. run_id={run_id}")
     return run_id
+
+
+def _plot_perf_reports(result_root):
+    """Render plot_perf.py for every collected perf-report-*.txt under result_root."""
+    config_root = result_root / build_machine_spec()
+    plot_dir = config_root / "_plot"
+    plot_dir.mkdir(parents=True, exist_ok=True)
+
+    role_modes = {"lineairdb": "server", "mysql": "proxy"}
+    for role, mode in role_modes.items():
+        cfg = CLUSTER.get(role)
+        if not cfg:
+            continue
+        size = cfg["instance_type"].split(".")[-1]
+        vcpu = _VCPU_BY_SIZE.get(size, 0)
+        if vcpu == 0:
+            continue
+        for report in sorted((config_root / role).glob(f"*/perf-report-{mode}-*.txt")):
+            output = plot_dir / f"perf_{report.parent.name}.png"
+            run(
+                f"python3 {SCRIPT_DIR / 'plot_perf.py'} {report} "
+                f"--vcpu {vcpu} --mode {mode} --output {output}",
+                check=False,
+            )
 
 
 # ──────────────────────────────────────────────

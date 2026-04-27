@@ -12,6 +12,7 @@
 #include "lineairdb.pb.h"
 
 class LineairDBTransaction;
+class TxRpcTrace;
 
 struct KeyValue {
     std::string key;
@@ -201,22 +202,34 @@ public:
         return table_stats_cache_;
     }
 
+    // Hook called by LineairDBTransaction so send_message_with_header can route
+    // per-RPC measurements to the active transaction's trace. Caller is
+    // responsible for clearing the pointer at end_transaction.
+    void set_current_trace(TxRpcTrace* t) { current_trace_ = t; }
+
 private:
     std::unordered_map<std::string, int64_t> table_stats_cache_;
     template<typename RequestType, typename ResponseType>
-    bool send_protobuf_message(const RequestType& request, ResponseType& response, MessageType message_type);
+    bool send_protobuf_message(const RequestType& request, ResponseType& response,
+                               MessageType message_type, const std::string& meta = "");
     // Send protobuf request, receive raw binary response
     template<typename RequestType>
-    bool send_protobuf_recv_binary(const RequestType& request, std::string& raw_response, MessageType message_type);
+    bool send_protobuf_recv_binary(const RequestType& request, std::string& raw_response,
+                                   MessageType message_type, const std::string& meta = "");
     // Parse flat binary scan response: [is_aborted:1B] [entries...] [sentinel: key_len=0]
     static std::vector<KeyValue> parse_binary_kv_response(const std::string& raw, bool& is_aborted);
     bool send_message(const std::string& serialized_request, std::string& serialized_response);
-    bool send_message_with_header(const std::string& serialized_request, std::string& serialized_response, MessageType message_type);
+    bool send_message_with_header(const std::string& serialized_request, std::string& serialized_response,
+                                  MessageType message_type, const std::string& meta = "");
 
     int socket_fd_;
     bool connected_;
     std::string host_;
     int port_;
+
+    // Pointer into the currently-active transaction's trace state. nullptr
+    // outside any tx (initial connection state, between txns).
+    TxRpcTrace* current_trace_ = nullptr;
 };
 
 #endif // LINEAIRDB_PROXY_H

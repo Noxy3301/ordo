@@ -1483,7 +1483,17 @@ int ha_lineairdb::external_lock(THD *thd, int lock_type) {
   }
 
   // get_transaction() will automatically start the transaction if needed
-  (void)get_transaction(thd);
+  LineairDBTransaction *tx = get_transaction(thd);
+
+  // Push a statement-boundary marker into the RPC trace. external_lock is
+  // called once per (table, statement); on_stmt_boundary dedupes by SQL
+  // string so multi-table statements only push one boundary.
+  if (tx != nullptr) {
+    const LEX_CSTRING &q = thd->query();
+    if (q.str != nullptr && q.length > 0) {
+      tx->on_stmt_boundary(std::string(q.str, q.length));
+    }
+  }
 
   // Stats sync: apply cached table row counts from the server (received
   // in BEGIN/END responses) so the optimizer sees correct cardinalities.

@@ -2,6 +2,8 @@
 #include "storage/lineairdb/ha_lineairdb.hh"
 #include "../common/log.h"
 
+#include <thread>
+
 LineairDBTransaction::LineairDBTransaction(THD* thd, 
                                             LineairDBProxy* lineairdb_proxy,
                                             handlerton* lineairdb_hton,
@@ -316,9 +318,15 @@ bool LineairDBTransaction::flush_write_buffer() {
 
 void LineairDBTransaction::begin_transaction() {
   assert(is_not_started());
+  // Activate trace before begin RPC so TX_BEGIN_TRANSACTION appears in
+  // the recorded sequence. tx_id is patched once we have it.
+  rpc_trace_.start(-1, std::this_thread::get_id());
+  lineairdb_proxy->set_current_trace(&rpc_trace_);
+
   tx_id = lineairdb_proxy->tx_begin_transaction();
   // TODO: maybe need error handling when tx_id == -1
   assert(tx_id != -1);
+  rpc_trace_.set_tx_id(tx_id);
   is_aborted_ = false;
 
   if (thd_is_transaction()) {
@@ -376,6 +384,15 @@ bool LineairDBTransaction::end_transaction() {
   if (isFence && !was_aborted && committed) {
     lineairdb_proxy->db_fence();
   }
+
+  // Finalize trace + clear proxy pointer before suicide. Logger gates
+  // the file write; finalize_jsonl is otherwise a small allocation.
+  if (rpc_trace_.active()) {
+    auto line = rpc_trace_.finalize_jsonl(committed && !was_aborted);
+    RpcTraceLogger::instance().log_line(line);
+  }
+  lineairdb_proxy->set_current_trace(nullptr);
+
   delete this;
   return committed;
 }

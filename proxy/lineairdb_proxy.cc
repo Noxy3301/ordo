@@ -4,12 +4,14 @@
 #include <arpa/inet.h>
 #include <unistd.h>
 #include <errno.h>
+#include <chrono>
 #include <cstring>
 #include <iostream>
 #include <vector>
 
 #include "lineairdb_proxy.hh"
 #include "lineairdb_transaction.hh"
+#include "rpc_trace.hh"
 #include "../common/log.h"
 
 
@@ -93,7 +95,7 @@ int64_t LineairDBProxy::tx_begin_transaction() {
     LineairDB::Protocol::TxBeginTransaction::Response response;
     LOG_DEBUG("CLIENT: Created begin transaction request");
 
-    if (!send_protobuf_message(request, response, MessageType::TX_BEGIN_TRANSACTION)) {
+    if (!send_protobuf_message(request, response, MessageType::TX_BEGIN_TRANSACTION, "")) {
         LOG_ERROR("RPC failed: Failed to send message to server");
         return -1;
     }
@@ -122,7 +124,7 @@ void LineairDBProxy::tx_abort(int64_t tx_id) {
     request.set_transaction_id(tx_id);
     LOG_DEBUG("CLIENT: Created abort request");
 
-    if (!send_protobuf_message(request, response, MessageType::TX_ABORT)) {
+    if (!send_protobuf_message(request, response, MessageType::TX_ABORT, "")) {
         LOG_ERROR("RPC failed: Failed to send message to server");
         return;
     }
@@ -146,7 +148,8 @@ std::string LineairDBProxy::tx_read(LineairDBTransaction* tx, const std::string&
     request.set_key(key);
     LOG_DEBUG("CLIENT: Created read request");
 
-    if (!send_protobuf_message(request, response, MessageType::TX_READ)) {
+    if (!send_protobuf_message(request, response, MessageType::TX_READ,
+                               "key=" + key)) {
         LOG_ERROR("RPC failed: Failed to send message to server");
         return "";
     }
@@ -175,7 +178,8 @@ bool LineairDBProxy::tx_write(LineairDBTransaction* tx, const std::string& key, 
     request.set_value(value);
     LOG_DEBUG("CLIENT: Created write request");
 
-    if (!send_protobuf_message(request, response, MessageType::TX_WRITE)) {
+    if (!send_protobuf_message(request, response, MessageType::TX_WRITE,
+                               "key=" + key + ",val_b=" + std::to_string(value.size()))) {
         LOG_ERROR("RPC failed: Failed to send message to server");
         return false;
     }
@@ -202,7 +206,8 @@ bool LineairDBProxy::tx_delete(LineairDBTransaction* tx, const std::string& key)
     request.set_table_name(tx->get_selected_table_name());
     request.set_key(key);
 
-    if (!send_protobuf_message(request, response, MessageType::TX_DELETE)) {
+    if (!send_protobuf_message(request, response, MessageType::TX_DELETE,
+                               "key=" + key)) {
         LOG_ERROR("RPC failed: Failed to send message to server");
         return false;
     }
@@ -230,7 +235,8 @@ std::vector<LineairDBProxy::BatchReadResult> LineairDBProxy::tx_batch_read(
         request.add_keys(key);
     }
 
-    if (!send_protobuf_message(request, response, MessageType::TX_BATCH_READ)) {
+    if (!send_protobuf_message(request, response, MessageType::TX_BATCH_READ,
+                               "n=" + std::to_string(keys.size()))) {
         LOG_ERROR("RPC failed: Failed to send batch_read message to server");
         return {};
     }
@@ -275,7 +281,8 @@ bool LineairDBProxy::tx_batch_write(LineairDBTransaction* tx,
         op->set_primary_key(si.primary_key);
     }
 
-    if (!send_protobuf_message(request, response, MessageType::TX_BATCH_WRITE)) {
+    if (!send_protobuf_message(request, response, MessageType::TX_BATCH_WRITE,
+                               "table=" + table_name + ",n_w=" + std::to_string(writes.size()) + ",n_si=" + std::to_string(si_writes.size()))) {
         LOG_ERROR("RPC failed: Failed to send batch_write message to server");
         return false;
     }
@@ -303,7 +310,8 @@ std::vector<std::string> LineairDBProxy::tx_read_secondary_index(LineairDBTransa
     request.set_index_name(index_name);
     request.set_secondary_key(secondary_key);
 
-    if (!send_protobuf_message(request, response, MessageType::TX_READ_SECONDARY_INDEX)) {
+    if (!send_protobuf_message(request, response, MessageType::TX_READ_SECONDARY_INDEX,
+                               "index=" + index_name + ",sk=" + secondary_key)) {
         LOG_ERROR("RPC failed: Failed to send message to server");
         return {};
     }
@@ -340,7 +348,8 @@ bool LineairDBProxy::tx_write_secondary_index(LineairDBTransaction* tx,
     request.set_secondary_key(secondary_key);
     request.set_primary_key(primary_key);
 
-    if (!send_protobuf_message(request, response, MessageType::TX_WRITE_SECONDARY_INDEX)) {
+    if (!send_protobuf_message(request, response, MessageType::TX_WRITE_SECONDARY_INDEX,
+                               "index=" + index_name + ",sk=" + secondary_key + ",pk=" + primary_key)) {
         LOG_ERROR("RPC failed: Failed to send message to server");
         return false;
     }
@@ -372,7 +381,8 @@ bool LineairDBProxy::tx_delete_secondary_index(LineairDBTransaction* tx,
     request.set_secondary_key(secondary_key);
     request.set_primary_key(primary_key);
 
-    if (!send_protobuf_message(request, response, MessageType::TX_DELETE_SECONDARY_INDEX)) {
+    if (!send_protobuf_message(request, response, MessageType::TX_DELETE_SECONDARY_INDEX,
+                               "index=" + index_name + ",sk=" + secondary_key + ",pk=" + primary_key)) {
         LOG_ERROR("RPC failed: Failed to send message to server");
         return false;
     }
@@ -406,7 +416,8 @@ bool LineairDBProxy::tx_update_secondary_index(LineairDBTransaction* tx,
     request.set_new_secondary_key(new_secondary_key);
     request.set_primary_key(primary_key);
 
-    if (!send_protobuf_message(request, response, MessageType::TX_UPDATE_SECONDARY_INDEX)) {
+    if (!send_protobuf_message(request, response, MessageType::TX_UPDATE_SECONDARY_INDEX,
+                               "index=" + index_name + ",old_sk=" + old_secondary_key + ",new_sk=" + new_secondary_key)) {
         LOG_ERROR("RPC failed: Failed to send message to server");
         return false;
     }
@@ -437,7 +448,8 @@ std::vector<std::string> LineairDBProxy::tx_get_matching_keys_in_range(LineairDB
     request.set_start_key(start_key);
     request.set_end_key(end_key);
 
-    if (!send_protobuf_message(request, response, MessageType::TX_GET_MATCHING_KEYS_IN_RANGE)) {
+    if (!send_protobuf_message(request, response, MessageType::TX_GET_MATCHING_KEYS_IN_RANGE,
+                               "start=" + start_key + ",end=" + end_key)) {
         LOG_ERROR("RPC failed: Failed to send message to server");
         return {};
     }
@@ -476,7 +488,9 @@ std::vector<KeyValue> LineairDBProxy::tx_get_matching_keys_and_values_in_range(L
     }
 
     std::string raw_response;
-    if (!send_protobuf_recv_binary(request, raw_response, MessageType::TX_GET_MATCHING_KEYS_AND_VALUES_IN_RANGE)) {
+    if (!send_protobuf_recv_binary(request, raw_response,
+                                   MessageType::TX_GET_MATCHING_KEYS_AND_VALUES_IN_RANGE,
+                                   "start=" + start_key + ",end=" + end_key)) {
         LOG_ERROR("RPC failed: Failed to send message to server");
         return {};
     }
@@ -510,7 +524,9 @@ std::vector<KeyValue> LineairDBProxy::tx_get_matching_keys_and_values_from_prefi
     }
 
     std::string raw_response;
-    if (!send_protobuf_recv_binary(request, raw_response, MessageType::TX_GET_MATCHING_KEYS_AND_VALUES_FROM_PREFIX)) {
+    if (!send_protobuf_recv_binary(request, raw_response,
+                                   MessageType::TX_GET_MATCHING_KEYS_AND_VALUES_FROM_PREFIX,
+                                   "prefix=" + prefix)) {
         LOG_ERROR("RPC failed: Failed to send message to server");
         return {};
     }
@@ -549,7 +565,9 @@ int LineairDBProxy::tx_scan_into_buffers(LineairDBTransaction* tx,
     }
 
     std::string raw_response;
-    if (!send_protobuf_recv_binary(request, raw_response, MessageType::TX_GET_MATCHING_KEYS_AND_VALUES_FROM_PREFIX)) {
+    if (!send_protobuf_recv_binary(request, raw_response,
+                                   MessageType::TX_GET_MATCHING_KEYS_AND_VALUES_FROM_PREFIX,
+                                   "prefix=" + prefix)) {
         LOG_ERROR("RPC failed: Failed to send message to server");
         return -1;
     }
@@ -630,7 +648,8 @@ std::optional<std::string> LineairDBProxy::tx_fetch_last_key_in_range(LineairDBT
     request.set_start_key(start_key);
     request.set_end_key(end_key);
 
-    if (!send_protobuf_message(request, response, MessageType::TX_FETCH_LAST_KEY_IN_RANGE)) {
+    if (!send_protobuf_message(request, response, MessageType::TX_FETCH_LAST_KEY_IN_RANGE,
+                               "start=" + start_key + ",end=" + end_key)) {
         LOG_ERROR("RPC failed: Failed to send message to server");
         return std::nullopt;
     }
@@ -661,7 +680,8 @@ std::optional<std::string> LineairDBProxy::tx_fetch_first_key_with_prefix(Lineai
     request.set_prefix(prefix);
     request.set_prefix_end(prefix_end);
 
-    if (!send_protobuf_message(request, response, MessageType::TX_FETCH_FIRST_KEY_WITH_PREFIX)) {
+    if (!send_protobuf_message(request, response, MessageType::TX_FETCH_FIRST_KEY_WITH_PREFIX,
+                               "prefix=" + prefix + ",prefix_end=" + prefix_end)) {
         LOG_ERROR("RPC failed: Failed to send message to server");
         return std::nullopt;
     }
@@ -692,7 +712,8 @@ std::optional<std::string> LineairDBProxy::tx_fetch_next_key_with_prefix(Lineair
     request.set_last_key(last_key);
     request.set_prefix_end(prefix_end);
 
-    if (!send_protobuf_message(request, response, MessageType::TX_FETCH_NEXT_KEY_WITH_PREFIX)) {
+    if (!send_protobuf_message(request, response, MessageType::TX_FETCH_NEXT_KEY_WITH_PREFIX,
+                               "last=" + last_key + ",prefix_end=" + prefix_end)) {
         LOG_ERROR("RPC failed: Failed to send message to server");
         return std::nullopt;
     }
@@ -727,7 +748,9 @@ std::vector<std::string> LineairDBProxy::tx_get_matching_primary_keys_in_range(L
     request.set_start_key(start_key);
     request.set_end_key(end_key);
 
-    if (!send_protobuf_message(request, response, MessageType::TX_GET_MATCHING_PRIMARY_KEYS_IN_RANGE)) {
+    if (!send_protobuf_message(request, response,
+                               MessageType::TX_GET_MATCHING_PRIMARY_KEYS_IN_RANGE,
+                               "index=" + index_name + ",start=" + start_key + ",end=" + end_key)) {
         LOG_ERROR("RPC failed: Failed to send message to server");
         return {};
     }
@@ -762,7 +785,9 @@ std::vector<std::string> LineairDBProxy::tx_get_matching_primary_keys_from_prefi
     request.set_index_name(index_name);
     request.set_prefix(prefix);
 
-    if (!send_protobuf_message(request, response, MessageType::TX_GET_MATCHING_PRIMARY_KEYS_FROM_PREFIX)) {
+    if (!send_protobuf_message(request, response,
+                               MessageType::TX_GET_MATCHING_PRIMARY_KEYS_FROM_PREFIX,
+                               "index=" + index_name + ",prefix=" + prefix)) {
         LOG_ERROR("RPC failed: Failed to send message to server");
         return {};
     }
@@ -798,7 +823,9 @@ std::optional<std::string> LineairDBProxy::tx_fetch_last_primary_key_in_secondar
     request.set_start_key(start_key);
     request.set_end_key(end_key);
 
-    if (!send_protobuf_message(request, response, MessageType::TX_FETCH_LAST_PRIMARY_KEY_IN_SECONDARY_RANGE)) {
+    if (!send_protobuf_message(request, response,
+                               MessageType::TX_FETCH_LAST_PRIMARY_KEY_IN_SECONDARY_RANGE,
+                               "index=" + index_name + ",start=" + start_key + ",end=" + end_key)) {
         LOG_ERROR("RPC failed: Failed to send message to server");
         return std::nullopt;
     }
@@ -831,7 +858,9 @@ std::optional<SecondaryIndexEntry> LineairDBProxy::tx_fetch_last_secondary_entry
     request.set_start_key(start_key);
     request.set_end_key(end_key);
 
-    if (!send_protobuf_message(request, response, MessageType::TX_FETCH_LAST_SECONDARY_ENTRY_IN_RANGE)) {
+    if (!send_protobuf_message(request, response,
+                               MessageType::TX_FETCH_LAST_SECONDARY_ENTRY_IN_RANGE,
+                               "index=" + index_name + ",start=" + start_key + ",end=" + end_key)) {
         LOG_ERROR("RPC failed: Failed to send message to server");
         return std::nullopt;
     }
@@ -861,7 +890,8 @@ bool LineairDBProxy::db_create_table(const std::string& table_name) {
 
     request.set_table_name(table_name);
 
-    if (!send_protobuf_message(request, response, MessageType::DB_CREATE_TABLE)) {
+    if (!send_protobuf_message(request, response, MessageType::DB_CREATE_TABLE,
+                               "table=" + table_name)) {
         LOG_ERROR("RPC failed: Failed to send message to server");
         return false;
     }
@@ -883,7 +913,8 @@ bool LineairDBProxy::db_set_table(int64_t tx_id, const std::string& table_name) 
     request.set_transaction_id(tx_id);
     request.set_table_name(table_name);
 
-    if (!send_protobuf_message(request, response, MessageType::DB_SET_TABLE)) {
+    if (!send_protobuf_message(request, response, MessageType::DB_SET_TABLE,
+                               "table=" + table_name)) {
         LOG_ERROR("RPC failed: Failed to send message to server");
         return false;
     }
@@ -909,7 +940,8 @@ bool LineairDBProxy::db_create_secondary_index(const std::string& table_name,
     request.set_index_name(index_name);
     request.set_index_type(index_type);
 
-    if (!send_protobuf_message(request, response, MessageType::DB_CREATE_SECONDARY_INDEX)) {
+    if (!send_protobuf_message(request, response, MessageType::DB_CREATE_SECONDARY_INDEX,
+                               "table=" + table_name + ",index=" + index_name)) {
         LOG_ERROR("RPC failed: Failed to send message to server");
         return false;
     }
@@ -938,7 +970,7 @@ bool LineairDBProxy::db_end_transaction(int64_t tx_id, bool isFence,
         rd->set_delta(delta);
     }
 
-    if (!send_protobuf_message(request, response, MessageType::DB_END_TRANSACTION)) {
+    if (!send_protobuf_message(request, response, MessageType::DB_END_TRANSACTION, "")) {
         LOG_ERROR("RPC failed: Failed to send message to server");
         return false;
     }
@@ -964,7 +996,7 @@ void LineairDBProxy::db_fence() {
     LineairDB::Protocol::DbFence::Response response;
     LOG_DEBUG("CLIENT: Created fence request");
 
-    if (!send_protobuf_message(request, response, MessageType::DB_FENCE)) {
+    if (!send_protobuf_message(request, response, MessageType::DB_FENCE, "")) {
         LOG_ERROR("RPC failed: Failed to send message to server");
         return;
     }
@@ -1025,13 +1057,14 @@ bool LineairDBProxy::send_message(const std::string& serialized_request, std::st
 }
 
 template<typename RequestType, typename ResponseType>
-bool LineairDBProxy::send_protobuf_message(const RequestType& request, ResponseType& response, MessageType message_type) {
+bool LineairDBProxy::send_protobuf_message(const RequestType& request, ResponseType& response,
+                                           MessageType message_type, const std::string& meta) {
     // serialize request
     std::string serialized_request = request.SerializeAsString();
 
     // send message with header
     std::string serialized_response;
-    if (!send_message_with_header(serialized_request, serialized_response, message_type)) {
+    if (!send_message_with_header(serialized_request, serialized_response, message_type, meta)) {
         LOG_ERROR("PROTOBUF_MESSAGE: Failed to send message with header");
         return false;
     }
@@ -1048,11 +1081,10 @@ bool LineairDBProxy::send_protobuf_message(const RequestType& request, ResponseT
 // Send protobuf-encoded request, receive raw binary response (no protobuf decode).
 // Used for Scan RPCs where the server returns flat binary instead of protobuf.
 template<typename RequestType>
-bool LineairDBProxy::send_protobuf_recv_binary(const RequestType& request,
-                                                std::string& raw_response,
-                                                MessageType message_type) {
+bool LineairDBProxy::send_protobuf_recv_binary(const RequestType& request, std::string& raw_response,
+                                                MessageType message_type, const std::string& meta) {
     std::string serialized_request = request.SerializeAsString();
-    return send_message_with_header(serialized_request, raw_response, message_type);
+    return send_message_with_header(serialized_request, raw_response, message_type, meta);
 }
 
 // Parse flat binary scan response into vector<KeyValue>.
@@ -1107,7 +1139,10 @@ std::vector<KeyValue> LineairDBProxy::parse_binary_kv_response(const std::string
 
 bool LineairDBProxy::send_message_with_header(const std::string& serialized_request,
                                               std::string& serialized_response,
-                                              MessageType message_type) {
+                                              MessageType message_type,
+                                              const std::string& meta) {
+    auto rpc_start_ts = std::chrono::steady_clock::now();
+    const uint32_t req_bytes = static_cast<uint32_t>(serialized_request.size());
     if (!connected_) {
         LOG_ERROR("SEND_MESSAGE: Not connected!");
         return false;
@@ -1177,5 +1212,14 @@ bool LineairDBProxy::send_message_with_header(const std::string& serialized_requ
     }
 
     LOG_DEBUG("SEND_MESSAGE: Message exchange completed successfully");
+    if (current_trace_ != nullptr && current_trace_->active()) {
+        auto rpc_dur_us = std::chrono::duration_cast<std::chrono::microseconds>(
+                              std::chrono::steady_clock::now() - rpc_start_ts).count();
+        current_trace_->record(message_type,
+                               static_cast<uint64_t>(rpc_dur_us),
+                               req_bytes,
+                               static_cast<uint32_t>(serialized_response.size()),
+                               meta);
+    }
     return true;
 }

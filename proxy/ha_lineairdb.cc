@@ -369,6 +369,12 @@ int ha_lineairdb::open(const char *table_name, int, uint, const dd::Table *) {
     ref_length = sizeof(uint16_t) + serialize_hidden_primary_key(0).size();
   }
 
+  // BKA / MRR batch-size hint. Without this, BKAIterator falls back to the
+  // ha_statistics default (0) and degenerates to one key per batch.
+  // InnoDB seeds the same value in ha_innodb.cc; the +sizeof(void*) is the
+  // BKA join-buffer per-row overhead used by BKAIterator::generate_join_keys.
+  stats.mrr_length_per_rec = ref_length + sizeof(void *);
+
   return 0;
 }
 

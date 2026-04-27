@@ -440,6 +440,11 @@ private:
   int execute_prev_key(uchar *buf, LineairDBTransaction *tx);
   int execute_prefix_last(uchar *buf, LineairDBTransaction *tx);
   void batch_fetch_secondary_payloads(LineairDBTransaction *tx);
+  // Combined SI scan + value fetch helper — see ha_lineairdb.cc for details.
+  void si_scan_collect_in_range(LineairDBTransaction *tx,
+                                const std::string &index_name,
+                                const std::string &start_key,
+                                const std::string &end_key);
 
   std::string convert_key_to_ldbformat(const uchar *key, key_part_map keypart_map);
   std::string serialize_key_from_field(Field *field);

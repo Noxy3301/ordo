@@ -91,6 +91,9 @@ void LineairDBRpc::handle_rpc(uint64_t sender_id, MessageType message_type,
         case MessageType::TX_FETCH_LAST_SECONDARY_ENTRY_IN_RANGE:
             handleTxFetchLastSecondaryEntryInRange(message, result);
             return;
+        case MessageType::TX_GET_MATCHING_KEYS_AND_VALUES_IN_INDEX_RANGE:
+            handleTxGetMatchingKeysAndValuesInIndexRange(message, result);
+            return;
 
         // Database operations
         case MessageType::DB_FENCE:
@@ -1026,6 +1029,71 @@ void LineairDBRpc::handleTxFetchLastSecondaryEntryInRange(const std::string& mes
 
     result = response.SerializeAsString();
 }
+
+void LineairDBRpc::handleTxGetMatchingKeysAndValuesInIndexRange(const std::string& message, std::string& result) {
+    LOG_DEBUG("Handling TxGetMatchingKeysAndValuesInIndexRange");
+
+    LineairDB::Protocol::TxGetMatchingKeysAndValuesInIndexRange::Request request;
+    LineairDB::Protocol::TxGetMatchingKeysAndValuesInIndexRange::Response response;
+
+    request.ParseFromString(message);
+
+    int64_t tx_id = request.transaction_id();
+    auto* tx = tx_manager_->get_transaction(tx_id);
+    if (!tx) {
+        response.set_is_aborted(true);
+        LOG_WARNING("Transaction not found for get_matching_keys_and_values_in_index_range: %ld", tx_id);
+        result = response.SerializeAsString();
+        return;
+    }
+
+    if (!request.table_name().empty()) {
+        tx->SetTable(request.table_name());
+    }
+    const std::string index_name = request.index_name();
+    const std::string start_key = request.start_key();
+    const std::string end_key = request.end_key();
+
+    std::optional<std::string_view> end_opt;
+    if (!end_key.empty()) end_opt = end_key;
+
+    // Buffer candidate primary keys; don't issue Read() inside the scan
+    // callback. LineairDB's masstree iterator state can be invalidated by
+    // re-entrant per-row reads.
+    std::vector<std::string> candidate_pks;
+    auto scan_result = tx->ScanSecondaryIndex(
+        index_name, start_key, end_opt,
+        [&candidate_pks]([[maybe_unused]] std::string_view secondary_key,
+                         const std::vector<std::string>& primary_keys) {
+            for (const auto& pk : primary_keys) candidate_pks.push_back(pk);
+            return false;
+        });
+
+    if (!scan_result.has_value()) {
+        tx->Abort();
+        response.set_is_aborted(true);
+        result = response.SerializeAsString();
+        return;
+    }
+
+    // Post-scan: fetch row payload for each candidate.
+    for (const auto& pk : candidate_pks) {
+        if (tx->IsAborted()) break;
+        auto pair = tx->Read(pk);
+        auto* kv = response.add_results();
+        kv->set_key(pk);
+        if (pair.first != nullptr && pair.second > 0) {
+            kv->set_value(reinterpret_cast<const char*>(pair.first), pair.second);
+        }
+    }
+    response.set_is_aborted(tx->IsAborted());
+
+    LOG_DEBUG("GetMatchingKeysAndValuesInIndexRange tx=%ld index='%s': %d rows",
+              tx_id, index_name.c_str(), response.results_size());
+
+    result = response.SerializeAsString();
+}
+
 void LineairDBRpc::handleDbFence(const std::string& message, std::string& result) {
     LOG_DEBUG("Handling DbFence");
 

@@ -790,9 +790,7 @@ int ha_lineairdb::index_last(uchar *buf) {
       secondary_index_payloads_.push_back(std::move(kv.second));
     }
   } else {
-    secondary_index_results_ =
-        tx->get_matching_primary_keys_in_range(current_index_name, "", "");
-    batch_fetch_secondary_payloads(tx);
+    si_scan_collect_in_range(tx, current_index_name, "", "");
   }
 
   if (tx->is_aborted()) {
@@ -2365,9 +2363,7 @@ int ha_lineairdb::execute_index_first(uchar *buf, LineairDBTransaction *tx) {
       secondary_index_payloads_.push_back(std::move(kv.second));
     }
   } else {
-    secondary_index_results_ = tx->get_matching_primary_keys_in_range(
-        current_index_name, start_key, end_key);
-    batch_fetch_secondary_payloads(tx);
+    si_scan_collect_in_range(tx, current_index_name, start_key, end_key);
   }
 
   // phantom detection check
@@ -2463,9 +2459,7 @@ int ha_lineairdb::execute_same_key_materialize(uchar *buf,
     return fetch_and_set_current_result(buf, tx);
   }
 
-  secondary_index_results_ = tx->get_matching_primary_keys_in_range(
-      current_index_name, prefix, prefix_end);
-  batch_fetch_secondary_payloads(tx);
+  si_scan_collect_in_range(tx, current_index_name, prefix, prefix_end);
 
   if (tx->is_aborted()) {
     thd_mark_transaction_to_rollback(ha_thd(), 1);
@@ -2511,9 +2505,7 @@ int ha_lineairdb::execute_prefix_first(uchar *buf, LineairDBTransaction *tx) {
 
   // Restrict to [prefix, prefix_end) so index_next never leaks non-prefix
   // rows.
-  secondary_index_results_ = tx->get_matching_primary_keys_in_range(
-      current_index_name, prefix, prefix_end);
-  batch_fetch_secondary_payloads(tx);
+  si_scan_collect_in_range(tx, current_index_name, prefix, prefix_end);
 
   if (tx->is_aborted()) {
     thd_mark_transaction_to_rollback(ha_thd(), 1);
@@ -2549,9 +2541,7 @@ int ha_lineairdb::execute_range_materialize(uchar *buf,
       secondary_index_payloads_.push_back(std::move(kv.second));
     }
   } else {
-    secondary_index_results_ = tx->get_matching_primary_keys_in_range(
-        current_index_name, effective_start, effective_end);
-    batch_fetch_secondary_payloads(tx);
+    si_scan_collect_in_range(tx, current_index_name, effective_start, effective_end);
   }
 
   // phantom detection check
@@ -2588,9 +2578,7 @@ int ha_lineairdb::execute_prev_key(uchar *buf, LineairDBTransaction *tx) {
       secondary_index_payloads_.push_back(std::move(kv.second));
     }
   } else {
-    secondary_index_results_ = tx->get_matching_primary_keys_in_range(
-        current_index_name, "", effective_end);
-    batch_fetch_secondary_payloads(tx);
+    si_scan_collect_in_range(tx, current_index_name, "", effective_end);
   }
 
   if (tx->is_aborted()) {
@@ -2626,13 +2614,10 @@ int ha_lineairdb::execute_prefix_last(uchar *buf, LineairDBTransaction *tx) {
         secondary_index_payloads_.push_back(std::move(kv.second));
       }
     } else {
-      secondary_index_results_ = tx->get_matching_primary_keys_in_range(
-          current_index_name, prefix, prefix_end);
+      si_scan_collect_in_range(tx, current_index_name, prefix, prefix_end);
       if (secondary_index_results_.empty()) {
-        secondary_index_results_ = tx->get_matching_primary_keys_in_range(
-            current_index_name, "", prefix);
+        si_scan_collect_in_range(tx, current_index_name, "", prefix);
       }
-      batch_fetch_secondary_payloads(tx);
     }
 
     if (tx->is_aborted()) {
@@ -2658,10 +2643,9 @@ int ha_lineairdb::execute_prefix_last(uchar *buf, LineairDBTransaction *tx) {
       secondary_index_payloads_.push_back(std::move(kv.second));
     }
   } else {
-    secondary_index_results_ = tx->get_matching_primary_keys_in_range(
-        current_index_name, current_plan_.same_group_prefix_serialized,
-        current_plan_.same_group_end_serialized);
-    batch_fetch_secondary_payloads(tx);
+    si_scan_collect_in_range(tx, current_index_name,
+                             current_plan_.same_group_prefix_serialized,
+                             current_plan_.same_group_end_serialized);
   }
 
   if (tx->is_aborted()) {
@@ -2700,6 +2684,27 @@ void ha_lineairdb::batch_fetch_secondary_payloads(LineairDBTransaction *tx) {
   for (auto &r : results) {
     secondary_index_payloads_.push_back(
         r.first ? std::move(r.second) : std::string());
+  }
+}
+
+// Combined SI scan + value fetch. Replaces the 2-RPC pattern of
+// (tx->get_matching_primary_keys_in_range -> batch_fetch_secondary_payloads)
+// with a single RPC; populates both secondary_index_results_ (PKs) and
+// secondary_index_payloads_ (row values) in one round trip.
+void ha_lineairdb::si_scan_collect_in_range(LineairDBTransaction *tx,
+                                            const std::string &index_name,
+                                            const std::string &start_key,
+                                            const std::string &end_key) {
+  auto pairs = tx->get_matching_keys_and_values_in_index_range(index_name,
+                                                                start_key,
+                                                                end_key);
+  secondary_index_results_.clear();
+  secondary_index_payloads_.clear();
+  secondary_index_results_.reserve(pairs.size());
+  secondary_index_payloads_.reserve(pairs.size());
+  for (auto &kv : pairs) {
+    secondary_index_results_.push_back(std::move(kv.first));
+    secondary_index_payloads_.push_back(std::move(kv.second));
   }
 }
 

@@ -73,7 +73,10 @@ enum class MessageType : uint32_t {
 
     // Batch operations
     TX_BATCH_READ = 25,
-    TX_BATCH_WRITE = 26
+    TX_BATCH_WRITE = 26,
+
+    // Combined SI scan + value fetch (replaces SI scan -> batch_read pattern).
+    TX_GET_MATCHING_KEYS_AND_VALUES_IN_INDEX_RANGE = 27
 };
 
 /**
@@ -176,6 +179,11 @@ public:
     std::vector<std::string> tx_get_matching_primary_keys_from_prefix(LineairDBTransaction* tx,
                                                                        const std::string& index_name,
                                                                        const std::string& prefix);
+    // Combined SI scan + value fetch (replaces SI scan -> batch_read pattern).
+    std::vector<KeyValue> tx_get_matching_keys_and_values_in_index_range(LineairDBTransaction* tx,
+                                                                          const std::string& index_name,
+                                                                          const std::string& start_key,
+                                                                          const std::string& end_key);
     std::optional<std::string> tx_fetch_last_primary_key_in_secondary_range(LineairDBTransaction* tx,
                                                                              const std::string& index_name,
                                                                              const std::string& start_key,

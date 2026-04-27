@@ -766,6 +766,42 @@ std::vector<std::string> LineairDBProxy::tx_get_matching_primary_keys_in_range(L
     return primary_keys;
 }
 
+std::vector<KeyValue> LineairDBProxy::tx_get_matching_keys_and_values_in_index_range(LineairDBTransaction* tx,
+                                                                                      const std::string& index_name,
+                                                                                      const std::string& start_key,
+                                                                                      const std::string& end_key) {
+    int64_t tx_id = tx->get_tx_id();
+    if (!connected_) {
+        LOG_ERROR("RPC failed: Not connected to server");
+        return {};
+    }
+
+    LineairDB::Protocol::TxGetMatchingKeysAndValuesInIndexRange::Request request;
+    LineairDB::Protocol::TxGetMatchingKeysAndValuesInIndexRange::Response response;
+
+    request.set_transaction_id(tx_id);
+    request.set_table_name(tx->get_selected_table_name());
+    request.set_index_name(index_name);
+    request.set_start_key(start_key);
+    request.set_end_key(end_key);
+
+    if (!send_protobuf_message(request, response,
+                               MessageType::TX_GET_MATCHING_KEYS_AND_VALUES_IN_INDEX_RANGE,
+                               "index=" + index_name + ",start=" + start_key + ",end=" + end_key)) {
+        LOG_ERROR("RPC failed: Failed to send message to server");
+        return {};
+    }
+
+    tx->set_aborted(response.is_aborted());
+
+    std::vector<KeyValue> results;
+    results.reserve(response.results_size());
+    for (const auto& kv : response.results()) {
+        results.push_back({kv.key(), kv.value()});
+    }
+    return results;
+}
+
 std::vector<std::string> LineairDBProxy::tx_get_matching_primary_keys_from_prefix(LineairDBTransaction* tx,
                                                                                     const std::string& index_name,
                                                                                     const std::string& prefix) {

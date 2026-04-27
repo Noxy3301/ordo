@@ -77,6 +77,9 @@ private:
     void handleTxFetchLastPrimaryKeyInSecondaryRange(const std::string& message, std::string& result);
     void handleTxFetchLastSecondaryEntryInRange(const std::string& message, std::string& result);
 
+    // Combined SI scan + value fetch (replaces SI scan -> batch_read pattern).
+    void handleTxGetMatchingKeysAndValuesInIndexRange(const std::string& message, std::string& result);
+
     // Database operations
     void handleDbFence(const std::string& message, std::string& result);
     void handleDbEndTransaction(const std::string& message, std::string& result);

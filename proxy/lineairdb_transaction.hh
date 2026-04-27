@@ -49,6 +49,13 @@ public:
       std::string index_name, std::string start_key, std::string end_key);
   std::vector<std::string> get_matching_primary_keys_from_prefix(
       std::string index_name, std::string prefix);
+  // Combined SI scan + value fetch: returns (primary_key, value) pairs in
+  // one round trip instead of the legacy SI-scan -> batch_read pattern.
+  // The PK cache is also populated, so subsequent read() calls on these
+  // PKs are served without an RPC.
+  std::vector<std::pair<std::string, std::string>>
+  get_matching_keys_and_values_in_index_range(
+      std::string index_name, std::string start_key, std::string end_key);
   std::optional<std::string> fetch_last_key_in_range(
       const std::string &start_key, const std::string &end_key);
   std::optional<std::string> fetch_last_primary_key_in_secondary_range(

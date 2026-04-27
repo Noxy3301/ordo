@@ -297,6 +297,34 @@ LineairDBTransaction::get_matching_primary_keys_from_prefix(std::string index_na
   return lineairdb_proxy->tx_get_matching_primary_keys_from_prefix(this, index_name, prefix);
 }
 
+std::vector<std::pair<std::string, std::string>>
+LineairDBTransaction::get_matching_keys_and_values_in_index_range(std::string index_name,
+                                                                  std::string start_key,
+                                                                  std::string end_key) {
+  if (table_is_not_chosen()) return {};
+  flush_write_buffer();
+
+  auto results = lineairdb_proxy->tx_get_matching_keys_and_values_in_index_range(
+      this, index_name, start_key, end_key);
+
+  std::vector<std::pair<std::string, std::string>> pairs;
+  pairs.reserve(results.size());
+  for (auto& kv : results) {
+    // Populate per-tx PK row cache so a subsequent read() on any of these
+    // PKs hits cache instead of issuing a TX_READ. Empty value means the
+    // server saw the SI entry but Read() found no base row (dangling SI),
+    // which is a negative-cache hit for the same tx.
+    auto cache_key = make_pk_cache_key(db_table_key, kv.key);
+    if (!kv.value.empty()) {
+      read_cache_.emplace(std::move(cache_key), kv.value);
+    } else {
+      read_cache_misses_.insert(std::move(cache_key));
+    }
+    pairs.emplace_back(std::move(kv.key), std::move(kv.value));
+  }
+  return pairs;
+}
+
 std::optional<std::string>
 LineairDBTransaction::fetch_last_primary_key_in_secondary_range(const std::string &index_name,
                                                                 const std::string &start_key,

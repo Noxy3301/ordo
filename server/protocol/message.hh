@@ -51,5 +51,8 @@ enum class MessageType : uint32_t {
 
     // Batch operations
     TX_BATCH_READ = 25,
-    TX_BATCH_WRITE = 26
+    TX_BATCH_WRITE = 26,
+
+    // Combined SI scan + value fetch (replaces SI scan -> batch_read pattern).
+    TX_GET_MATCHING_KEYS_AND_VALUES_IN_INDEX_RANGE = 27
 };

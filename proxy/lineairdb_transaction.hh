@@ -38,8 +38,11 @@ public:
   std::vector<std::string> get_all_keys();
   std::vector<std::string> get_matching_keys(std::string key);
   std::vector<std::string> get_matching_keys_in_range(std::string start_key, std::string end_key);
+  // Server-side LIMIT pushdown. 0 = unlimited. When N > 0, server stops
+  // after N matches — caller must guarantee scan order matches the SQL
+  // result order, else leave 0 and let MySQL truncate.
   std::vector<std::pair<std::string, std::string>> get_matching_keys_and_values_in_range(
-      std::string start_key, std::string end_key);
+      std::string start_key, std::string end_key, uint32_t limit = 0);
   std::vector<std::pair<std::string, std::string>> get_matching_keys_and_values_from_prefix(
       std::string prefix);
   bool write(std::string key, const std::string value);

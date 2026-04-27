@@ -467,9 +467,10 @@ std::vector<std::string> LineairDBProxy::tx_get_matching_keys_in_range(LineairDB
 
 std::vector<KeyValue> LineairDBProxy::tx_get_matching_keys_and_values_in_range(LineairDBTransaction* tx,
                                                                                 const std::string& start_key,
-                                                                                const std::string& end_key) {
+                                                                                const std::string& end_key,
+                                                                                uint32_t limit) {
     int64_t tx_id = tx->get_tx_id();
-    LOG_DEBUG("CLIENT: tx_get_matching_keys_and_values_in_range called with tx_id=%ld", tx_id);
+    LOG_DEBUG("CLIENT: tx_get_matching_keys_and_values_in_range called with tx_id=%ld limit=%u", tx_id, limit);
     if (!connected_) {
         LOG_ERROR("RPC failed: Not connected to server");
         return {};
@@ -480,6 +481,9 @@ std::vector<KeyValue> LineairDBProxy::tx_get_matching_keys_and_values_in_range(L
     request.set_table_name(tx->get_selected_table_name());
     request.set_start_key(start_key);
     request.set_end_key(end_key);
+    if (limit != 0) {
+        request.set_limit(limit);  // Server short-circuits at N matches.
+    }
 
     // Attach pushed predicate filter if available
     const auto& filter = tx->get_pushed_filter();
@@ -487,10 +491,15 @@ std::vector<KeyValue> LineairDBProxy::tx_get_matching_keys_and_values_in_range(L
         request.mutable_filter()->ParseFromString(filter);
     }
 
+    std::string meta = "start=" + start_key + ",end=" + end_key;
+    if (limit != 0) {
+        meta += ",limit=" + std::to_string(limit);
+    }
+
     std::string raw_response;
     if (!send_protobuf_recv_binary(request, raw_response,
                                    MessageType::TX_GET_MATCHING_KEYS_AND_VALUES_IN_RANGE,
-                                   "start=" + start_key + ",end=" + end_key)) {
+                                   meta)) {
         LOG_ERROR("RPC failed: Failed to send message to server");
         return {};
     }

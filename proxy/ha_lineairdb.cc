@@ -117,6 +117,7 @@
 #include "sql/item_cmpfunc.h"
 #include "sql/item_func.h"
 #include "sql/sql_class.h"
+#include "sql/sql_lex.h"  // Query_expression::select_limit_cnt for LIMIT pushdown
 #include "sql/sql_plugin.h"
 #include "sql/table.h"
 #include "typelib.h"
@@ -2321,6 +2322,24 @@ void ha_lineairdb::build_search_plan(const uchar *key, key_part_map keypart_map,
   }
 }
 
+// Resolve the per-statement LIMIT N from the THD for forwarding to the
+// server-side scan. Returns 0 ("do not push") when the LIMIT is unset,
+// uses an offset (LIMIT M,N — server can't skip M rows pre-emit), overflows
+// uint32_t, or the pieces are missing. Only safe to forward from forward
+// PK-ASC scan paths whose first N rows match the SQL ORDER BY.
+static uint32_t pushed_scan_limit(THD *thd) {
+  if (thd == nullptr || thd->lex == nullptr || thd->lex->unit == nullptr) {
+    return 0;
+  }
+  const Query_expression *unit = thd->lex->unit;
+  if (unit->offset_limit_cnt != 0) return 0;          // LIMIT M,N not supported
+  const ha_rows lim = unit->select_limit_cnt;
+  if (lim == HA_POS_ERROR) return 0;                  // no LIMIT clause
+  if (lim == 0) return 0;                             // pathological, defer to MySQL
+  if (lim > std::numeric_limits<uint32_t>::max()) return 0;  // wire-width clamp
+  return static_cast<uint32_t>(lim);
+}
+
 /**
  * @brief Execute search plan
  * @return 0: success, HA_ERR_*: error
@@ -2356,8 +2375,11 @@ int ha_lineairdb::execute_index_first(uchar *buf, LineairDBTransaction *tx) {
                             : current_plan_.end_key_serialized;
 
   if (current_plan_.is_primary) {
+    // Forward the SQL LIMIT N — rows arrive PK-ASC so server-side
+    // short-circuit at N matches preserves ORDER BY semantics.
+    const uint32_t limit = pushed_scan_limit(ha_thd());
     auto key_values = tx->get_matching_keys_and_values_in_range(
-        start_key, end_key);
+        start_key, end_key, limit);
     for (auto &kv : key_values) {
       secondary_index_results_.push_back(kv.first);
       secondary_index_payloads_.push_back(std::move(kv.second));
@@ -2440,8 +2462,10 @@ int ha_lineairdb::execute_same_key_materialize(uchar *buf,
   const std::string &prefix_end = current_plan_.same_group_end_serialized;
 
   if (current_plan_.is_primary) {
+    // Forward LIMIT N — PK exact-prefix scan emits PK-ASC rows.
+    const uint32_t limit = pushed_scan_limit(ha_thd());
     auto key_values = tx->get_matching_keys_and_values_in_range(
-        prefix, prefix_end);
+        prefix, prefix_end, limit);
     for (auto &kv : key_values) {
       secondary_index_results_.push_back(kv.first);
       secondary_index_payloads_.push_back(std::move(kv.second));
@@ -2483,9 +2507,10 @@ int ha_lineairdb::execute_prefix_first(uchar *buf, LineairDBTransaction *tx) {
 
   if (current_plan_.is_primary) {
     // Restrict to [prefix, prefix_end) so index_next never leaks non-prefix
-    // rows.
+    // rows. Forward the SQL LIMIT N — Delivery hot path uses this.
+    const uint32_t limit = pushed_scan_limit(ha_thd());
     auto key_values = tx->get_matching_keys_and_values_in_range(
-        prefix, prefix_end);
+        prefix, prefix_end, limit);
     for (auto &kv : key_values) {
       secondary_index_results_.push_back(kv.first);
       secondary_index_payloads_.push_back(std::move(kv.second));
@@ -2534,8 +2559,10 @@ int ha_lineairdb::execute_range_materialize(uchar *buf,
 
   // execute scan
   if (current_plan_.is_primary) {
+    // Forward LIMIT N — PK range emits PK-ASC.
+    const uint32_t limit = pushed_scan_limit(ha_thd());
     auto key_values = tx->get_matching_keys_and_values_in_range(
-        effective_start, effective_end);
+        effective_start, effective_end, limit);
     for (auto &kv : key_values) {
       secondary_index_results_.push_back(kv.first);
       secondary_index_payloads_.push_back(std::move(kv.second));

@@ -222,11 +222,13 @@ LineairDBTransaction::get_matching_keys_in_range(std::string start_key,
 
 std::vector<std::pair<std::string, std::string>>
 LineairDBTransaction::get_matching_keys_and_values_in_range(std::string start_key,
-                                                            std::string end_key) {
+                                                            std::string end_key,
+                                                            uint32_t limit) {
   if (table_is_not_chosen()) return {};
   flush_write_buffer();
 
-  auto results = lineairdb_proxy->tx_get_matching_keys_and_values_in_range(this, start_key, end_key);
+  auto results = lineairdb_proxy->tx_get_matching_keys_and_values_in_range(
+      this, start_key, end_key, limit);
 
   std::vector<std::pair<std::string, std::string>> pairs;
   for (const auto& kv : results) {

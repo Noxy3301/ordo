@@ -327,6 +327,10 @@ message TxGetMatchingKeysAndValuesInRange {
         bytes end_key = 3;
         PushedPredicate filter = 5;
         string table_name = 6;
+        // Server-side LIMIT pushdown. 0 = unlimited. When N > 0, server stops
+        // after N matches — caller must guarantee scan order matches the SQL
+        // result order, else leave 0 and let MySQL truncate.
+        uint32 limit = 7;
     }
     message Response {
         repeated KeyValue results = 1;

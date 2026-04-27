@@ -525,9 +525,13 @@ void LineairDBRpc::handleTxGetMatchingKeysAndValuesInRange(const std::string& me
         uint32_t filter_num_cols = has_filter ? request.filter().num_columns() : 0;
         PredicateEvaluator evaluator;
 
+        // Server-side LIMIT pushdown. 0 = unlimited (back-compat).
+        const uint32_t limit = request.limit();
+        uint32_t emitted = 0;
+
         // Scan callback: value is pair<const void*, size_t> from LineairDB
         auto scan_result = tx->Scan(
-            start_key, end_opt, [&result,
+            start_key, end_opt, [&result, &emitted, limit,
                                   filter_expr, filter_num_cols, &evaluator](auto key, auto value) {
                 // Skip tombstones (deleted rows)
                 if (value.first == nullptr || value.second == 0) { return false; }
@@ -548,6 +552,10 @@ void LineairDBRpc::handleTxGetMatchingKeysAndValuesInRange(const std::string& me
                 result.append(key.data(), key.size());
                 result.append(reinterpret_cast<const char*>(&vlen), 4);
                 result.append(static_cast<const char*>(value.first), value.second);
+                ++emitted;
+                if (limit != 0 && emitted >= limit) {
+                    return true;  // LIMIT reached → stop scan
+                }
                 return false;  // continue scanning
             });
 

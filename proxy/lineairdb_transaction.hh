@@ -2,6 +2,8 @@
 #define LINEAIRDB_TRANSACTION_HH
 
 #include <optional>
+#include <unordered_map>
+#include <unordered_set>
 
 #include "sql/handler.h" /* handler */
 #include "mysql/plugin.h"
@@ -161,6 +163,22 @@ private:
   // early on !active()). Activated in begin_transaction; finalized in
   // end_transaction / set_status_to_abort.
   TxRpcTrace rpc_trace_;
+
+  // Per-tx PK row cache. Per-tx scope is mandatory — sharing across tx
+  // would break 1SR.
+  std::unordered_map<std::string, std::string> read_cache_;
+  // Negative cache: keys this tx already confirmed not-found.
+  std::unordered_set<std::string> read_cache_misses_;
+
+  // Builds the cache key for (table, key). Encoded as table_len|table|key_len|key
+  // so arbitrary bytes in either component cannot collide via a delimiter.
+  static std::string make_pk_cache_key(const std::string& table, const std::string& key);
+  // Drops one (table, key) entry from both positive and negative caches.
+  // Called by every write / delete path before the RPC.
+  void invalidate_pk_cache_entry(const std::string& table, const std::string& key);
+  // Empties both caches. Called on abort, since aborted writes are rolled back
+  // server-side and any cached reads from this tx may now be stale.
+  void clear_read_cache();
 
   bool thd_is_transaction() const;
   void register_transaction_to_mysql();

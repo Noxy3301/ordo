@@ -35,25 +35,87 @@ const std::pair<const std::byte *const, const size_t>
 LineairDBTransaction::read(std::string key) {
   if (table_is_not_chosen()) return std::pair<const std::byte *const, const size_t>{nullptr, 0};
 
+  std::string cache_key = make_pk_cache_key(db_table_key, key);
+
+  // Cache hit: return the previously-fetched value without an RPC.
+  auto hit = read_cache_.find(cache_key);
+  if (hit != read_cache_.end()) {
+    last_read_value_ = hit->second;
+    if (last_read_value_.empty()) {
+      return std::pair<const std::byte *const, const size_t>{nullptr, 0};
+    }
+    return {reinterpret_cast<const std::byte*>(last_read_value_.data()), last_read_value_.size()};
+  }
+  // Negative cache hit: this key was previously confirmed to not exist.
+  if (read_cache_misses_.count(cache_key) > 0) {
+    last_read_value_.clear();
+    return std::pair<const std::byte *const, const size_t>{nullptr, 0};
+  }
+
+  // Cache miss: issue the RPC and memoize the result for the rest of the tx.
   flush_write_buffer();
-
   last_read_value_ = lineairdb_proxy->tx_read(this, key);
-  if (last_read_value_.empty()) return std::pair<const std::byte *const, const size_t>{nullptr, 0};
 
+  if (last_read_value_.empty()) {
+    read_cache_misses_.insert(std::move(cache_key));
+    return std::pair<const std::byte *const, const size_t>{nullptr, 0};
+  }
+  read_cache_.emplace(std::move(cache_key), last_read_value_);
   return {reinterpret_cast<const std::byte*>(last_read_value_.data()), last_read_value_.size()};
 }
 
 std::vector<std::pair<bool, std::string>>
 LineairDBTransaction::batch_read(const std::vector<std::string>& keys) {
   if (table_is_not_chosen()) return {};
-  flush_write_buffer();
 
-  auto results = lineairdb_proxy->tx_batch_read(this, keys);
-  std::vector<std::pair<bool, std::string>> pairs;
-  pairs.reserve(results.size());
-  for (auto& r : results) {
-    pairs.emplace_back(r.found, std::move(r.value));
+  // Resolve hits up front; only RPC for the misses. The handler-side
+  // caller (MRR / SI fetch) needs results in input order, so we maintain
+  // index mappings to splice fetched rows back in the right slots.
+  std::vector<std::pair<bool, std::string>> pairs(keys.size());
+  std::vector<std::string> miss_keys;
+  std::vector<size_t> miss_indices;
+  miss_keys.reserve(keys.size());
+  miss_indices.reserve(keys.size());
+
+  // Pass 1: classify each input key as cache hit / negative hit / miss.
+  for (size_t i = 0; i < keys.size(); i++) {
+    std::string cache_key = make_pk_cache_key(db_table_key, keys[i]);
+    // Cache hit
+    auto hit = read_cache_.find(cache_key);
+    if (hit != read_cache_.end()) {
+      pairs[i] = {!hit->second.empty(), hit->second};
+      continue;
+    }
+    // Negative cache hit
+    if (read_cache_misses_.count(cache_key) > 0) {
+      pairs[i] = {false, std::string()};
+      continue;
+    }
+    // Miss: collect for the batched server RPC issued in Pass 2 below.
+    miss_keys.push_back(keys[i]);
+    miss_indices.push_back(i);
   }
+
+  // All keys were served from the cache; no RPC needed.
+  if (miss_keys.empty()) return pairs;
+
+  // Pass 2: one RPC for the misses, then splice results back into pairs[]
+  // at their original input indices and memoize each result.
+  flush_write_buffer();
+  auto fetched = lineairdb_proxy->tx_batch_read(this, miss_keys);
+
+  const size_t n = std::min(fetched.size(), miss_indices.size());
+  for (size_t j = 0; j < n; j++) {
+    const size_t idx = miss_indices[j];
+    pairs[idx] = {fetched[j].found, fetched[j].value};
+    std::string cache_key = make_pk_cache_key(db_table_key, miss_keys[j]);
+    if (fetched[j].found) {
+      read_cache_.emplace(std::move(cache_key), fetched[j].value);
+    } else {
+      read_cache_misses_.insert(std::move(cache_key));
+    }
+  }
+
   return pairs;
 }
 
@@ -61,6 +123,9 @@ bool LineairDBTransaction::batch_write(
     const std::string& table_name,
     const std::vector<LineairDBProxy::BatchWriteOp>& writes,
     const std::vector<LineairDBProxy::BatchSecondaryIndexOp>& si_writes) {
+  for (const auto& w : writes) {
+    invalidate_pk_cache_entry(table_name, w.key);
+  }
   return lineairdb_proxy->tx_batch_write(this, table_name, writes, si_writes);
 }
 
@@ -97,12 +162,14 @@ LineairDBTransaction::get_matching_keys(std::string first_key_part) {
 bool LineairDBTransaction::write(std::string key, const std::string value) {
   if (table_is_not_chosen()) return false;
 
+  invalidate_pk_cache_entry(db_table_key, key);
   return lineairdb_proxy->tx_write(this, key, value);
 }
 
 bool LineairDBTransaction::delete_value(std::string key) {
   if (table_is_not_chosen()) return false;
 
+  invalidate_pk_cache_entry(db_table_key, key);
   return lineairdb_proxy->tx_delete(this, key);
 }
 
@@ -289,6 +356,10 @@ void LineairDBTransaction::buffer_write(const std::string& table_name,
   write_buffer_table_ = table_name;
   write_buffer_ops_.push_back({key, value});
 
+  // Drop stale cache entry so a subsequent read goes via flush_write_buffer
+  // -> server, returning post-write state.
+  invalidate_pk_cache_entry(table_name, key);
+
   if (write_buffer_ops_.size() >= WRITE_BATCH_SIZE) {
     flush_write_buffer();
   }
@@ -314,6 +385,32 @@ bool LineairDBTransaction::flush_write_buffer() {
   write_buffer_ops_.clear();
   write_buffer_si_ops_.clear();
   return ok;
+}
+
+std::string LineairDBTransaction::make_pk_cache_key(const std::string& table,
+                                                    const std::string& key) {
+  std::string out;
+  out.reserve(8 + table.size() + key.size());
+  uint32_t tlen = static_cast<uint32_t>(table.size());
+  uint32_t klen = static_cast<uint32_t>(key.size());
+  out.append(reinterpret_cast<const char*>(&tlen), sizeof(tlen));
+  out.append(table);
+  out.append(reinterpret_cast<const char*>(&klen), sizeof(klen));
+  out.append(key);
+  return out;
+}
+
+void LineairDBTransaction::invalidate_pk_cache_entry(const std::string& table,
+                                                     const std::string& key) {
+  if (read_cache_.empty() && read_cache_misses_.empty()) return;
+  std::string cache_key = make_pk_cache_key(table, key);
+  read_cache_.erase(cache_key);
+  read_cache_misses_.erase(cache_key);
+}
+
+void LineairDBTransaction::clear_read_cache() {
+  read_cache_.clear();
+  read_cache_misses_.clear();
 }
 
 void LineairDBTransaction::begin_transaction() {
@@ -344,6 +441,7 @@ void LineairDBTransaction::set_status_to_abort() {
     lineairdb_proxy->tx_abort(tx_id);
   }
   is_aborted_ = true;
+  clear_read_cache();
 }
 
 bool LineairDBTransaction::end_transaction() {

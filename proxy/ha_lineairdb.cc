@@ -2326,16 +2326,20 @@ void ha_lineairdb::build_search_plan(const uchar *key, key_part_map keypart_map,
   }
 }
 
-// Resolve the per-statement LIMIT N from the THD for forwarding to the
-// server-side scan. Returns 0 ("do not push") when the LIMIT is unset,
-// uses an offset (LIMIT M,N — server can't skip M rows pre-emit), overflows
-// uint32_t, or the pieces are missing. Only safe to forward from forward
-// PK-ASC scan paths whose first N rows match the SQL ORDER BY.
+// Returns the SQL LIMIT N to forward to the server-side scan, or 0 to
+// disable pushdown.
 static uint32_t pushed_scan_limit(THD *thd) {
-  if (thd == nullptr || thd->lex == nullptr || thd->lex->unit == nullptr) {
-    return 0;
-  }
-  const Query_expression *unit = thd->lex->unit;
+  if (thd == nullptr || thd->lex == nullptr) return 0;
+
+  // Resolve the query block driving this scan, and bail if it has ORDER BY
+  // (MySQL may filesort post-emit; a pushed LIMIT would chop sort input).
+  Query_block *qb = thd->lex->current_query_block();
+  if (qb == nullptr) return 0;
+  if (qb->order_list.elements > 0) return 0;
+
+  // Extract LIMIT N from this block's expression and validate.
+  Query_expression *unit = qb->master_query_expression();
+  if (unit == nullptr) return 0;
   if (unit->offset_limit_cnt != 0) return 0;          // LIMIT M,N not supported
   const ha_rows lim = unit->select_limit_cnt;
   if (lim == HA_POS_ERROR) return 0;                  // no LIMIT clause

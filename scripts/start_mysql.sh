@@ -98,6 +98,16 @@ done
 ./runtime_output_directory/mysql -u root --socket="$SOCKET" --port="$MYSQLD_PORT" \
   -e "SET GLOBAL lineairdb_server_host='${SERVER_HOST}'; SET GLOBAL lineairdb_server_port=${SERVER_PORT};" >/dev/null
 
+# Enable Batched Key Access so JOINs (e.g. TPC-C StockLevel
+# order_line ⋈ stock) collapse N inner-PK lookups into one TX_BATCH_READ
+# RPC via the existing multi_range_read_init() custom path.
+# - mrr_cost_based=off: cost model in read_time() is intentionally optimistic
+#   so cost-based decisions sometimes reject MRR even when it is strictly better.
+# - join_buffer_size 8MiB: 200 keys * ~80B each fits with margin.
+./runtime_output_directory/mysql -u root --socket="$SOCKET" --port="$MYSQLD_PORT" \
+  -e "SET GLOBAL optimizer_switch='batched_key_access=on,mrr=on,mrr_cost_based=off'; \
+      SET GLOBAL join_buffer_size=8388608;" >/dev/null
+
 echo "MySQL running with LineairDB"
 echo "PID       : $MYSQL_PID"
 echo "Port      : $MYSQLD_PORT"

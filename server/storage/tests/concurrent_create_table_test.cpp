@@ -26,9 +26,6 @@
 #include "gtest/gtest.h"
 #include "lineairdb/config.h"
 #include "lineairdb/database.h"
-#include "lineairdb/transaction.h"
-#include "lineairdb/tx_status.h"
-#include "test_helper.hpp"
 
 class ConcurrentCreateTableTest : public ::testing::Test {
  protected:
@@ -36,15 +33,14 @@ class ConcurrentCreateTableTest : public ::testing::Test {
   std::unique_ptr<LineairDB::Database> db_;
   virtual void SetUp() {
     std::filesystem::remove_all(config_.work_dir);
-    config_.max_thread = 1;
     config_.epoch_duration_ms = 100;
     db_ = std::make_unique<LineairDB::Database>(config_);
   }
 };
 
 // Was ConcurrentCreateTableAndCheckpoint. Checkpointing is not implemented
-// for the epoch-frame write-ahead log; the replacement opens its window with
-// epoch fences and races CreateTable against the epoch tick and the
+// for the epoch-frame write-ahead log; the replacement holds its window open
+// across several epochs and races CreateTable against the epoch tick and the
 // callbacks it runs. The checkpoint traversal the old test also crossed is
 // gone with checkpointing itself.
 TEST_F(ConcurrentCreateTableTest, ConcurrentCreateTableAcrossEpochs) {
@@ -67,8 +63,8 @@ TEST_F(ConcurrentCreateTableTest, ConcurrentCreateTableAcrossEpochs) {
     });
   }
 
-  db_->Fence();
-  db_->Fence();
+  std::this_thread::sleep_for(
+      std::chrono::milliseconds(config_.epoch_duration_ms * 3));
 
   stop.store(true);
   for (auto& w : workers) {

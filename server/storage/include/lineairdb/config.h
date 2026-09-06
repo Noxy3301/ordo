@@ -20,7 +20,6 @@
 #include <cstddef>
 #include <cstdint>
 #include <string>
-#include <thread>
 
 namespace LineairDB {
 
@@ -29,14 +28,6 @@ namespace LineairDB {
  * Configuration and options for LineairDB instances.
  */
 struct Config {
-  /**
-   * @brief
-   * The size of thread pool.
-   *
-   * Default: LineairDB allocates threads as many the return value of
-   * std::thread::hardware_concurrency().
-   */
-  size_t max_thread = std::thread::hardware_concurrency();
   /**
    * @brief
    * The size of epoch duration (milliseconds). See [Tu13, Chandramouli18] to
@@ -53,17 +44,6 @@ struct Config {
    */
   size_t epoch_duration_ms = 40;
 
-  enum Logger { ThreadLocalLogger };
-  /**
-   * @brief
-   * Set a logging algorithm.
-   * See LineairDB::Config::Logger for the enum options of this
-   * configuration.
-   *
-   * Default: ThreadLocalLogger
-   */
-  Logger logger = ThreadLocalLogger;
-
   /**
    * @brief
    * If true, tables may install PAX storage metadata and route newly-created
@@ -72,17 +52,6 @@ struct Config {
    * Default: false.
    */
   bool enable_pax_storage = false;
-
-  enum CallbackEngine { ThreadLocal };
-  /**
-   * @brief
-   * Set the type of callback engine.
-   * See LineairDB::Config::CallBackEngine for the enum options of this
-   * configuration.
-   *
-   * Default: ThreadLocal
-   */
-  CallbackEngine callback_engine = ThreadLocal;
 
   /**
    * @brief
@@ -201,16 +170,6 @@ struct Config {
    * Default: "lineairdb_logs"
    */
   std::string work_dir = "./lineairdb_logs";
-
-  /**
-   * @brief
-   * The name of the anonymous table.
-   * Anonymous table is used to store the data that is not associated with any
-   * table.
-   *
-   * Default: "__anonymous_table"
-   */
-  std::string anonymous_table_name = "__anonymous_table";
 };
 
 // Secondary index options (moved from secondary_index_option.h)

@@ -1,37 +1,25 @@
 #include <lineairdb/config.h>
 #include <lineairdb/database.h>
-#include <lineairdb/transaction.h>
-#include <lineairdb/tx_status.h>
 
 #include <filesystem>
 #include <memory>
 #include <string>
 
 #include "gtest/gtest.h"
+#include "stateless_helper.hpp"
 
 namespace {
 
 constexpr uint kUnique =
     static_cast<uint>(LineairDB::SecondaryIndexOption::Constraint::UNIQUE);
 
-LineairDB::TxStatus WriteSecondary(LineairDB::Database& db,
-                                   const std::string& table_name,
-                                   const std::string& primary_key,
-                                   const std::string& value,
-                                   const std::string& index_name,
-                                   const std::string& secondary_key) {
-  auto& tx = db.BeginTransaction();
-  EXPECT_TRUE(tx.SetTable(table_name));
-  tx.Write(primary_key, reinterpret_cast<const std::byte*>(value.data()),
-           value.size());
-  tx.WriteSecondaryIndex(index_name, secondary_key,
-                         reinterpret_cast<const std::byte*>(primary_key.data()),
-                         primary_key.size());
-
-  LineairDB::TxStatus status = LineairDB::TxStatus::Running;
-  db.EndTransaction(tx, [&](auto s) { status = s; });
-  db.Fence();
-  return status;
+bool WriteSecondary(LineairDB::Database& db, const std::string& table_name,
+                    const std::string& primary_key, const std::string& value,
+                    const std::string& index_name,
+                    const std::string& secondary_key) {
+  return TestHelper::CommitWrites(
+      db, {{table_name, primary_key, value, false, false}},
+      {{table_name, index_name, secondary_key, primary_key, false}});
 }
 
 }  // namespace
@@ -42,7 +30,6 @@ class UniqueSecondaryIndexTest : public ::testing::Test {
 
   void SetUp() override {
     std::filesystem::remove_all("lineairdb_logs");
-    config_.max_thread = 4;
     config_.epoch_duration_ms = 100;
   }
 
@@ -57,13 +44,10 @@ TEST_F(UniqueSecondaryIndexTest, DictUniqueFlagRejectsDuplicateSecondaryKey) {
   ASSERT_TRUE(db.CreateTable("users"));
   ASSERT_TRUE(db.CreateSecondaryIndex("users", "email_idx", kUnique));
 
-  const auto status1 = WriteSecondary(db, "users", "user1", "Alice",
-                                      "email_idx", "alice@example.com");
-  ASSERT_EQ(status1, LineairDB::TxStatus::Committed);
-
-  const auto status2 = WriteSecondary(db, "users", "user2", "Bob", "email_idx",
-                                      "alice@example.com");
-  EXPECT_EQ(status2, LineairDB::TxStatus::Aborted);
+  ASSERT_TRUE(WriteSecondary(db, "users", "user1", "Alice", "email_idx",
+                             "alice@example.com"));
+  EXPECT_FALSE(WriteSecondary(db, "users", "user2", "Bob", "email_idx",
+                              "alice@example.com"));
 }
 
 TEST_F(UniqueSecondaryIndexTest,
@@ -76,25 +60,17 @@ TEST_F(UniqueSecondaryIndexTest,
     ASSERT_TRUE(db.CreateTable("users"));
     ASSERT_TRUE(db.CreateSecondaryIndex("users", "email_idx", kUnique));
 
-    const auto status1 = WriteSecondary(db, "users", "user1", "Alice",
-                                        "email_idx", "alice@example.com");
-    ASSERT_EQ(status1, LineairDB::TxStatus::Committed);
+    ASSERT_TRUE(WriteSecondary(db, "users", "user1", "Alice", "email_idx",
+                               "alice@example.com"));
   }
 
   LineairDB::Database recovered_db(config_);
 
-  {
-    auto& tx = recovered_db.BeginTransaction();
-    ASSERT_TRUE(tx.SetTable("users"));
-    const auto result = tx.ReadSecondaryIndex("email_idx", "alice@example.com");
-    ASSERT_EQ(result.size(), 1u);
-    recovered_db.EndTransaction(tx, [](auto status) {
-      ASSERT_EQ(status, LineairDB::TxStatus::Committed);
-    });
-    recovered_db.Fence();
-  }
+  const auto recovered = TestHelper::ReadSecondaryIndex(
+      recovered_db, "users", "email_idx", "alice@example.com");
+  ASSERT_EQ(recovered.size(), 1u);
+  EXPECT_EQ(recovered[0], "user1");
 
-  const auto status2 = WriteSecondary(recovered_db, "users", "user2", "Bob",
-                                      "email_idx", "alice@example.com");
-  EXPECT_EQ(status2, LineairDB::TxStatus::Aborted);
+  EXPECT_FALSE(WriteSecondary(recovered_db, "users", "user2", "Bob",
+                              "email_idx", "alice@example.com"));
 }

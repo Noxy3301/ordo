@@ -1,7 +1,5 @@
 #include <lineairdb/config.h>
 #include <lineairdb/database.h>
-#include <lineairdb/transaction.h>
-#include <lineairdb/tx_status.h>
 #include <sys/select.h>
 #include <unistd.h>
 
@@ -15,7 +13,7 @@
 
 #include "database_impl.h"
 #include "gtest/gtest.h"
-#include "test_helper.hpp"
+#include "stateless_helper.hpp"
 
 namespace {
 
@@ -31,11 +29,12 @@ constexpr auto kNotAnsweredFor = std::chrono::milliseconds(500);
 // wake from the mutex, and one epoch tick.
 constexpr auto kSchedulingSlack = std::chrono::milliseconds(200);
 const char* const kWorkDir = "lineairdb_durability_barrier_logs";
+const char* const kTable = "users";
 const char* const kWalPoint = "LINEAIRDB_DEBUG_SYNC_WAL_BEFORE_FDATASYNC";
 const char* const kBarrierPoint =
     "LINEAIRDB_DEBUG_SYNC_DATABASE_BEFORE_DURABILITY_BARRIER";
 const char* const kCommitPoint =
-    "LINEAIRDB_DEBUG_SYNC_DATABASE_END_TRANSACTION_BEFORE_OFFLINE";
+    "LINEAIRDB_DEBUG_SYNC_STATELESS_COMMIT_BEFORE_OFFLINE";
 
 /**
  * @brief Stops whoever reaches a named debug sync point, so the test decides
@@ -103,7 +102,6 @@ class PointHold {
 LineairDB::Config BarrierConfig() {
   LineairDB::Config config;
   config.work_dir = kWorkDir;
-  config.max_thread = 4;
   config.epoch_duration_ms = 40;
   config.commit_durability = LineairDB::Config::CommitDurability::Async;
   config.enable_recovery = false;
@@ -139,11 +137,9 @@ TEST(DurabilityBarrierTest, SwitchWaitsForAnAsyncCommitToReachTheDevice) {
   ASSERT_EQ(db->GetCommitDurability(),
             LineairDB::Config::CommitDurability::Async);
 
-  ASSERT_TRUE(TestHelper::DoTransactions(
-      db.get(), {[](LineairDB::Transaction& tx) {
-        tx.Write<int>("alice", 1);
-      }}));
-  db->Fence();
+  ASSERT_TRUE(db->CreateTable(kTable));
+  // ValidateAndCommit installs its writes before it returns.
+  ASSERT_TRUE(TestHelper::Write<int>(*db, kTable, "alice", 1));
 
   // At or above the commit's epoch: the global epoch never decreases, and the
   // commit took its epoch while it was online.
@@ -200,11 +196,9 @@ TEST(DurabilityBarrierTest, AQueuedSwitchExpiresOnItsOwnTimeout) {
     ~DisarmOnExit() { hold.Disarm(); }
   } disarm_on_exit{hold};
 
-  ASSERT_TRUE(TestHelper::DoTransactions(
-      db.get(), {[](LineairDB::Transaction& tx) {
-        tx.Write<int>("alice", 1);
-      }}));
-  db->Fence();
+  ASSERT_TRUE(db->CreateTable(kTable));
+  // ValidateAndCommit installs its writes before it returns.
+  ASSERT_TRUE(TestHelper::Write<int>(*db, kTable, "alice", 1));
   ASSERT_TRUE(hold.WaitForArrival(kArrivalTimeout));
 
   auto first = std::async(std::launch::async, [&db] {
@@ -264,11 +258,9 @@ TEST(DurabilityBarrierTest, AQueuedSwitchRunsOnItsRemainingBudget) {
     ~DisarmOnExit() { hold.Disarm(); }
   } disarm_on_exit{hold};
 
-  ASSERT_TRUE(TestHelper::DoTransactions(
-      db.get(), {[](LineairDB::Transaction& tx) {
-        tx.Write<int>("alice", 1);
-      }}));
-  db->Fence();
+  ASSERT_TRUE(db->CreateTable(kTable));
+  // ValidateAndCommit installs its writes before it returns.
+  ASSERT_TRUE(TestHelper::Write<int>(*db, kTable, "alice", 1));
   ASSERT_TRUE(hold.WaitForArrival(kArrivalTimeout));
 
   auto first = std::async(std::launch::async, [&db] {
@@ -321,11 +313,9 @@ TEST(DurabilityBarrierTest, AQueuedSwitchDoesNotRestartItsBudget) {
     ~DisarmOnExit() { hold.Disarm(); }
   } disarm_flusher{flusher};
 
-  ASSERT_TRUE(TestHelper::DoTransactions(
-      db.get(), {[](LineairDB::Transaction& tx) {
-        tx.Write<int>("alice", 1);
-      }}));
-  db->Fence();
+  ASSERT_TRUE(db->CreateTable(kTable));
+  // ValidateAndCommit installs its writes before it returns.
+  ASSERT_TRUE(TestHelper::Write<int>(*db, kTable, "alice", 1));
   ASSERT_TRUE(flusher.WaitForArrival(kArrivalTimeout));
 
   auto first = std::async(std::launch::async, [&db] {
@@ -349,9 +339,7 @@ TEST(DurabilityBarrierTest, AQueuedSwitchDoesNotRestartItsBudget) {
     ~DisarmCommitter() { hold.Disarm(); }
   } disarm_committer{committer_hold};
   auto committer = std::async(std::launch::async, [&db] {
-    auto& tx = db->BeginTransaction();
-    tx.Write<int>("bob", 2);
-    db->EndTransaction(tx, [](LineairDB::TxStatus) {});
+    TestHelper::Write<int>(*db, kTable, "bob", 2);
   });
   ASSERT_TRUE(committer_hold.WaitForArrival(kArrivalTimeout));
 
@@ -396,11 +384,9 @@ TEST(DurabilityBarrierTest, AnExpiredAsyncSwitchLeavesSyncInPlace) {
     ~DisarmOnExit() { hold.Disarm(); }
   } disarm_on_exit{flusher};
 
-  ASSERT_TRUE(TestHelper::DoTransactions(
-      db.get(), {[](LineairDB::Transaction& tx) {
-        tx.Write<int>("alice", 1);
-      }}));
-  db->Fence();
+  ASSERT_TRUE(db->CreateTable(kTable));
+  // ValidateAndCommit installs its writes before it returns.
+  ASSERT_TRUE(TestHelper::Write<int>(*db, kTable, "alice", 1));
   ASSERT_TRUE(flusher.WaitForArrival(kArrivalTimeout));
 
   auto first = std::async(std::launch::async, [&db] {
@@ -449,11 +435,9 @@ TEST(DurabilityBarrierTest, ASwitchHeldPastItsDeadlineReportsFailure) {
     ~DisarmOnExit() { hold.Disarm(); }
   } disarm_on_exit{hold};
 
-  ASSERT_TRUE(TestHelper::DoTransactions(
-      db.get(), {[](LineairDB::Transaction& tx) {
-        tx.Write<int>("alice", 1);
-      }}));
-  db->Fence();
+  ASSERT_TRUE(db->CreateTable(kTable));
+  // ValidateAndCommit installs its writes before it returns.
+  ASSERT_TRUE(TestHelper::Write<int>(*db, kTable, "alice", 1));
 
   auto switched = std::async(std::launch::async, [&db, kShortTimeout] {
     return db->SetCommitDurability(LineairDB::Config::CommitDurability::Sync,

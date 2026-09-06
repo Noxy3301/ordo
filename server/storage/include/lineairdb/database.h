@@ -19,7 +19,6 @@
 
 #include <lineairdb/config.h>
 #include <lineairdb/stateless.h>
-#include <lineairdb/transaction.h>
 
 #include <chrono>
 #include <functional>
@@ -66,92 +65,6 @@ class Database {
    */
   const Config GetConfig() const noexcept;
 
-  using ProcedureType = std::function<void(Transaction&)>;
-  using CallbackType = std::function<void(const TxStatus)>;
-  /**
-   * @brief
-   * Processes a transaction given by a transaction procedure proc,
-   * and afterwards process callback function with the resulting TxStatus.
-   * It enqueues these two functions into LineairDB's thread pool.
-   * Thread-safe.
-   * @param[in] proc A transaction procedure processed by LineairDB.
-   * @param[out] commit_clbk A callback function accepts a result (Committed or
-   * Aborted) of this transaction.
-   * @param[out] precommit_clbk A callback function accepts a result
-   * (Precommitted or Aborted) of this transaction.
-   * Note that pre-committed transactions have not been committed. Since the
-   * recovery log has not been persisted, this transaction may be aborted. The
-   * callback is good for describing  transaction dependencies. If a transaction
-   * is aborted, it is guaranteed that the other  transactions, that are
-   executed
-   * after checking the pre-commit of the transaction, will abort.
-   * @note CommitDurability::Sync's durable-acknowledgement contract covers
-   * EndTransaction() and ValidateAndCommit() only. This interface does not wait
-   * for the log to become durable, and neither of its callbacks is a Sync
-   * acknowledgement.
-   */
-  void ExecuteTransaction(
-      ProcedureType proc, CallbackType commit_clbk,
-      std::optional<CallbackType> precommit_clbk = std::nullopt);
-
-  /**
-   * @brief
-   * Creates a new transaction.
-   * Via this interface, the callee thread of this method can manipulate
-   * LineairDB's key-value storage directly. Note that the behavior and
-   * performance characteristics will affect from the selected callback manager
-   * and log manager; For example, if you have set Config::CallbackManager to
-   * ThreadLocal, the callee thread of this method may have to call
-   * Database::RequestCommit more frequently, in order to resolve the congestion
-   * of the thread-local commit callback queue.
-   *
-   * @return Transaction
-   */
-  Transaction& BeginTransaction();
-
-  /**
-   * @brief
-   * Terminates the transaction.
-   * If Transaction::Abort has not been called, LineairDB tries to commit `tx`.
-   * @pre To achieve user abort, Transaction::Abort must be called before this
-   * method.
-   * @post The first argument `tx` might have been deleted.
-   * @param[in] tx A transaction wants to terminate.
-   * @param[out] clbk A callback function accepts a result (Committed or
-   * Aborted).
-   * @return true if the LineairDB's concurrency control protocol **decides** to
-   * commit the given `tx`. What that decision is worth depends on the policy
-   * this commit captured, which is GetCommitDurability() and not
-   * GetConfig().commit_durability: the latter keeps the construction value
-   * even after SetCommitDurability has changed the policy in force.
-   * - Sync
-   *   - This method returns, and clbk is released, only after the
-   *     transaction's log is on the device, so a true return is an
-   *     acknowledgement that survives a crash.
-   * - Async
-   *   - The decision is final for concurrency control, but the log is
-   *     written behind the caller, so a crash can lose a transaction that
-   *     returned true, and clbk says nothing about durability either.
-   * - Volatile
-   *   - Nothing is written and nothing survives a restart.
-   * @return false if the LineairDB's concurrency control protocol decides to
-   * abort the given `tx`. In contrast with the true case, this result will not
-   * be overturned.
-   */
-  bool EndTransaction(Transaction& tx, CallbackType clbk);
-
-  /**
-   * @brief
-   * Fence() waits termination of transactions which is currently in progress.
-   * You can execute transactions in the order you want by interleaving Fence()
-   * between ExecuteTransaction functions. Note that no Fence() call may result
-   * in a execution sequence which is not same as the program (invoking) order
-   * of the ExecuteTransaction functions. If you know some dependency of
-   * transactions (e.g., database population), use this method to order
-   * them. Thread-safe.
-   */
-  void Fence() const noexcept;
-
   /**
    * @brief Switches the commit acknowledgement policy of a running database
    * between CommitDurability::Async and CommitDurability::Sync. Thread-safe.
@@ -187,16 +100,6 @@ class Database {
 
   /** @brief The policy commits are currently acknowledged under. */
   Config::CommitDurability GetCommitDurability() const;
-
-  /**
-   * @brief
-   * Requests executions of callback functions of already completed (committed
-   * or (aborted) transactions. Note that LineairDB's callback queues may be
-   * overloading in some combination of configurations (e.g., too long epoch
-   * size, too small thread-pool size, or weird implementation of the selected
-   * CallbackManager).
-   */
-  void RequestCallbacks();
 
   /**
    * @brief End the calling thread's masstree RCU critical section, drain
@@ -315,11 +218,11 @@ class Database {
   // ----------------------------------------------------------------------
   // Stateless read / validate-and-commit API.
   //
-  // The methods below do not allocate a server-side Transaction. Each call
-  // returns the snapshot the caller needs (value, packed TID, observed
-  // Masstree node versions) so that the caller can keep its own read set
-  // across independent RPCs. The collected snapshot is replayed through
-  // ValidateAndCommit when the logical transaction is ready to commit.
+  // The methods below hold no state between calls. Each returns the snapshot
+  // the caller needs (value, packed TID) so that the caller can keep its own
+  // read set across independent RPCs. The collected snapshot is replayed
+  // through ValidateAndCommit when the logical transaction is ready to
+  // commit.
   // See @ref stateless.h for the supporting types.
   // ----------------------------------------------------------------------
 
@@ -504,7 +407,6 @@ class Database {
 
  private:
   const std::unique_ptr<Impl> db_pimpl_;
-  friend class Transaction;
 };
 };  // namespace LineairDB
 

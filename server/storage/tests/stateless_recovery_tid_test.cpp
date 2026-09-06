@@ -8,11 +8,10 @@
 
 namespace {
 
-constexpr const char* kTable = "__anonymous_table";
+constexpr const char* kTable = "recovery_tid_test";
 
 LineairDB::Config MakeConfig() {
   LineairDB::Config config;
-  config.max_thread = 1;
   config.epoch_duration_ms = 10;
   config.enable_recovery = true;
   config.commit_durability = LineairDB::Config::CommitDurability::Async;
@@ -30,6 +29,7 @@ TEST(StatelessRecoveryTidTest, ARecoveredKeyAcceptsTheNextWrite) {
 
   {
     LineairDB::Database db(config);
+    db.CreateTable(kTable);
     std::string reason;
     const bool committed = db.ValidateAndCommit(
         {}, {{kTable, "alice", "v1", false}}, {}, {}, &reason);
@@ -39,6 +39,7 @@ TEST(StatelessRecoveryTidTest, ARecoveredKeyAcceptsTheNextWrite) {
 
   {
     LineairDB::Database db(config);
+    db.CreateTable(kTable);
 
     auto read = db.StatelessRead(kTable, "alice");
     db.ReleaseMasstreeThreadEpoch();

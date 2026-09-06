@@ -20,9 +20,6 @@
 #include "gtest/gtest.h"
 #include "lineairdb/config.h"
 #include "lineairdb/database.h"
-#include "lineairdb/transaction.h"
-#include "lineairdb/tx_status.h"
-#include "test_helper.hpp"
 
 class CreateSecondaryIndexTest : public ::testing::Test {
  protected:
@@ -30,7 +27,6 @@ class CreateSecondaryIndexTest : public ::testing::Test {
   std::unique_ptr<LineairDB::Database> db_;
   virtual void SetUp() {
     std::filesystem::remove_all(config_.work_dir);
-    config_.max_thread = 4;
     config_.epoch_duration_ms = 100;
     db_.reset(nullptr);
     db_ = std::make_unique<LineairDB::Database>(config_);

@@ -142,6 +142,9 @@ bool Commit(TableDictionary& tables, std::shared_mutex& schema_mutex,
       if (item == nullptr) {
         return abort_before_lock("write_get_or_insert_failed");
       }
+      if (write.is_insert) {
+        LINEAIRDB_DEBUG_SYNC("stateless_commit.after_index_claim");
+      }
 
       // An insert onto a key an earlier entry of this request already made
       // live is a duplicate the committed state cannot excuse.
@@ -672,6 +675,7 @@ bool Commit(TableDictionary& tables, std::shared_mutex& schema_mutex,
       log_enqueued &&
       logger.GetCommitDurability() == Config::CommitDurability::Sync;
 
+  LINEAIRDB_DEBUG_SYNC("stateless_commit.before_offline");
   epoch_framework.MakeMeOffline();
 
   logger.AwaitCommitDurability(current_epoch, awaits_durability);

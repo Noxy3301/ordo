@@ -20,7 +20,7 @@
 
 namespace {
 
-constexpr const char* kTable = "__anonymous_table";
+constexpr const char* kTable = "checkpoint_test";
 constexpr const char* kIndex = "idx";
 constexpr auto kTestTimeout = std::chrono::seconds(10);
 
@@ -111,7 +111,6 @@ class EpochScanCheckpointTest : public ::testing::Test {
 
   LineairDB::Config MakeConfig(bool enable_recovery) const {
     LineairDB::Config config;
-    config.max_thread = 1;
     config.epoch_duration_ms = 10;
     config.commit_durability = LineairDB::Config::CommitDurability::Sync;
     config.enable_recovery = enable_recovery;
@@ -225,6 +224,7 @@ TEST_F(EpochScanCheckpointTest, AnImageHoldsWhatTheScanFound) {
   {
     auto config = MakeConfig(false);
     LineairDB::Database db(config);
+    db.CreateTable(kTable);
     ASSERT_TRUE(db.CreateSecondaryIndex(kTable, kIndex, 0));
     ASSERT_TRUE(CommitIndexedWrite(db, "alice", "one", "s"));
     ASSERT_TRUE(CommitIndexedWrite(db, "bob", "two", "s"));
@@ -248,6 +248,7 @@ TEST_F(EpochScanCheckpointTest, ADeletedRowLeavesNoEntry) {
   {
     auto config = MakeConfig(false);
     LineairDB::Database db(config);
+    db.CreateTable(kTable);
     ASSERT_TRUE(CommitWrite(db, "alice", "one"));
     ASSERT_TRUE(CommitWrite(db, "bob", "two"));
     ASSERT_TRUE(CommitDelete(db, "alice"));
@@ -269,6 +270,7 @@ TEST_F(EpochScanCheckpointTest, ADamagedImageIsRefused) {
   {
     auto config = MakeConfig(false);
     LineairDB::Database db(config);
+    db.CreateTable(kTable);
     ASSERT_TRUE(CommitWrite(db, "alice", "one"));
     ASSERT_TRUE(db.WriteCheckpointImage());
   }
@@ -292,6 +294,7 @@ TEST_F(EpochScanCheckpointTest, TheLogTailWinsOverTheImage) {
   {
     auto config = MakeConfig(false);
     LineairDB::Database db(config);
+    db.CreateTable(kTable);
     ASSERT_TRUE(CommitWrite(db, "alice", "one"));
     ASSERT_TRUE(CommitWrite(db, "bob", "one"));
     ASSERT_TRUE(CommitWrite(db, "carol", "one"));
@@ -305,6 +308,7 @@ TEST_F(EpochScanCheckpointTest, TheLogTailWinsOverTheImage) {
 
   auto config = MakeConfig(true);
   LineairDB::Database db(config);
+  db.CreateTable(kTable);
   EXPECT_EQ(Read(db, "alice").value, "two");
   // Only the image holds this one: its record is in a frame the replay skips.
   EXPECT_EQ(Read(db, "bob").value, "one");
@@ -316,6 +320,7 @@ TEST_F(EpochScanCheckpointTest, RecoveryWithTheImageMatchesRecoveryWithout) {
   {
     auto config = MakeConfig(false);
     LineairDB::Database db(config);
+    db.CreateTable(kTable);
     ASSERT_TRUE(db.CreateSecondaryIndex(kTable, kIndex, 0));
     ASSERT_TRUE(CommitIndexedWrite(db, "alice", "one", "s"));
     ASSERT_TRUE(CommitIndexedWrite(db, "bob", "one", "t"));
@@ -354,6 +359,7 @@ TEST_F(EpochScanCheckpointTest, RecoveryWithTheImageMatchesRecoveryWithout) {
   {
     auto config = MakeConfig(true);
     LineairDB::Database db(config);
+    db.CreateTable(kTable);
     with_image = ReadAll(db);
     index_with_image = ReadIndex(db);
   }
@@ -365,6 +371,7 @@ TEST_F(EpochScanCheckpointTest, RecoveryWithTheImageMatchesRecoveryWithout) {
   {
     auto config = MakeConfig(true);
     LineairDB::Database db(config);
+    db.CreateTable(kTable);
     without_image = ReadAll(db);
     index_without_image = ReadIndex(db);
   }
@@ -383,6 +390,7 @@ TEST_F(EpochScanCheckpointTest, AQuietTailAfterTheImageIsAccepted) {
   {
     auto config = MakeConfig(false);
     LineairDB::Database db(config);
+    db.CreateTable(kTable);
     ASSERT_TRUE(CommitWrite(db, "alice", "one"));
     ASSERT_TRUE(CommitWrite(db, "bob", "one"));
     // Nothing is written afterwards, so the scan ends past the epoch of the
@@ -407,6 +415,7 @@ TEST_F(EpochScanCheckpointTest, AQuietTailAfterTheImageIsAccepted) {
 
   auto config = MakeConfig(true);
   LineairDB::Database db(config);
+  db.CreateTable(kTable);
   EXPECT_EQ(Read(db, "alice").value, "one");
   EXPECT_EQ(Read(db, "bob").value, "one");
 }
@@ -416,6 +425,7 @@ TEST_F(EpochScanCheckpointTest, ALogShorterThanThePublishFrontierIsRejected) {
   {
     auto config = MakeConfig(false);
     LineairDB::Database db(config);
+    db.CreateTable(kTable);
     ASSERT_TRUE(CommitWrite(db, "alice", "one"));
     ASSERT_TRUE(CommitWrite(db, "bob", "one"));
     // A copy of the log as it stands here, before the commits the image
@@ -445,6 +455,7 @@ TEST_F(EpochScanCheckpointTest, ALogShorterThanThePublishFrontierIsRejected) {
   // holds must not come back from a log that never carried them.
   auto config = MakeConfig(true);
   LineairDB::Database db(config);
+  db.CreateTable(kTable);
   EXPECT_EQ(Read(db, "alice").value, "one");
   EXPECT_EQ(Read(db, "bob").value, "one");
   EXPECT_FALSE(Read(db, "carol").found);
@@ -455,6 +466,7 @@ TEST_F(EpochScanCheckpointTest, AV1FormatImageIsRefused) {
   {
     auto config = MakeConfig(false);
     LineairDB::Database db(config);
+    db.CreateTable(kTable);
     ASSERT_TRUE(CommitWrite(db, "alice", "one"));
     ASSERT_TRUE(db.WriteCheckpointImage());
   }
@@ -483,6 +495,7 @@ TEST_F(EpochScanCheckpointTest, ARowLockedDuringTheScanIsRetried) {
 
   auto config = MakeConfig(false);
   LineairDB::Database db(config);
+  db.CreateTable(kTable);
   ASSERT_TRUE(CommitWrite(db, "alice", std::string(64, 'a')));
   ASSERT_TRUE(CommitWrite(db, "bob", std::string(64, 'a')));
 
@@ -573,6 +586,7 @@ TEST_F(EpochScanCheckpointTest, ALeftoverWorkingFileIsNotRead) {
   {
     auto config = MakeConfig(false);
     LineairDB::Database db(config);
+    db.CreateTable(kTable);
     ASSERT_TRUE(CommitWrite(db, "alice", "one"));
     ASSERT_TRUE(db.WriteCheckpointImage());
   }

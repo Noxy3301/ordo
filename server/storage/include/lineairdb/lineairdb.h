@@ -19,7 +19,6 @@
 
 #include <lineairdb/config.h>
 #include <lineairdb/database.h>
-#include <lineairdb/transaction.h>
 #include <lineairdb/tx_status.h>
 
 #endif /* LINEAIRDB_H */

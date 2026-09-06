@@ -18,7 +18,6 @@
 
 #include <lineairdb/config.h>
 #include <lineairdb/database.h>
-#include <lineairdb/transaction.h>
 #include <lineairdb/tx_status.h>
 #include <table/table.h>
 
@@ -40,7 +39,6 @@
 #include <vector>
 #include <xmmintrin.h>
 
-#include "callback/callback_manager.h"
 #include "pax/version_store.hpp"
 #include "recovery/epoch_scan_checkpoint.h"
 #include "recovery/flush_trace.h"
@@ -52,8 +50,6 @@
 #include "stateless/read.h"
 #include "table/table.h"
 #include "table/table_dictionary.hpp"
-#include "thread_pool/thread_pool.h"
-#include "transaction_impl.h"
 #include "types/snapshot.hpp"
 #include "types/transaction_id.hpp"
 #include "util/debug_sync.hpp"
@@ -62,8 +58,6 @@
 
 namespace LineairDB {
 class Database::Impl {
-  friend class Transaction::Impl;
-
  public:
   inline static Database::Impl* CurrentDBInstance;
 
@@ -109,9 +103,7 @@ class Database::Impl {
  public:
   Impl(const Config& c = Config())
       : config_(NormalizeAndValidateConfig(c)),
-        thread_pool_(config_.max_thread),
         logger_(config_),
-        callback_manager_(config_),
         epoch_framework_(config_.epoch_duration_ms, EventsOnEpochIsUpdated()),
         scan_checkpoint_(config_, table_dictionary_, epoch_framework_,
                          logger_) {
@@ -122,12 +114,6 @@ class Database::Impl {
       SPDLOG_ERROR(
           "It is prohibited to allocate two LineairDB::Database instance at "
           "the same time.");
-      exit(EXIT_FAILURE);
-    }
-    if (!config_.anonymous_table_name.empty()) {
-      CreateTable(config_.anonymous_table_name);
-    } else {
-      SPDLOG_ERROR("Anonymous table name is not set.");
       exit(EXIT_FAILURE);
     }
     // Always scan the log, even without recovery: an interrupted tail has to be
@@ -162,8 +148,6 @@ class Database::Impl {
   }
 
   ~Impl() {
-    Fence();
-    thread_pool_.StopAcceptingTransactions();
     epoch_framework_.Sync();
     // Before the epoch writer stops, since a capture in progress waits for the
     // epoch to advance.
@@ -173,10 +157,6 @@ class Database::Impl {
     // flusher can drain what it already owns and be joined before the log is
     // closed.
     logger_.StopAndDrainFlusher();
-    while (!thread_pool_.IsEmpty()) {
-      std::this_thread::sleep_for(std::chrono::milliseconds(1));
-    }
-    thread_pool_.Shutdown();
     SPDLOG_DEBUG(
         "Epoch number and Durable epoch number are ended at {0}, and {1}, "
         "respectively.",
@@ -189,165 +169,8 @@ class Database::Impl {
     Database::Impl::CurrentDBInstance = nullptr;
   }
 
-  void ExecuteTransaction(ProcedureType proc, CallbackType clbk,
-                          std::optional<CallbackType> prclbk) {
-    for (;;) {
-      bool success = thread_pool_.Enqueue([&, transaction_procedure = proc,
-                                           callback = clbk,
-                                           precommit_clbk = prclbk]() {
-        epoch_framework_.MakeMeOnline();
-        Transaction tx(this);
-
-        transaction_procedure(tx);
-        if (tx.IsAborted()) {
-          if (precommit_clbk)
-            precommit_clbk.value()(LineairDB::TxStatus::Aborted);
-          callback(LineairDB::TxStatus::Aborted);
-          epoch_framework_.MakeMeOffline();
-          return;
-        }
-
-        bool committed = tx.Precommit();
-        if (committed) {
-          tx.tx_pimpl_->PostProcessing(TxStatus::Committed);
-
-          if (precommit_clbk.has_value()) {
-            precommit_clbk.value()(TxStatus::Committed);
-          }
-          const auto current_epoch = epoch_framework_.GetMyThreadLocalEpoch();
-          callback_manager_.Enqueue(std::move(callback), current_epoch);
-          if (config_.enable_logging) {
-            // The Sync acknowledgement contract covers EndTransaction and
-            // ValidateAndCommit only. Waiting here would deadlock outright:
-            // this thread is still online in the epoch the wait needs closed.
-            logger_.Enqueue(tx.tx_pimpl_->write_set_, current_epoch);
-          }
-        } else {
-          tx.tx_pimpl_->PostProcessing(TxStatus::Aborted);
-          if (precommit_clbk.has_value()) {
-            precommit_clbk.value()(TxStatus::Aborted);
-          }
-          callback(LineairDB::TxStatus::Aborted);
-        }
-
-        epoch_framework_.MakeMeOffline();
-      });
-      if (success) break;
-    }
-  }
-
-  // FIXME: TLS workspace still assumes the same CC protocol across Database
-  // instances on a single thread. Switching Database with a different CC
-  // protocol will keep the old CC implementation.
-  Transaction& BeginTransaction() {
-    epoch_framework_.MakeMeOnline();
-    thread_local Transaction* tls_workspace = nullptr;
-
-    // Reuse the TLS slot only when its previous transaction has finished.
-    // GetCurrentStatus() returns Running between Begin and End, so a non-Running
-    // status means End has already drained the workspace.
-    if (tls_workspace != nullptr &&
-        tls_workspace->GetCurrentStatus() != TxStatus::Running) {
-      tls_workspace->tx_pimpl_->Reset(this);
-      return *tls_workspace;
-    }
-
-    auto* tx = new Transaction(this);
-    if (tls_workspace == nullptr) {
-      // First call on this thread: install as the per-thread workspace.
-      tx->reusable_ = true;
-      tls_workspace = tx;
-    }
-    // Otherwise the workspace is still in use by an outstanding transaction;
-    // hand back a fresh one-shot Transaction that EndTransaction will delete.
-    return *tx;
-  }
-
-  bool EndTransaction(Transaction& tx, CallbackType clbk) {
-    if (tx.IsAborted()) {
-      clbk(TxStatus::Aborted);
-      if (!tx.reusable_) delete &tx;
-      epoch_framework_.MakeMeOffline();
-      return false;
-    }
-
-    EpochNumber commit_epoch = 0;
-    bool log_enqueued = false;
-    bool awaits_durability = false;
-    bool committed = tx.Precommit();
-    if (committed) {
-      tx.tx_pimpl_->PostProcessing(TxStatus::Committed);
-
-      tx.tx_pimpl_->current_status_ = TxStatus::Committed;
-      commit_epoch = epoch_framework_.GetMyThreadLocalEpoch();
-      if (config_.enable_logging) {
-        log_enqueued = logger_.Enqueue(tx.tx_pimpl_->write_set_, commit_epoch);
-      }
-
-      // Under Sync the callback is an acknowledgement and cannot be handed
-      // out before the record is durable, so a Sync commit registers it after
-      // its own wait. Capture the policy once: both decisions read this value.
-      awaits_durability =
-          log_enqueued &&
-          logger_.GetCommitDurability() == Config::CommitDurability::Sync;
-      LINEAIRDB_DEBUG_SYNC("database.end_transaction.before_offline");
-      if (!awaits_durability) {
-        callback_manager_.Enqueue(std::move(clbk), commit_epoch, true);
-      }
-    } else {
-      tx.tx_pimpl_->PostProcessing(TxStatus::Aborted);
-      clbk(TxStatus::Aborted);
-    }
-    epoch_framework_.MakeMeOffline();
-
-    logger_.AwaitCommitDurability(commit_epoch, awaits_durability);
-    if (awaits_durability) {
-      callback_manager_.Enqueue(std::move(clbk), commit_epoch, true);
-    }
-
-    if (!tx.reusable_) delete &tx;
-    return committed;
-  }
-
-  void RequestCallbacks() {
-    const auto current_epoch = epoch_framework_.GetGlobalEpoch();
-    callback_manager_.ExecuteCallbacks(current_epoch);
-  }
-
   EpochNumber GetMyThreadLocalEpoch() {
     return epoch_framework_.GetMyThreadLocalEpoch();
-  }
-
-  /**
-   * Ensures that (1) all pending operations are completed, (2) all callbacks
-   * have been executed, and (3) all index updates have been fully applied and
-   * are visible to subsequent operations.
-   *
-   * Note: Due to the dependency on the implementation of
-   * moodycamel::concurrentqueue, callbacks are executed **after**
-   * try_dequeue(). This means the queue size can become zero even if some
-   * callbacks have not yet been executed. As a result, the current
-   * `WaitForAllCallbacksToBeExecuted()` does not strictly behave as its name
-   * suggests (since it only checks if the queue length is zero).
-   *
-   * To address this problem, an atomic variable `latest_callbacked_epoch_` is
-   * used as a workaround to ensure proper waiting.
-   */
-  void Fence() {
-    const auto current_epoch = epoch_framework_.GetGlobalEpoch();
-    epoch_framework_.Sync();
-    thread_pool_.WaitForQueuesToBecomeEmpty();
-    callback_manager_.WaitForAllCallbacksToBeExecuted();
-    {
-      std::unique_lock<std::mutex> lk(fence_mtx_);
-      fence_cv_.wait(lk, [&] {
-        return latest_callbacked_epoch_.load() >= current_epoch;
-      });
-    }
-    // Wait for all index updates to be linearizable
-    // This ensures that all insertions/deletions are visible in the index
-    table_dictionary_.ForEachTable(
-        [](Table& table) { table.WaitForIndexIsLinearizable(); });
   }
 
   /** See Database::SetCommitDurability. */
@@ -416,16 +239,6 @@ class Database::Impl {
       if (config_.enable_logging && updated_epoch >= 3) {
         logger_.ScheduleFlush(updated_epoch - 2);
       }
-
-      // Execute Callbacks
-      thread_pool_.EnqueueForAllThreads([&, updated_epoch]() {
-        callback_manager_.ExecuteCallbacks(updated_epoch);
-        {
-          std::lock_guard<std::mutex> lk(fence_mtx_);
-          latest_callbacked_epoch_.store(updated_epoch);
-        }
-        fence_cv_.notify_all();
-      });
 
       // Tick masstree's globalepoch so RCU can free retired leaves and
       // DataItem* limbo once min_active_epoch() catches up. Workers
@@ -992,14 +805,9 @@ class Database::Impl {
 
  private:
   Config config_;
-  ThreadPool thread_pool_;
   Recovery::Logger logger_;
-  Callback::CallbackManager callback_manager_;
   EpochFramework epoch_framework_;
   TableDictionary table_dictionary_;
-  std::atomic<EpochNumber> latest_callbacked_epoch_{1};
-  std::mutex fence_mtx_;
-  std::condition_variable fence_cv_;
   std::timed_mutex durability_switch_mtx_;
   Recovery::EpochScanCheckpoint scan_checkpoint_;
   mutable std::shared_mutex schema_mutex_;

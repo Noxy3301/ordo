@@ -16,14 +16,16 @@
 
 #include <lineairdb/config.h>
 #include <lineairdb/database.h>
-#include <lineairdb/transaction.h>
-#include <lineairdb/tx_status.h>
 
 #include <memory>
-#include <optional>
 
-#include "../test_helper.hpp"
+#include "../stateless_helper.hpp"
 #include "gtest/gtest.h"
+
+namespace {
+constexpr const char* kTable = "users";
+}  // namespace
+
 class IndexTest : public ::testing::Test {
  protected:
   LineairDB::Config config_;
@@ -33,169 +35,49 @@ class IndexTest : public ::testing::Test {
     config_.commit_durability = LineairDB::Config::CommitDurability::Volatile;
     db_.reset(nullptr);
     db_ = std::make_unique<LineairDB::Database>(config_);
-    db_->CreateTable("users");
+    ASSERT_TRUE(db_->CreateTable(kTable));
 
-    TestHelper::RetryTransactionUntilCommit(db_.get(), [&](auto& tx) {
-      int alice = 1;
-      int bob = 2;
-      int carol = 3;
-      tx.SetTable("users");
-      tx.template Write<decltype(alice)>("alice", alice);
-      tx.template Write<decltype(bob)>("bob", bob);
-      tx.template Write<decltype(carol)>("carol", carol);
-    });
-    db_->Fence();
+    ASSERT_TRUE(TestHelper::CommitWrites(
+        *db_, {{kTable, "alice", TestHelper::Encode<int>(1), false, false},
+               {kTable, "bob", TestHelper::Encode<int>(2), false, false},
+               {kTable, "carol", TestHelper::Encode<int>(3), false, false}}));
   }
 };
 
 TEST_F(IndexTest, Scan) {
-  auto& tx = db_->BeginTransaction();
-  tx.SetTable("users");
-  auto count = tx.Scan("alice", "bob", [&](auto key, auto) {
-    EXPECT_TRUE(key == "alice");
-    return false;
-  });
-  ASSERT_TRUE(count.has_value());
-  ASSERT_EQ(size_t(1), count.value());  // half-open: bob is excluded
-  db_->EndTransaction(tx, [](auto) {});
+  const auto rows = TestHelper::Scan(*db_, kTable, "alice", "bob");
+  ASSERT_EQ(size_t(1), rows.size());  // half-open: bob is excluded
+  EXPECT_EQ(rows[0].first, "alice");
 }
 
 TEST_F(IndexTest, AlphabeticalOrdering) {
-  {
-    auto& tx = db_->BeginTransaction();
-    tx.SetTable("users");
-    // An inverted range holds nothing; a missing count means an unsafe scan.
-    auto count = tx.Scan("carol", "alice", [&](auto, auto) { return false; });
-    ASSERT_TRUE(count.has_value());
-    ASSERT_EQ(size_t(0), count.value());
-    db_->EndTransaction(tx, [](auto) {});
-  }
+  // An inverted range holds nothing.
+  EXPECT_TRUE(TestHelper::Scan(*db_, kTable, "carol", "alice").empty());
 
-  {
-    auto& tx = db_->BeginTransaction();
-    tx.SetTable("users");
-    auto count = tx.Scan("carol", "zzz", [&](auto, auto) { return false; });
-    ASSERT_TRUE(count.has_value());
-    ASSERT_EQ(size_t(1), count.value());
-    db_->EndTransaction(tx, [](auto) {});
-  }
-}
-
-TEST_F(IndexTest, ScanViaTemplate) {
-  auto& tx = db_->BeginTransaction();
-  tx.SetTable("users");
-  auto count = tx.Scan<int>("alice", "bob", [&](auto key, auto) {
-    EXPECT_TRUE(key == "alice");
-    return false;
-  });
-  ASSERT_TRUE(count.has_value());
-  ASSERT_EQ(size_t(1), count.value());
-  db_->EndTransaction(tx, [](auto) {});
+  const auto rows = TestHelper::Scan(*db_, kTable, "carol", "zzz");
+  ASSERT_EQ(size_t(1), rows.size());
+  EXPECT_EQ(rows[0].first, "carol");
 }
 
 TEST_F(IndexTest, StopScanning) {
-  auto& tx = db_->BeginTransaction();
-  tx.SetTable("users");
-  auto count = tx.Scan("alice", "carol", [&](auto key, auto) {
-    EXPECT_TRUE(key == "alice");
-    EXPECT_FALSE(key == "bob");
-    return true;
-  });
-  ASSERT_TRUE(count.has_value());
-  ASSERT_EQ(size_t(1), count.value());
-  db_->EndTransaction(tx, [](auto) {});
+  const auto rows = TestHelper::Scan(*db_, kTable, "alice", "carol", 1);
+  ASSERT_EQ(size_t(1), rows.size());
+  EXPECT_EQ(rows[0].first, "alice");
 }
 
 TEST_F(IndexTest, ScanWithoutEnd) {
-  auto& tx = db_->BeginTransaction();
-  tx.SetTable("users");
-  auto count = tx.Scan("alice", std::nullopt, [&](auto key, auto) {
-    EXPECT_TRUE(key == "alice" || key == "bob" || key == "carol");
-    return false;
-  });
-  ASSERT_TRUE(count.has_value());
-  ASSERT_EQ(size_t(3), count.value());
-  db_->EndTransaction(tx, [](auto) {});
-}
-
-TEST_F(IndexTest, ScanWithPhantomAvoidance) {
-  int dave = 4;
-
-  std::optional<size_t> first, second;
-  const auto committed = TestHelper::DoHandlerTransactionsOnMultiThreads(
-      db_.get(), {[&](LineairDB::Transaction& tx) {
-                    tx.SetTable("users");
-                    tx.Write<int>("dave", dave);
-                  },
-                  [&](LineairDB::Transaction& tx) {
-                    auto scan = [&]() {
-                      tx.SetTable("users");
-                      return tx.Scan("alice", "dave",
-                                     [&](auto, auto) { return false; });
-                    };
-                    first = scan();
-                    std::this_thread::yield();
-                    second = scan();
-                  }});
-  if (committed == 2 && first.has_value() && second.has_value()) {
-    ASSERT_EQ(first, second);
-  }
+  const auto rows =
+      TestHelper::Scan(*db_, kTable, "alice", TestHelper::kMaxKey);
+  ASSERT_EQ(size_t(3), rows.size());
+  EXPECT_EQ(rows[0].first, "alice");
+  EXPECT_EQ(rows[1].first, "bob");
+  EXPECT_EQ(rows[2].first, "carol");
 }
 
 TEST_F(IndexTest, Delete) {
-  {
-    auto& tx = db_->BeginTransaction();
-    tx.SetTable("users");
-    tx.Delete("bob");
-    db_->EndTransaction(tx, [](auto) {});
-  }
-  db_->Fence();
+  ASSERT_TRUE(TestHelper::Delete(*db_, kTable, "bob"));
 
-  {
-    auto& tx = db_->BeginTransaction();
-    tx.SetTable("users");
-    auto count = tx.Scan("alice", "carol", [&](auto key, auto) {
-      EXPECT_TRUE(key == "alice");
-      EXPECT_FALSE(key == "bob");
-      return false;
-    });
-    ASSERT_TRUE(count.has_value());
-    ASSERT_EQ(size_t(1), count.value());
-    db_->EndTransaction(tx, [](auto) {});
-  }
-}
-
-TEST_F(IndexTest, FenceShouldMakeAllInsertionsVisible) {
-  {  // blocker: make index busy
-    auto& tx = db_->BeginTransaction();
-    tx.SetTable("users");
-    for (volatile size_t i = 0; i < 1000; i++) {
-      tx.Write<int>("ZZZZ blocker" + std::to_string(i), i);
-    }
-
-    db_->EndTransaction(tx, [](auto) {});
-  }
-
-  int eve = 5;
-  {  // TX 1: insert "eve"
-    auto& tx = db_->BeginTransaction();
-    tx.SetTable("users");
-    tx.Write<int>("eve", eve);
-    db_->EndTransaction(tx, [](auto) {});
-  }
-
-  db_->Fence();  // Make sure that TX 1 (and the blocker) is visible to
-                 // following transactions
-
-  {  // TX 2: read "eve" via Scan
-    auto& tx = db_->BeginTransaction();
-    tx.SetTable("users");
-    auto count = tx.Scan("alice", "eve", [&](auto key, auto) {
-      EXPECT_TRUE(key == "alice" || key == "bob" || key == "carol");
-      return false;
-    });
-    ASSERT_TRUE(count.has_value());
-    ASSERT_EQ(size_t(3), count.value());
-    db_->EndTransaction(tx, [](auto) {});
-  }
+  const auto rows = TestHelper::Scan(*db_, kTable, "alice", "carol");
+  ASSERT_EQ(size_t(1), rows.size());
+  EXPECT_EQ(rows[0].first, "alice");
 }

@@ -26,10 +26,9 @@ class SecondaryIndex;
  * slot keeps its TID continuity for validation; the physical Purge runs
  * here, at least one full epoch after the delete committed. Committers
  * Enqueue candidates while still holding their commit lock, and the epoch
- * callback drives Reap, following the CallbackManager pattern of
- * enqueue-now, execute-on-epoch-advance. The shape mirrors the garbage
- * collection subsystem of the Silo reference implementation (its reaper
- * queue and last-reaped-epoch bookkeeping).
+ * hook drives Reap: enqueue now, execute on epoch advance. The shape
+ * mirrors the garbage collection subsystem of the Silo reference
+ * implementation (its reaper queue and last-reaped-epoch bookkeeping).
  */
 class Reaper {
  public:

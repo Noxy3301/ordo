@@ -1,7 +1,5 @@
 #include <lineairdb/config.h>
 #include <lineairdb/database.h>
-#include <lineairdb/transaction.h>
-#include <lineairdb/tx_status.h>
 
 #include <chrono>
 #include <filesystem>
@@ -9,12 +7,13 @@
 #include <string>
 
 #include "gtest/gtest.h"
-#include "test_helper.hpp"
+#include "stateless_helper.hpp"
 
 namespace {
 
 constexpr auto kBarrierTimeout = std::chrono::seconds(10);
 constexpr int kValue = 42;
+const char* const kTable = "users";
 const char* const kWorkDir = "lineairdb_durability_switch_logs";
 
 }  // namespace
@@ -29,7 +28,6 @@ class DurabilitySwitchTest : public ::testing::Test {
   void SetUp() override {
     std::filesystem::remove_all(kWorkDir);
     config_.work_dir = kWorkDir;
-    config_.max_thread = 4;
     // The combination the server runs; the defaults need build options this
     // tree does not set.
     config_.commit_durability = LineairDB::Config::CommitDurability::Async;
@@ -44,14 +42,11 @@ class DurabilitySwitchTest : public ::testing::Test {
 
 TEST_F(DurabilitySwitchTest, AsyncCommitsSurviveTheSwitchToSync) {
   db_ = std::make_unique<LineairDB::Database>(config_);
+  ASSERT_TRUE(db_->CreateTable(kTable));
   ASSERT_EQ(db_->GetCommitDurability(),
             LineairDB::Config::CommitDurability::Async);
 
-  ASSERT_TRUE(TestHelper::DoTransactions(
-      db_.get(), {[&](LineairDB::Transaction& tx) {
-        tx.Write<int>("alice", kValue);
-      }}));
-  db_->Fence();
+  ASSERT_TRUE(TestHelper::Write<int>(*db_, kTable, "alice", kValue));
 
   ASSERT_TRUE(db_->SetCommitDurability(
       LineairDB::Config::CommitDurability::Sync, kBarrierTimeout));
@@ -64,12 +59,9 @@ TEST_F(DurabilitySwitchTest, AsyncCommitsSurviveTheSwitchToSync) {
   const LineairDB::Config reopen = db_->GetConfig();
   db_.reset(nullptr);
   db_ = std::make_unique<LineairDB::Database>(reopen);
-  ASSERT_TRUE(TestHelper::DoTransactions(
-      db_.get(), {[&](LineairDB::Transaction& tx) {
-        auto alice = tx.Read<int>("alice");
-        ASSERT_TRUE(alice.has_value());
-        ASSERT_EQ(kValue, alice.value());
-      }}));
+  const auto alice = TestHelper::Read<int>(*db_, kTable, "alice");
+  ASSERT_TRUE(alice.has_value());
+  ASSERT_EQ(kValue, alice.value());
 }
 
 TEST_F(DurabilitySwitchTest, VolatileDatabaseRefusesTheSwitch) {

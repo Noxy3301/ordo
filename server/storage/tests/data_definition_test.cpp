@@ -14,21 +14,15 @@
  *   limitations under the License.
  */
 
-#include <array>
 #include <atomic>
-#include <chrono>
-#include <ctime>
 #include <filesystem>
 #include <memory>
 #include <thread>
-#include <vector>
 
 #include "gtest/gtest.h"
 #include "lineairdb/config.h"
 #include "lineairdb/database.h"
-#include "lineairdb/transaction.h"
-#include "lineairdb/tx_status.h"
-#include "test_helper.hpp"
+#include "stateless_helper.hpp"
 
 class DataDefinitionTest : public ::testing::Test {
  protected:
@@ -36,7 +30,6 @@ class DataDefinitionTest : public ::testing::Test {
   std::unique_ptr<LineairDB::Database> db_;
   virtual void SetUp() {
     std::filesystem::remove_all(config_.work_dir);
-    config_.max_thread = 4;
     config_.epoch_duration_ms = 100;
     db_.reset(nullptr);
     db_ = std::make_unique<LineairDB::Database>();
@@ -50,49 +43,14 @@ TEST_F(DataDefinitionTest, CreateTable) {
   ASSERT_FALSE(duplicated);
 }
 
-TEST_F(DataDefinitionTest, SetTable) {
-  ASSERT_TRUE(db_->CreateTable("users"));
-  {
-    auto& tx = db_->BeginTransaction();
-    bool table_exists = tx.SetTable("users");
-    ASSERT_TRUE(table_exists);
-
-    bool non_existent_table = tx.SetTable("non_existent");
-    ASSERT_FALSE(non_existent_table);
-    db_->EndTransaction(tx, [](auto status) {
-      // Table not found is not a fatal error, so we expect the transaction to
-      // commit
-      ASSERT_EQ(status, LineairDB::TxStatus::Committed);
-    });
-  }
-}
-
 TEST_F(DataDefinitionTest, ReadWrite) {
   db_->CreateTable("users");
 
-  {
-    auto& tx = db_->BeginTransaction();
-    bool table_exists = tx.SetTable("users");
-    ASSERT_TRUE(table_exists);
-    tx.Write<int>("user1", 42);
-    db_->EndTransaction(tx, [](auto status) {
-      ASSERT_EQ(status, LineairDB::TxStatus::Committed);
-    });
-  }
-  db_->Fence();
+  ASSERT_TRUE(TestHelper::Write<int>(*db_, "users", "user1", 42));
 
-  {
-    auto& tx = db_->BeginTransaction();
-    bool table_exists = tx.SetTable("users");
-    ASSERT_TRUE(table_exists);
-    auto data = tx.Read<int>("user1");
-    ASSERT_TRUE(data.has_value());
-    ASSERT_EQ(data.value(), 42);
-    db_->EndTransaction(tx, [](auto status) {
-      ASSERT_EQ(status, LineairDB::TxStatus::Committed);
-    });
-  }
-  db_->Fence();
+  auto data = TestHelper::Read<int>(*db_, "users", "user1");
+  ASSERT_TRUE(data.has_value());
+  ASSERT_EQ(data.value(), 42);
 }
 
 TEST_F(DataDefinitionTest, ConcurrencyControlBetweenMultipleTables) {
@@ -103,88 +61,51 @@ TEST_F(DataDefinitionTest, ConcurrencyControlBetweenMultipleTables) {
   std::atomic<bool> tx2_ready = false;
 
   std::thread thread1([&]() {
-    auto& tx1 = db_->BeginTransaction();
-    ASSERT_TRUE(tx1.SetTable("users"));
-
-    tx1.Write<int>("user1", 42);
-    tx1.Write<int>("user1_only_users", 42);
     tx1_ready = true;
     while (!tx2_ready) std::this_thread::yield();  // Wait for tx2 to be ready
-    db_->EndTransaction(tx1, [](auto status) {
-      EXPECT_EQ(status, LineairDB::TxStatus::Committed);
-    });
+    EXPECT_TRUE(TestHelper::CommitWrites(
+        *db_, {{"users", "user1", TestHelper::Encode<int>(42), false, false},
+               {"users", "user1_only_users", TestHelper::Encode<int>(42), false,
+                false}}));
   });
 
   std::thread thread2([&]() {
-    auto& tx2 = db_->BeginTransaction();
-    ASSERT_TRUE(tx2.SetTable("accounts"));
-
-    tx2.Write<int>("user1", 100);
     tx2_ready = true;
     while (!tx1_ready) std::this_thread::yield();  // Wait for tx1 to be ready
-    auto data = tx2.Read<int>("user1_only_users");
-    ASSERT_FALSE(data.has_value());
-    db_->EndTransaction(tx2, [](auto status) {
-      EXPECT_EQ(status, LineairDB::TxStatus::Committed);
-    });
+    // The key tx1 writes into users never appears in accounts.
+    EXPECT_FALSE(
+        TestHelper::Read<int>(*db_, "accounts", "user1_only_users").has_value());
+    EXPECT_TRUE(TestHelper::Write<int>(*db_, "accounts", "user1", 100));
   });
 
   thread1.join();
   thread2.join();
 
-  db_->Fence();
-
   // Check Results
-  {
-    auto& tx = db_->BeginTransaction();
-    ASSERT_TRUE(tx.SetTable("users"));
-    auto data = tx.Read<int>("user1");
-    ASSERT_TRUE(data.has_value());
-    ASSERT_EQ(data.value(), 42);
+  auto data = TestHelper::Read<int>(*db_, "users", "user1");
+  ASSERT_TRUE(data.has_value());
+  ASSERT_EQ(data.value(), 42);
 
-    ASSERT_TRUE(tx.SetTable("accounts"));
-    data = tx.Read<int>("user1");
-    ASSERT_TRUE(data.has_value());
-    ASSERT_EQ(data.value(), 100);
-    db_->EndTransaction(tx, [](auto status) {
-      EXPECT_EQ(status, LineairDB::TxStatus::Committed);
-    });
-  }
+  data = TestHelper::Read<int>(*db_, "accounts", "user1");
+  ASSERT_TRUE(data.has_value());
+  ASSERT_EQ(data.value(), 100);
 }
 
-TEST_F(DataDefinitionTest, SetTableAfterWrite) {
+TEST_F(DataDefinitionTest, WriteSameKeyIntoTwoTables) {
   db_->CreateTable("users");
   db_->CreateTable("accounts");
 
-  {
-    auto& tx = db_->BeginTransaction();
-    ASSERT_TRUE(tx.SetTable("users"));
-    tx.Write<int>("user1", 42);
-
-    // Now switch to another table
-    ASSERT_TRUE(tx.SetTable("accounts"));
-    tx.Write<int>("user1", 100);
-
-    db_->EndTransaction(tx, [](auto status) {
-      ASSERT_EQ(status, LineairDB::TxStatus::Committed);
-    });
-  }
-  db_->Fence();
+  ASSERT_TRUE(TestHelper::CommitWrites(
+      *db_, {{"users", "user1", TestHelper::Encode<int>(42), false, false},
+             {"accounts", "user1", TestHelper::Encode<int>(100), false,
+              false}}));
 
   // Check Results
-  {
-    auto& tx = db_->BeginTransaction();
-    ASSERT_TRUE(tx.SetTable("users"));
-    auto data = tx.Read<int>("user1");
-    ASSERT_TRUE(data.has_value());
-    ASSERT_EQ(data.value(), 42);
+  auto data = TestHelper::Read<int>(*db_, "users", "user1");
+  ASSERT_TRUE(data.has_value());
+  ASSERT_EQ(data.value(), 42);
 
-    ASSERT_TRUE(tx.SetTable("accounts"));
-    data = tx.Read<int>("user1");
-    ASSERT_TRUE(data.has_value());
-    ASSERT_EQ(data.value(), 100);
-    db_->EndTransaction(tx, [](auto status) {
-      ASSERT_EQ(status, LineairDB::TxStatus::Committed);
-    });
-  }
+  data = TestHelper::Read<int>(*db_, "accounts", "user1");
+  ASSERT_TRUE(data.has_value());
+  ASSERT_EQ(data.value(), 100);
 }

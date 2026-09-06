@@ -17,7 +17,6 @@
 
 #include <lineairdb/config.h>
 #include <lineairdb/database.h>
-#include <lineairdb/transaction.h>
 
 #include <algorithm>
 #include <chrono>
@@ -35,7 +34,7 @@
 #include "recovery/logger.h"
 #include "recovery/wal.h"
 #include "spdlog/spdlog.h"
-#include "test_helper.hpp"
+#include "stateless_helper.hpp"
 
 namespace {
 
@@ -123,7 +122,6 @@ class SecondaryIndexLoggingTest : public ::testing::Test {
   void SetUp() override {
     spdlog::set_level(spdlog::level::info);
     std::filesystem::remove_all("lineairdb_logs");
-    config_.max_thread = 4;
     config_.commit_durability = LineairDB::Config::CommitDurability::Async;
     config_.enable_recovery = true;
     db_ = std::make_unique<LineairDB::Database>(config_);
@@ -157,46 +155,37 @@ TEST_F(SecondaryIndexLoggingTest,
 
   // Preload 9 secondary keys, each with 300 primary keys (16 bytes each).
   {
-    auto& tx = db_->BeginTransaction();
-    ASSERT_TRUE(tx.SetTable(table_name));
+    std::vector<LineairDB::ExternalWriteEntry> writes;
+    std::vector<LineairDB::ExternalSecondaryIndexEntry> index_ops;
     for (size_t s = 0; s < secondary_keys; ++s) {
       for (size_t i = 0; i < primary_keys_per_secondary; ++i) {
         const size_t pk_index = s * primary_keys_per_secondary + i;
         const std::string primary_key = MakeFixedPrimaryKey(pk_index);
-        const std::string value = "value_" + primary_key;
-        tx.Write(primary_key, reinterpret_cast<const std::byte*>(value.data()),
-                 value.size());
-        tx.WriteSecondaryIndex(
-            index_name, index_keys[s],
-            reinterpret_cast<const std::byte*>(primary_key.data()),
-            primary_key.size());
+        writes.push_back(
+            {table_name, primary_key, "value_" + primary_key, false, false});
+        index_ops.push_back(
+            {table_name, index_name, index_keys[s], primary_key, false});
       }
     }
-    const bool committed = db_->EndTransaction(tx, [](auto) {});
-    ASSERT_TRUE(committed);
+    ASSERT_TRUE(TestHelper::CommitWrites(*db_, writes, index_ops));
   }
 
   // Trigger a single transaction that updates all 9 secondary keys.
   {
-    auto& tx = db_->BeginTransaction();
-    ASSERT_TRUE(tx.SetTable(table_name));
+    std::vector<LineairDB::ExternalWriteEntry> writes;
+    std::vector<LineairDB::ExternalSecondaryIndexEntry> index_ops;
     for (size_t s = 0; s < secondary_keys; ++s) {
       const size_t pk_index = secondary_keys * primary_keys_per_secondary + s;
       const std::string primary_key = MakeFixedPrimaryKey(pk_index);
-      const std::string value = "value_" + primary_key;
-      tx.Write(primary_key, reinterpret_cast<const std::byte*>(value.data()),
-               value.size());
-      tx.WriteSecondaryIndex(
-          index_name, index_keys[s],
-          reinterpret_cast<const std::byte*>(primary_key.data()),
-          primary_key.size());
+      writes.push_back(
+          {table_name, primary_key, "value_" + primary_key, false, false});
+      index_ops.push_back(
+          {table_name, index_name, index_keys[s], primary_key, false});
     }
-    const bool committed = db_->EndTransaction(tx, [](auto) {});
-    ASSERT_TRUE(committed);
+    ASSERT_TRUE(TestHelper::CommitWrites(*db_, writes, index_ops));
   }
-  db_->Fence();
 
-  // Close the database before reading the log: Fence does not wait for the
+  // Close the database before reading the log: the destructor drains the
   // flusher, and scanning a log that is still being appended to would truncate
   // a frame in flight.
   db_.reset(nullptr);
@@ -229,47 +218,33 @@ TEST_F(SecondaryIndexLoggingTest, RecoveryWithSecondaryIndexWithoutCheckpoint) {
   ASSERT_TRUE(db_->CreateSecondaryIndex(table_name, index_name, 0));
 
   {
-    auto& tx = db_->BeginTransaction();
-    ASSERT_TRUE(tx.SetTable(table_name));
+    std::vector<LineairDB::ExternalWriteEntry> writes;
+    std::vector<LineairDB::ExternalSecondaryIndexEntry> index_ops;
     for (const auto& primary_key : primary_keys) {
-      const std::string value = "value_" + primary_key;
-      tx.Write(primary_key, reinterpret_cast<const std::byte*>(value.data()),
-               value.size());
-      tx.WriteSecondaryIndex(
-          index_name, index_key,
-          reinterpret_cast<const std::byte*>(primary_key.data()),
-          primary_key.size());
+      writes.push_back(
+          {table_name, primary_key, "value_" + primary_key, false, false});
+      index_ops.push_back(
+          {table_name, index_name, index_key, primary_key, false});
     }
-    const bool committed = db_->EndTransaction(tx, [](auto) {});
-    ASSERT_TRUE(committed);
+    ASSERT_TRUE(TestHelper::CommitWrites(*db_, writes, index_ops));
   }
-  db_->Fence();
 
   db_.reset(nullptr);
   db_ = std::make_unique<LineairDB::Database>(config);
 
-  TestHelper::DoTransactions(
-      db_.get(), {[&](LineairDB::Transaction& tx) {
-        ASSERT_TRUE(tx.SetTable(table_name));
-        auto results = tx.ReadSecondaryIndex(index_name, index_key);
-        std::set<std::string> recovered;
-        for (const auto& entry : results) {
-          const auto* ptr = entry.first;
-          const auto size = entry.second;
-          recovered.emplace(reinterpret_cast<const char*>(ptr), size);
-        }
-        ASSERT_EQ(recovered.size(), primary_keys.size());
-        for (const auto& expected : primary_keys) {
-          ASSERT_TRUE(recovered.count(expected));
-        }
-      }});
+  const auto results =
+      TestHelper::ReadSecondaryIndex(*db_, table_name, index_name, index_key);
+  const std::set<std::string> recovered(results.begin(), results.end());
+  ASSERT_EQ(recovered.size(), primary_keys.size());
+  for (const auto& expected : primary_keys) {
+    ASSERT_TRUE(recovered.count(expected));
+  }
 }
 
 TEST_F(SecondaryIndexLoggingTest, SecondaryIndexAddTimingRecorded) {
   LineairDB::Config config = db_->GetConfig();
   config.commit_durability = LineairDB::Config::CommitDurability::Async;
   config.enable_recovery = false;
-  config.max_thread = 1;
   // What this test reports per transaction is how many bytes of log one
   // secondary-index write costs, and it reads that from the file's size. A
   // preallocated log holds its size constant, which would report zero for
@@ -291,20 +266,16 @@ TEST_F(SecondaryIndexLoggingTest, SecondaryIndexAddTimingRecorded) {
 
   // Preload 300 primary keys for the same secondary key.
   {
-    auto& tx = db_->BeginTransaction();
-    ASSERT_TRUE(tx.SetTable(table_name));
+    std::vector<LineairDB::ExternalWriteEntry> writes;
+    std::vector<LineairDB::ExternalSecondaryIndexEntry> index_ops;
     for (size_t i = 0; i < initial_primary_keys; ++i) {
       const std::string primary_key = MakeFixedPrimaryKey(i);
-      const std::string value = "val_" + primary_key;
-      tx.Write(primary_key, reinterpret_cast<const std::byte*>(value.data()),
-               value.size());
-      tx.WriteSecondaryIndex(
-          index_name, index_key,
-          reinterpret_cast<const std::byte*>(primary_key.data()),
-          primary_key.size());
+      writes.push_back(
+          {table_name, primary_key, "val_" + primary_key, false, false});
+      index_ops.push_back(
+          {table_name, index_name, index_key, primary_key, false});
     }
-    const bool committed = db_->EndTransaction(tx, [](auto) {});
-    ASSERT_TRUE(committed);
+    ASSERT_TRUE(TestHelper::CommitWrites(*db_, writes, index_ops));
   }
 
   std::vector<long long> durations_us;
@@ -319,18 +290,12 @@ TEST_F(SecondaryIndexLoggingTest, SecondaryIndexAddTimingRecorded) {
     const std::string value = "val_" + primary_key;
     const auto size_before = GetLogDirectorySize(config);
 
-    auto& tx = db_->BeginTransaction();
-    ASSERT_TRUE(tx.SetTable(table_name));
-    tx.Write(primary_key, reinterpret_cast<const std::byte*>(value.data()),
-             value.size());
-    tx.WriteSecondaryIndex(
-        index_name, index_key,
-        reinterpret_cast<const std::byte*>(primary_key.data()),
-        primary_key.size());
-
     const auto start = std::chrono::steady_clock::now();
-    const bool committed = db_->EndTransaction(tx, [](auto) {});
+    const bool committed = db_->ValidateAndCommit(
+        {}, {{table_name, primary_key, value, false, false}},
+        {{table_name, index_name, index_key, primary_key, false}}, {});
     const auto end = std::chrono::steady_clock::now();
+    db_->ReleaseMasstreeThreadEpoch();
     ASSERT_TRUE(committed);
 
     const auto elapsed =
@@ -343,15 +308,9 @@ TEST_F(SecondaryIndexLoggingTest, SecondaryIndexAddTimingRecorded) {
         size_after >= size_before ? size_after - size_before : 0);
 
     // Cleanup to keep the secondary key size stable for the next iteration.
-    auto& cleanup_tx = db_->BeginTransaction();
-    ASSERT_TRUE(cleanup_tx.SetTable(table_name));
-    cleanup_tx.DeleteSecondaryIndex(
-        index_name, index_key,
-        reinterpret_cast<const std::byte*>(primary_key.data()),
-        primary_key.size());
-    cleanup_tx.Delete(primary_key);
-    const bool cleanup_committed = db_->EndTransaction(cleanup_tx, [](auto) {});
-    ASSERT_TRUE(cleanup_committed);
+    ASSERT_TRUE(TestHelper::CommitWrites(
+        *db_, {{table_name, primary_key, "", true, false}},
+        {{table_name, index_name, index_key, primary_key, true}}));
   }
 
   std::vector<long long> sorted = durations_us;

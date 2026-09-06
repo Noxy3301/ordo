@@ -1,12 +1,6 @@
 Licenses of 3rd party libraries
 ===
 
-## 2-Clause BSD
-
-| Name            | Copyright                                   | URL                                           |
-| --------------- | ------------------------------------------- | --------------------------------------------- |
-| concurrentqueue | Copyright (c) 2013-2016, Cameron Desrochers | https://github.com/cameron314/concurrentqueue |
-
 ## 3-Clause BSD
 
 | Name       | Copyright                   | URL                                  |

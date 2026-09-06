@@ -16,17 +16,20 @@
 
 #include <lineairdb/config.h>
 #include <lineairdb/database.h>
-#include <lineairdb/transaction.h>
-#include <lineairdb/tx_status.h>
 
 #include <filesystem>
 #include <memory>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "gtest/gtest.h"
-#include "test_helper.hpp"
+#include "stateless_helper.hpp"
 #include "util/logger.hpp"
+
+namespace {
+constexpr const char* kTable = "users";
+}  // namespace
 
 class DurabilityTest : public ::testing::Test {
  protected:
@@ -34,11 +37,10 @@ class DurabilityTest : public ::testing::Test {
   std::unique_ptr<LineairDB::Database> db_;
   virtual void SetUp() {
     std::filesystem::remove_all("lineairdb_logs");
-    config_.max_thread = 4;
     config_.commit_durability = LineairDB::Config::CommitDurability::Async;
     config_.enable_recovery = true;
     db_ = std::make_unique<LineairDB::Database>(config_);
-    db_->CreateTable("users");
+    db_->CreateTable(kTable);
   }
 };
 
@@ -48,30 +50,20 @@ TEST_F(DurabilityTest, Recovery) {
   ASSERT_TRUE(config.enable_logging);
 
   int initial_value = 1;
-  TestHelper::DoTransactions(db_.get(), {[&](LineairDB::Transaction& tx) {
-                                           tx.Write<int>("alice",
-                                                         initial_value);
-                                         },
-                                         [&](LineairDB::Transaction& tx) {
-                                           tx.Write<int>("bob", initial_value);
-                                         }});
-  db_->Fence();
+  ASSERT_TRUE(TestHelper::Write<int>(*db_, kTable, "alice", initial_value));
+  ASSERT_TRUE(TestHelper::Write<int>(*db_, kTable, "bob", initial_value));
 
   // Expect that recovery procedure has idempotence
   for (size_t i = 0; i < 3; i++) {
     db_.reset(nullptr);
     db_ = std::make_unique<LineairDB::Database>(config);
 
-    TestHelper::DoTransactions(db_.get(), {[&](LineairDB::Transaction& tx) {
-                                 auto alice = tx.Read<int>("alice");
-                                 ASSERT_TRUE(alice.has_value());
-                                 auto current_value = alice.value();
-                                 ASSERT_EQ(initial_value, current_value);
-                                 auto bob = tx.Read<int>("bob");
-                                 ASSERT_TRUE(bob.has_value());
-                                 current_value = bob.value();
-                                 ASSERT_EQ(initial_value, current_value);
-                               }});
+    auto alice = TestHelper::Read<int>(*db_, kTable, "alice");
+    ASSERT_TRUE(alice.has_value());
+    ASSERT_EQ(initial_value, alice.value());
+    auto bob = TestHelper::Read<int>(*db_, kTable, "bob");
+    ASSERT_TRUE(bob.has_value());
+    ASSERT_EQ(initial_value, bob.value());
   }
 }
 
@@ -81,45 +73,27 @@ TEST_F(DurabilityTest, RecoveryKeepsDeletedKeysAbsent) {
   ASSERT_TRUE(config.enable_logging);
 
   int initial_value = 1;
-  TestHelper::DoTransactions(db_.get(), {[&](LineairDB::Transaction& tx) {
-                               tx.Write<int>("alice", initial_value);
-                             }});
-  db_->Fence();
-
-  TestHelper::DoTransactions(
-      db_.get(), {[&](LineairDB::Transaction& tx) { tx.Delete("alice"); }});
-  db_->Fence();
+  ASSERT_TRUE(TestHelper::Write<int>(*db_, kTable, "alice", initial_value));
+  ASSERT_TRUE(TestHelper::Delete(*db_, kTable, "alice"));
 
   // Expect that recovery procedure has idempotence
   for (size_t i = 0; i < 3; i++) {
     db_.reset(nullptr);
     db_ = std::make_unique<LineairDB::Database>(config);
 
-    TestHelper::DoTransactions(db_.get(), {[&](LineairDB::Transaction& tx) {
-                                 auto alice = tx.Read<int>("alice");
-                                 ASSERT_FALSE(alice.has_value());
-                               }});
+    auto alice = TestHelper::Read<int>(*db_, kTable, "alice");
+    ASSERT_FALSE(alice.has_value());
   }
 }
 
 TEST_F(DurabilityTest, RecoveryLargeObject) {
   std::string initial_value(4096, 'a');
-  TestHelper::DoTransactions(
-      db_.get(), {[&](LineairDB::Transaction& tx) {
-        tx.Write("alice", reinterpret_cast<std::byte*>(initial_value.data()),
-                 initial_value.size());
-      }});
-  db_->Fence();
+  ASSERT_TRUE(TestHelper::Write(*db_, kTable, "alice", initial_value));
 
   for (size_t i = 0; i < 3; i++) {
-    TestHelper::DoTransactions(db_.get(), {[&](LineairDB::Transaction& tx) {
-                                 auto alice = tx.Read("alice");
-                                 ASSERT_TRUE(alice.first != nullptr);
-                                 std::string current_value(
-                                     reinterpret_cast<const char*>(alice.first),
-                                     alice.second);
-                                 ASSERT_EQ(initial_value, current_value);
-                               }});
+    auto alice = TestHelper::Read(*db_, kTable, "alice");
+    ASSERT_TRUE(alice.has_value());
+    ASSERT_EQ(initial_value, alice.value());
   }
 }
 
@@ -128,131 +102,40 @@ TEST_F(DurabilityTest, RecoveryInContendedWorkload) {
   const LineairDB::Config config = db_->GetConfig();
   ASSERT_TRUE(config.enable_logging);
 
-  TransactionProcedure Update([](LineairDB::Transaction& tx) {
-    int value = 0xBEEF;
-    tx.Write<int>("alice", value);
-  });
-
-  ASSERT_NO_THROW({
-    TestHelper::DoTransactionsOnMultiThreads(db_.get(),
-                                             {Update, Update, Update});
-  });
-  db_->Fence();
-
-  db_.reset(nullptr);
-  db_ = std::make_unique<LineairDB::Database>(config);
-
-  TestHelper::DoTransactions(db_.get(), {[&](LineairDB::Transaction& tx) {
-                               auto alice = tx.Read<int>("alice");
-                               ASSERT_TRUE(alice.has_value());
-                               auto current_value = alice.value();
-                               ASSERT_EQ(0xBEEF, current_value);
-                             }});
-}
-
-TEST_F(DurabilityTest, RecoveryWithHandlerInterface) {
-  const LineairDB::Config config = db_->GetConfig();
-  ASSERT_TRUE(config.enable_logging);
-
-  TransactionProcedure Update([](LineairDB::Transaction& tx) {
-    int value = 0xBEEF;
-    tx.Write<int>("alice", value);
-  });
-
-  ASSERT_NO_THROW({
-    TestHelper::DoHandlerTransactionsOnMultiThreads(db_.get(),
-                                                    {Update, Update, Update});
-  });
-  db_->Fence();
+  const int value = 0xBEEF;
+  std::vector<std::thread> writers;
+  for (size_t i = 0; i < 3; i++) {
+    writers.emplace_back([&] {
+      while (!TestHelper::Write<int>(*db_, kTable, "alice", value)) {
+      }
+    });
+  }
+  for (auto& writer : writers) writer.join();
 
   db_.reset(nullptr);
   db_ = std::make_unique<LineairDB::Database>(config);
 
-  TestHelper::DoTransactions(db_.get(), {[&](LineairDB::Transaction& tx) {
-                               auto alice = tx.Read<int>("alice");
-                               ASSERT_TRUE(alice.has_value());
-                               auto current_value = alice.value();
-                               ASSERT_EQ(0xBEEF, current_value);
-                             }});
+  auto alice = TestHelper::Read<int>(*db_, kTable, "alice");
+  ASSERT_TRUE(alice.has_value());
+  ASSERT_EQ(value, alice.value());
 }
 
 TEST_F(DurabilityTest, RecoveryWithNamedTable) {
   const LineairDB::Config config = db_->GetConfig();
-  const std::string table_name = "users";
+  const std::string table_name = "accounts";
   const std::string key = "user1";
   const int value = 12345;
 
   // 1. Create a table and write to it
-  db_->CreateTable(table_name);
-  TestHelper::DoTransactions(db_.get(), {[&](LineairDB::Transaction& tx) {
-                               bool success = tx.SetTable(table_name);
-                               ASSERT_TRUE(success);
-                               tx.Write<int>(key, value);
-                             }});
-  db_->Fence();
+  ASSERT_TRUE(db_->CreateTable(table_name));
+  ASSERT_TRUE(TestHelper::Write<int>(*db_, table_name, key, value));
 
   // 2. Restart DB to trigger recovery
   db_.reset(nullptr);
   db_ = std::make_unique<LineairDB::Database>(config);
 
   // 3. Verify data is recovered in the correct table
-  TestHelper::DoTransactions(db_.get(), {[&](LineairDB::Transaction& tx) {
-                               bool success = tx.SetTable(table_name);
-                               ASSERT_TRUE(success);
-                               auto data = tx.Read<int>(key);
-                               ASSERT_TRUE(data.has_value());
-                               ASSERT_EQ(data.value(), value);
-                             }});
-
-  // 4. Verify data is NOT in the anonymous table
-  TestHelper::DoTransactions(db_.get(), {[&](LineairDB::Transaction& tx) {
-                               // Note: Not calling SetTable, so this reads from
-                               // the anonymous table
-                               auto data = tx.Read<int>(key);
-                               ASSERT_FALSE(data.has_value());
-                             }});
+  auto data = TestHelper::Read<int>(*db_, table_name, key);
+  ASSERT_TRUE(data.has_value());
+  ASSERT_EQ(data.value(), value);
 }
-
-/* TEST_F(DurabilityTest, RecoveryWithSecondaryIndex) {
-  const LineairDB::Config config = db_->GetConfig();
-  const std::string table_name = "users";
-  const std::string index_name = "age_index";
-  const std::string index_key = "age:30";
-  const std::string primary_key = "user1";
-  const std::string value = "Alice";
-
-  ASSERT_TRUE(db_->CreateSecondaryIndex(table_name, index_name, 0));
-
-  TestHelper::DoTransactions(
-      db_.get(), {[&](LineairDB::Transaction& tx) {
-        ASSERT_TRUE(tx.SetTable(table_name));
-        tx.Write(primary_key, reinterpret_cast<const std::byte*>(value.data()),
-                 value.size());
-        tx.WriteSecondaryIndex(
-            index_name, index_key,
-            reinterpret_cast<const std::byte*>(primary_key.data()),
-            primary_key.size());
-      }});
-  db_->Fence();
-
-  db_.reset(nullptr);
-  db_ = std::make_unique<LineairDB::Database>(config);
-
-  TestHelper::DoTransactions(
-      db_.get(), {[&](LineairDB::Transaction& tx) {
-        ASSERT_TRUE(tx.SetTable(table_name));
-
-        auto primary_keys = tx.ReadSecondaryIndex(index_name, index_key);
-        ASSERT_EQ(primary_keys.size(), 1);
-        const auto& [pk_ptr, pk_size] = primary_keys[0];
-        std::string recovered_pk(reinterpret_cast<const char*>(pk_ptr),
-                                 pk_size);
-        ASSERT_EQ(recovered_pk, primary_key);
-
-        auto [value_ptr, value_size] = tx.Read(primary_key);
-        ASSERT_TRUE(value_ptr != nullptr);
-        std::string recovered_value(reinterpret_cast<const char*>(value_ptr),
-                                    value_size);
-        ASSERT_EQ(recovered_value, value);
-      }});
-} */

@@ -18,7 +18,6 @@
 #include <lineairdb/database.h>
 #include <lineairdb/tx_status.h>
 
-#include <functional>
 #include <memory>
 
 #include "database_impl.h"
@@ -39,24 +38,6 @@ const Config Database::GetConfig() const noexcept {
   return db_pimpl_->GetConfig();
 }
 
-void Database::ExecuteTransaction(
-    std::function<void(Transaction&)> transaction_procedure,
-    std::function<void(TxStatus)> callback,
-    std::optional<CallbackType> precommit_clbk) {
-  db_pimpl_->ExecuteTransaction(transaction_procedure, callback,
-                                precommit_clbk);
-}
-
-Transaction& Database::BeginTransaction() {
-  return db_pimpl_->BeginTransaction();
-}
-
-bool Database::EndTransaction(Transaction& tx, CallbackType clbk) {
-  return db_pimpl_->EndTransaction(std::forward<decltype(tx)>(tx),
-                                   std::forward<decltype(clbk)>(clbk));
-}
-
-void Database::Fence() const noexcept { db_pimpl_->Fence(); }
 bool Database::SetCommitDurability(
     Config::CommitDurability mode, std::chrono::milliseconds barrier_timeout) {
   return db_pimpl_->SetCommitDurability(mode, barrier_timeout);
@@ -64,7 +45,6 @@ bool Database::SetCommitDurability(
 Config::CommitDurability Database::GetCommitDurability() const {
   return db_pimpl_->GetCommitDurability();
 }
-void Database::RequestCallbacks() { db_pimpl_->RequestCallbacks(); }
 void Database::ReleaseMasstreeThreadEpoch() {
   Index::MasstreeReleaseThreadEpoch();
 }

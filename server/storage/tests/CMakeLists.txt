@@ -23,7 +23,6 @@ macro(register_test testfile testfilepath)
   )
   target_include_directories(${testfile} PRIVATE
     $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/src>
-    $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/third_party/concurrentqueue>
     $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/third_party/spdlog/include>
     $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/third_party/msgpack/include>
   )

@@ -1,13 +1,16 @@
 #include <lineairdb/config.h>
 #include <lineairdb/database.h>
-#include <lineairdb/transaction.h>
-#include <lineairdb/tx_status.h>
 
 #include <memory>
-#include <optional>
+#include <string>
 #include <vector>
 
+#include "../stateless_helper.hpp"
 #include "gtest/gtest.h"
+
+namespace {
+constexpr const char* kTable = "users";
+}  // namespace
 
 class ScanDeleteVisibilityTest : public ::testing::Test {
  protected:
@@ -17,97 +20,21 @@ class ScanDeleteVisibilityTest : public ::testing::Test {
     config_.enable_recovery = false;
     config_.commit_durability = LineairDB::Config::CommitDurability::Volatile;
     db_ = std::make_unique<LineairDB::Database>(config_);
+    ASSERT_TRUE(db_->CreateTable(kTable));
   }
 };
 
 TEST_F(ScanDeleteVisibilityTest, ScanShouldExcludeDeletedKeys) {
-  // First transaction: insert keys
-  {
-    auto& tx = db_->BeginTransaction();
-    tx.Write<int>("alice", 1);
-    tx.Write<int>("bob", 2);
-    tx.Write<int>("carol", 3);
-    const bool committed = db_->EndTransaction(tx, [](auto status) {
-      ASSERT_EQ(status, LineairDB::TxStatus::Committed);
-    });
-    ASSERT_TRUE(committed);
-    db_->Fence();
-  }
+  ASSERT_TRUE(TestHelper::CommitWrites(
+      *db_, {{kTable, "alice", TestHelper::Encode<int>(1), false, false},
+             {kTable, "bob", TestHelper::Encode<int>(2), false, false},
+             {kTable, "carol", TestHelper::Encode<int>(3), false, false}}));
 
-  // Second transaction: delete a key
-  {
-    auto& tx = db_->BeginTransaction();
-    tx.Delete("bob");
-    const bool committed = db_->EndTransaction(tx, [](auto status) {
-      ASSERT_EQ(status, LineairDB::TxStatus::Committed);
-    });
-    ASSERT_TRUE(committed);
-    db_->Fence();
-  }
+  ASSERT_TRUE(TestHelper::Delete(*db_, kTable, "bob"));
 
-  // Third transaction: scan
-  {
-    auto& tx = db_->BeginTransaction();
-    std::vector<std::string> scanned_keys;
-
-    auto count = tx.Scan<int>("alice", "carol", [&](auto key, auto value) {
-      scanned_keys.push_back(std::string(key));
-      if (key == "alice") {
-        EXPECT_EQ(value, 1);
-      }
-      return false;
-    });
-
-    ASSERT_TRUE(count.has_value());
-    // bob is deleted and carol is the exclusive upper bound.
-    ASSERT_EQ(count.value(), size_t(1));
-
-    std::vector<std::string> expected = {"alice"};
-    ASSERT_EQ(scanned_keys, expected);
-
-    db_->EndTransaction(tx, [](auto) {});
-  }
-}
-
-TEST_F(ScanDeleteVisibilityTest, ScanShouldExcludeReadYourWriteDeletedKeys) {
-  // First transaction: insert keys
-  {
-    auto& tx = db_->BeginTransaction();
-    tx.Write<int>("alice", 1);
-    tx.Write<int>("bob", 2);
-    tx.Write<int>("carol", 3);
-    const bool committed = db_->EndTransaction(tx, [](auto status) {
-      ASSERT_EQ(status, LineairDB::TxStatus::Committed);
-    });
-    ASSERT_TRUE(committed);
-    db_->Fence();
-  }
-
-  // Second transaction: delete a key and scan within the same transaction
-  {
-    auto& tx = db_->BeginTransaction();
-    tx.Delete("bob");
-
-    std::vector<std::string> scanned_keys;
-
-    auto count = tx.Scan<int>("alice", "carol", [&](auto key, auto value) {
-      scanned_keys.push_back(std::string(key));
-      if (key == "alice") {
-        EXPECT_EQ(value, 1);
-      }
-      return false;
-    });
-
-    ASSERT_TRUE(count.has_value());
-    // bob is deleted and carol is the exclusive upper bound.
-    ASSERT_EQ(count.value(), size_t(1));
-
-    std::vector<std::string> expected = {"alice"};
-    ASSERT_EQ(scanned_keys, expected);
-
-    const bool committed = db_->EndTransaction(tx, [](auto status) {
-      ASSERT_EQ(status, LineairDB::TxStatus::Committed);
-    });
-    ASSERT_TRUE(committed);
-  }
+  const auto rows = TestHelper::Scan(*db_, kTable, "alice", "carol");
+  // bob is deleted and carol is the exclusive upper bound.
+  ASSERT_EQ(rows.size(), size_t(1));
+  EXPECT_EQ(rows[0].first, "alice");
+  EXPECT_EQ(TestHelper::Decode<int>(rows[0].second), 1);
 }

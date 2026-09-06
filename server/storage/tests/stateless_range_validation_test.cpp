@@ -10,11 +10,10 @@
 
 namespace {
 
-constexpr const char* kTable = "__anonymous_table";
+constexpr const char* kTable = "range_validation_test";
 
 LineairDB::Config MakeConfig() {
   LineairDB::Config config;
-  config.max_thread = 1;
   config.enable_recovery = false;
   config.commit_durability = LineairDB::Config::CommitDurability::Volatile;
   config.work_dir = "./lineairdb_stateless_range_validation_test_logs";
@@ -89,6 +88,7 @@ void LeaveBlankSlot(LineairDB::Database& db, const std::string& key) {
 TEST(StatelessRangeValidationTest, AnUnchangedRangeCommits) {
   auto config = MakeConfig();
   LineairDB::Database db(config);
+  ASSERT_TRUE(db.CreateTable(kTable));
   SeedRows(db);
 
   const auto range = ScanRange(db, "k1", "k5");
@@ -102,6 +102,7 @@ TEST(StatelessRangeValidationTest, AnUnchangedRangeCommits) {
 TEST(StatelessRangeValidationTest, ARowDeletedInsideTheRangeAborts) {
   auto config = MakeConfig();
   LineairDB::Database db(config);
+  ASSERT_TRUE(db.CreateTable(kTable));
   SeedRows(db);
 
   const auto range = ScanRange(db, "k1", "k5");
@@ -117,6 +118,7 @@ TEST(StatelessRangeValidationTest, ARowDeletedAtTheEndOfTheRangeAborts) {
   // positionally and only the length check rejects it.
   auto config = MakeConfig();
   LineairDB::Database db(config);
+  ASSERT_TRUE(db.CreateTable(kTable));
   SeedRows(db);
 
   const auto range = ScanRange(db, "k1", "k5");
@@ -130,6 +132,7 @@ TEST(StatelessRangeValidationTest, ARowDeletedAtTheEndOfTheRangeAborts) {
 TEST(StatelessRangeValidationTest, ARowInsertedInsideTheRangeAborts) {
   auto config = MakeConfig();
   LineairDB::Database db(config);
+  ASSERT_TRUE(db.CreateTable(kTable));
   SeedRows(db);
 
   const auto range = ScanRange(db, "k1", "k5");
@@ -145,6 +148,7 @@ TEST(StatelessRangeValidationTest, ARowInsertedAtTheEndOfTheRangeAborts) {
   // first live row past the evidence.
   auto config = MakeConfig();
   LineairDB::Database db(config);
+  ASSERT_TRUE(db.CreateTable(kTable));
   SeedRows(db);
 
   const auto range = ScanRange(db, "k1", "k5");
@@ -158,6 +162,7 @@ TEST(StatelessRangeValidationTest, ARowInsertedAtTheEndOfTheRangeAborts) {
 TEST(StatelessRangeValidationTest, ALimitedRangeIgnoresChangesPastItsCap) {
   auto config = MakeConfig();
   LineairDB::Database db(config);
+  ASSERT_TRUE(db.CreateTable(kTable));
   SeedRows(db);
 
   const auto range = ScanRange(db, "k1", "k5", 2);
@@ -173,6 +178,7 @@ TEST(StatelessRangeValidationTest, ANonLiveSlotDoesNotConsumeTheCap) {
   // leave the replay room to reach the second.
   auto config = MakeConfig();
   LineairDB::Database db(config);
+  ASSERT_TRUE(db.CreateTable(kTable));
   SeedRows(db);
   LeaveBlankSlot(db, "k15");
 
@@ -186,6 +192,7 @@ TEST(StatelessRangeValidationTest, ANonLiveSlotDoesNotConsumeTheCap) {
 TEST(StatelessRangeValidationTest, AnEmptyRangeCommits) {
   auto config = MakeConfig();
   LineairDB::Database db(config);
+  ASSERT_TRUE(db.CreateTable(kTable));
   SeedRows(db);
 
   const auto range = ScanRange(db, "m1", "m9");
@@ -198,6 +205,7 @@ TEST(StatelessRangeValidationTest, AnEmptyRangeCommits) {
 TEST(StatelessRangeValidationTest, ARowAppearingInAnEmptyRangeAborts) {
   auto config = MakeConfig();
   LineairDB::Database db(config);
+  ASSERT_TRUE(db.CreateTable(kTable));
   SeedRows(db);
 
   const auto range = ScanRange(db, "m1", "m9");
@@ -214,6 +222,7 @@ TEST(StatelessRangeValidationTest, EvidenceRepeatingAKeyAborts) {
   // is rejected rather than matched by the positional walk.
   auto config = MakeConfig();
   LineairDB::Database db(config);
+  ASSERT_TRUE(db.CreateTable(kTable));
   SeedRows(db);
 
   auto range = ScanRange(db, "k1", "k5");
@@ -227,6 +236,7 @@ TEST(StatelessRangeValidationTest, EvidenceRepeatingAKeyAborts) {
 TEST(StatelessRangeValidationTest, AReverseRangeAbortsOnTheSameChange) {
   auto config = MakeConfig();
   LineairDB::Database db(config);
+  ASSERT_TRUE(db.CreateTable(kTable));
   SeedRows(db);
 
   const auto range = ScanRange(db, "k1", "k5", 0, true);

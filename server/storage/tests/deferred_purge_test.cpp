@@ -12,11 +12,10 @@
 
 namespace {
 
-constexpr const char* kTable = "__anonymous_table";
+constexpr const char* kTable = "purge_test";
 
 LineairDB::Config MakeConfig(size_t epoch_duration_ms) {
   LineairDB::Config config;
-  config.max_thread = 1;
   config.epoch_duration_ms = epoch_duration_ms;
   config.enable_recovery = false;
   config.commit_durability = LineairDB::Config::CommitDurability::Volatile;
@@ -29,6 +28,14 @@ bool CommitWrite(LineairDB::Database& db, const std::string& key,
                  const std::string& value, std::string* reason = nullptr) {
   const bool committed = db.ValidateAndCommit(
       {}, {{kTable, key, value, false}}, {}, {}, reason);
+  db.ReleaseMasstreeThreadEpoch();
+  return committed;
+}
+
+bool CommitInsert(LineairDB::Database& db, const std::string& key,
+                  const std::string& value) {
+  const bool committed =
+      db.ValidateAndCommit({}, {{kTable, key, value, false, true}}, {});
   db.ReleaseMasstreeThreadEpoch();
   return committed;
 }
@@ -64,7 +71,6 @@ bool StartsWith(const std::string& value, const std::string& prefix) {
 void WaitForEpochReaper(LineairDB::Database& db,
                         std::chrono::milliseconds duration) {
   std::this_thread::sleep_for(duration);
-  db.Fence();
   db.ReleaseMasstreeThreadEpoch();
   std::this_thread::sleep_for(duration);
 }
@@ -74,6 +80,7 @@ void WaitForEpochReaper(LineairDB::Database& db,
 TEST(DeferredPurgeTest, SameEpochDeleteReinsertInvalidatesStaleRead) {
   auto config = MakeConfig(100);
   LineairDB::Database db(config);
+  ASSERT_TRUE(db.CreateTable(kTable));
 
   ASSERT_TRUE(CommitWrite(db, "k", "v1"));
   const auto stale = Read(db, "k");
@@ -90,6 +97,7 @@ TEST(DeferredPurgeTest, SameEpochDeleteReinsertInvalidatesStaleRead) {
 TEST(DeferredPurgeTest, FoundReadAbortsAfterDeferredPurgeRemovesSlot) {
   auto config = MakeConfig(5);
   LineairDB::Database db(config);
+  ASSERT_TRUE(db.CreateTable(kTable));
 
   ASSERT_TRUE(CommitWrite(db, "k", "v1"));
   const auto stale = Read(db, "k");
@@ -109,6 +117,7 @@ TEST(DeferredPurgeTest, FoundReadAbortsAfterDeferredPurgeRemovesSlot) {
 TEST(DeferredPurgeTest, ReinsertBeforeReaperKeepsLiveRow) {
   auto config = MakeConfig(200);
   LineairDB::Database db(config);
+  ASSERT_TRUE(db.CreateTable(kTable));
 
   ASSERT_TRUE(CommitWrite(db, "k", "v1"));
   ASSERT_TRUE(CommitDelete(db, "k"));
@@ -124,6 +133,7 @@ TEST(DeferredPurgeTest, ReinsertBeforeReaperKeepsLiveRow) {
 TEST(DeferredPurgeTest, AbsentReadStillAbortsWhenRowAppears) {
   auto config = MakeConfig(100);
   LineairDB::Database db(config);
+  ASSERT_TRUE(db.CreateTable(kTable));
 
   const auto absent = Read(db, "k");
   ASSERT_FALSE(absent.found);
@@ -133,4 +143,23 @@ TEST(DeferredPurgeTest, AbsentReadStillAbortsWhenRowAppears) {
   std::string reason;
   EXPECT_FALSE(ValidateRead(db, absent, "k", &reason));
   EXPECT_TRUE(StartsWith(reason, "exact_read_appeared")) << reason;
+}
+
+TEST(DeferredPurgeTest, InsertAfterThePurgeClaimsAFreshSlot) {
+  auto config = MakeConfig(5);
+  LineairDB::Database db(config);
+  ASSERT_TRUE(db.CreateTable(kTable));
+
+  const std::string key = "purged_then_reinserted_key";
+  ASSERT_TRUE(CommitInsert(db, key, "v1"));
+  ASSERT_TRUE(CommitDelete(db, key));
+
+  // Several epochs, so the reaper retires the tombstone's slot before the
+  // insert below claims the key again.
+  WaitForEpochReaper(db, std::chrono::milliseconds(100));
+
+  ASSERT_TRUE(CommitInsert(db, key, "v2"));
+  const auto live = Read(db, key);
+  EXPECT_TRUE(live.found);
+  EXPECT_EQ(live.value, "v2");
 }

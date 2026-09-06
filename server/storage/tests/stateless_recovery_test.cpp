@@ -12,7 +12,7 @@
 
 namespace {
 
-constexpr const char* kTable = "__anonymous_table";
+constexpr const char* kTable = "recovery_test";
 constexpr const char* kIndex = "idx";
 
 using LineairDB::Recovery::Wal;
@@ -41,7 +41,6 @@ class StatelessRecoveryTest : public ::testing::Test {
 
   LineairDB::Config MakeConfig(bool enable_recovery) const {
     LineairDB::Config config;
-    config.max_thread = 1;
     config.epoch_duration_ms = 10;
     config.commit_durability = LineairDB::Config::CommitDurability::Sync;
     config.enable_recovery = enable_recovery;
@@ -84,6 +83,7 @@ TEST_F(StatelessRecoveryTest, ALoggedWriteCarriesTheUnlockedTid) {
   {
     auto config = MakeConfig(false);
     LineairDB::Database db(config);
+    db.CreateTable(kTable);
     ASSERT_TRUE(db.CreateSecondaryIndex(kTable, kIndex, 0));
     ASSERT_TRUE(CommitWriteWithIndexEntry(db, "k", "v1", "s"));
   }
@@ -123,6 +123,7 @@ TEST_F(StatelessRecoveryTest, ARecoveredKeyAcceptsAFurtherWrite) {
   {
     auto config = MakeConfig(false);
     LineairDB::Database db(config);
+    db.CreateTable(kTable);
     ASSERT_TRUE(CommitWrite(db, "k", "v1"));
   }
 
@@ -143,6 +144,7 @@ TEST_F(StatelessRecoveryTest, ARecoveredKeyAcceptsAFurtherWrite) {
 
   auto config = MakeConfig(true);
   LineairDB::Database db(config);
+  db.CreateTable(kTable);
   const auto recovered = Read(db, "k");
   EXPECT_TRUE(recovered.found);
   EXPECT_EQ(recovered.value, "v1");

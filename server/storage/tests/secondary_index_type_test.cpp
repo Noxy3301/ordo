@@ -6,23 +6,15 @@ namespace {
 
 using LineairDB::Index::SecondaryIndexType;
 
-TEST(SecondaryIndexTypeTest, RawRoundTripPreservesBits) {
-  constexpr SecondaryIndexType::RawType kRaw = 0x12u;
-  const auto index_type = SecondaryIndexType::FromRaw(kRaw);
-  EXPECT_EQ(index_type.Raw(), kRaw);
+TEST(SecondaryIndexTypeTest, DefaultIsNotUnique) {
+  EXPECT_FALSE(SecondaryIndexType().IsUnique());
+  EXPECT_EQ(SecondaryIndexType().Raw(), SecondaryIndexType::kNone);
 }
 
-TEST(SecondaryIndexTypeTest, DictUniqueBitControlsUniqueCheck) {
-  const auto non_unique = SecondaryIndexType::FromRaw(0x08u);
-  EXPECT_FALSE(non_unique.IsUnique());
-
-  const auto unique =
-      SecondaryIndexType::FromRaw(SecondaryIndexType::kDictUnique);
+TEST(SecondaryIndexTypeTest, UniqueRoundTrips) {
+  const auto unique = SecondaryIndexType::FromRaw(SecondaryIndexType::kUnique);
   EXPECT_TRUE(unique.IsUnique());
-
-  const auto unique_with_extra_bits =
-      SecondaryIndexType::FromRaw(0x18u | SecondaryIndexType::kDictUnique);
-  EXPECT_TRUE(unique_with_extra_bits.IsUnique());
+  EXPECT_EQ(unique.Raw(), SecondaryIndexType::kUnique);
 }
 
 }  // namespace

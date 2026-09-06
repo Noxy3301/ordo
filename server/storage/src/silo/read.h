@@ -42,7 +42,7 @@ StatelessReadResult Read(
 /**
  * @brief Read several rows in one call.
  *
- * Reuses Read per entry. Reads are independent, so this is purely a
+ * Reuses the point read per entry. Reads are independent, so this is purely a
  * transport optimization that lets a caller fold N point reads into one
  * RPC.
  */
@@ -55,7 +55,7 @@ std::vector<StatelessReadResult> BatchRead(
  *        the range.
  *
  * Drives Index::Scan / Index::ScanReverse with a callback that, for each
- * hit, performs the same double-TID read used by Read. The caller
+ * hit, performs the same double-TID read used by the point read. The caller
  * assembles the commit-time ExternalRangeReadEntry from its own scan
  * arguments and the returned keys. Tombstones are skipped: key-list
  * validation catches any reuse of their slots without a per-entry TID.
@@ -63,22 +63,11 @@ std::vector<StatelessReadResult> BatchRead(
  * `ok` distinguishes a genuine empty result from a Masstree retry that
  * gave up. Callers should treat `!ok` as an abort signal.
  */
-StatelessRangeScanResult RangeScan(
+StatelessRangeScanResult Scan(
     TableDictionary &tables, std::shared_mutex &schema_mutex,
     std::string_view table_name, std::string_view start_key,
     std::string_view end_key, uint64_t row_limit, bool reverse_scan,
     const std::vector<uint32_t> *selected_columns = nullptr);
-
-/**
- * @brief Range-scans the primary index and returns PAX cell references.
- *
- * @details The caller evaluates cells directly and re-checks each row TID
- * after reading. `ok == false` means the caller should use RangeScan instead.
- */
-StatelessPaxRowRefScanResult PaxRowRefScan(
-    TableDictionary &tables, std::shared_mutex &schema_mutex,
-    std::string_view table_name, std::string_view start_key,
-    std::string_view end_key, uint64_t row_limit, bool reverse_scan);
 
 /**
  * @brief Range-scan a secondary index and resolve each hit to its base
@@ -86,15 +75,29 @@ StatelessPaxRowRefScanResult PaxRowRefScan(
  *
  * For every secondary key in `[start_key, end_key)`, pins its immutable
  * primary-key list and, for each key in the view, performs the same double-TID
- * base read as Read. The caller assembles the commit-time
+ * base read as the point read. The caller assembles the commit-time
  * ExternalRangeReadEntry from its own scan arguments and both returned
- * key lists. `ok == false` is the abort signal, as in RangeScan.
+ * key lists. `ok == false` is the abort signal, as in the primary range read.
  */
-StatelessSecondaryRangeScanResult SecondaryRangeScan(
+StatelessSecondaryRangeScanResult ScanIndex(
     TableDictionary &tables, std::shared_mutex &schema_mutex,
     std::string_view table_name, std::string_view index_name,
     std::string_view start_key, std::string_view end_key, uint64_t row_limit,
     bool reverse_scan, const std::vector<uint32_t> *selected_columns = nullptr);
+
+/**
+ * @brief Range-scans the primary index and returns PAX cell references.
+ *
+ * @details The caller evaluates cells directly and re-checks each row TID
+ * after reading. `ok == false` means the caller should use the row-shaped
+ * range read instead.
+ */
+StatelessPaxRowRefScanResult ScanPax(TableDictionary &tables,
+                                     std::shared_mutex &schema_mutex,
+                                     std::string_view table_name,
+                                     std::string_view start_key,
+                                     std::string_view end_key,
+                                     uint64_t row_limit, bool reverse_scan);
 
 }  // namespace Silo
 }  // namespace LineairDB

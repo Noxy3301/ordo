@@ -92,7 +92,7 @@ inline bool Delete(LineairDB::Database &db, const std::string &table,
 inline std::optional<std::string> Read(LineairDB::Database &db,
                                        const std::string &table,
                                        const std::string &key) {
-  auto result = db.StatelessRead(table, key);
+  auto result = db.Read(table, key);
   db.ReleaseMasstreeThreadEpoch();
   if (!result.found) return std::nullopt;
   return std::move(result.value);
@@ -111,8 +111,7 @@ inline std::vector<std::pair<std::string, std::string>> Scan(
     LineairDB::Database &db, const std::string &table,
     const std::string &start_key, const std::string &end_key,
     uint64_t row_limit = 0, bool reverse_scan = false) {
-  auto scan =
-      db.StatelessRangeScan(table, start_key, end_key, row_limit, reverse_scan);
+  auto scan = db.Scan(table, start_key, end_key, row_limit, reverse_scan);
   db.ReleaseMasstreeThreadEpoch();
   std::vector<std::pair<std::string, std::string>> rows;
   if (!scan.ok) return rows;
@@ -128,8 +127,8 @@ inline std::vector<std::pair<std::string, std::string>> ScanSecondaryIndex(
     const std::string &index_name, const std::string &start_key,
     const std::string &end_key, uint64_t row_limit = 0,
     bool reverse_scan = false) {
-  auto scan = db.StatelessSecondaryRangeScan(table, index_name, start_key,
-                                             end_key, row_limit, reverse_scan);
+  auto scan = db.ScanIndex(table, index_name, start_key, end_key, row_limit,
+                           reverse_scan);
   db.ReleaseMasstreeThreadEpoch();
   std::vector<std::pair<std::string, std::string>> rows;
   if (!scan.ok) return rows;

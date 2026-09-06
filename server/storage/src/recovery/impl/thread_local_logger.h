@@ -25,7 +25,7 @@
 #include <thread>
 
 #include "recovery/log_record.h"
-#include "recovery/logger_base.h"
+#include "types/snapshot.hpp"
 #include "recovery/wal.h"
 #include "types/definitions.h"
 #include "util/thread_key_storage.h"
@@ -47,7 +47,7 @@ namespace Recovery {
  * empty, and a flusher there would postpone those callbacks, and Fence,
  * indefinitely.
  */
-class ThreadLocalLogger final : public LoggerBase {
+class ThreadLocalLogger final {
  public:
   using PublishDurable = std::function<void(EpochNumber)>;
   using PublishFailure = std::function<void(int)>;
@@ -55,15 +55,42 @@ class ThreadLocalLogger final : public LoggerBase {
 
   ThreadLocalLogger(const Config &, PublishDurable, PublishFailure, ReadDurable,
                     WalIo io = WalIo::Posix());
-  ~ThreadLocalLogger() override;
+  ~ThreadLocalLogger();
 
-  bool Enqueue(const WriteSetType &ws_ref, EpochNumber epoch) final override;
-  WalScanResult ScanAndRepairWal(EpochNumber min_epoch) final override;
-  EpochNumber WalFrontier() const final override;
-  void StartFlusher() final override;
-  void ScheduleFlush(EpochNumber closed) final override;
-  void StopAndDrainFlusher() final override;
-  bool IsQuiescent() final override;
+  /**
+   * @brief Buffers one committed transaction's write set.
+   * @return Whether anything was buffered: a write set producing no
+   * key-value pair has nothing to make durable.
+   */
+  bool Enqueue(const WriteSetType &ws_ref, EpochNumber epoch);
+
+  /** @brief Reads and repairs the log. Completes before the flusher starts. */
+  WalScanResult ScanAndRepairWal(EpochNumber min_epoch);
+
+  /** @brief The epoch of the last frame actually written to the log. */
+  EpochNumber WalFrontier() const;
+
+  /** @brief Starts the flusher. Called once, after the log has been scanned. */
+  void StartFlusher();
+
+  /**
+   * @brief Publishes a new closed epoch. Only records at or below `closed`
+   * may be written, because a later epoch can still gain participants.
+   */
+  void ScheduleFlush(EpochNumber closed);
+
+  /**
+   * @brief Flushes everything already closed, then stops and joins the
+   * flusher. After a write failure nothing more is flushed and the join is
+   * immediate.
+   */
+  void StopAndDrainFlusher();
+
+  /**
+   * @brief True while every closed epoch handed over is durable, and
+   * unconditionally after a write failure.
+   */
+  bool IsQuiescent();
 
  private:
   struct ThreadLocalStorageNode {

@@ -105,13 +105,11 @@ bool Database::Impl::ComputeIndexNdvInt(const std::string_view table_name,
 
   if (index_name.empty()) {
     // Primary index entries are base rows, so count live rows directly.
-    primary_index.Scan(
-        std::string_view(), std::string_view(kFullScanEnd),
-        [&](std::string_view key, DataItem &item) -> bool {
-          if (!StableLive(item)) return false;
-          return count_key(key);
-        },
-        nullptr);
+    primary_index.Scan(std::string_view(), std::string_view(kFullScanEnd),
+                       [&](std::string_view key, DataItem &item) -> bool {
+                         if (!StableLive(item)) return false;
+                         return count_key(key);
+                       });
   } else {
     Index::SecondaryIndex *index = table.value()->GetSecondaryIndex(index_name);
     if (index == nullptr) return false;
@@ -142,16 +140,14 @@ bool Database::Impl::ComputeIndexNdvInt(const std::string_view table_name,
       return false;
     };
 
-    index->Scan(
-        std::string_view(), std::string_view(kFullScanEnd),
-        [&](std::string_view key) -> bool {
-          DataItem *item = index->Get(key);
-          if (item == nullptr || !stable_live_secondary(*item)) {
-            return false;
-          }
-          return count_key(key);
-        },
-        nullptr);
+    index->Scan(std::string_view(), std::string_view(kFullScanEnd),
+                [&](std::string_view key) -> bool {
+                  DataItem *item = index->Get(key);
+                  if (item == nullptr || !stable_live_secondary(*item)) {
+                    return false;
+                  }
+                  return count_key(key);
+                });
   }
 
   if (!ok) {
@@ -213,8 +209,7 @@ bool Database::Impl::ComputeIndexHistogram(const std::string_view table_name,
           [&](std::string_view key, DataItem &di) -> bool {
             if (StableLive(di)) return fn(key, static_cast<uint64_t>(1));
             return false;
-          },
-          nullptr);
+          });
     } else {
       Index::SecondaryIndex *index =
           table.value()->GetSecondaryIndex(index_name);
@@ -222,16 +217,14 @@ bool Database::Impl::ComputeIndexHistogram(const std::string_view table_name,
         malformed = true;
         return;
       }
-      index->Scan(
-          std::string_view(), std::string_view(kMaxEnd),
-          [&](std::string_view key) -> bool {
-            DataItem *item = index->Get(key);
-            if (item == nullptr) return false;
-            const uint64_t w = stable_pk_count(*item);
-            if (w == 0) return false;  // dead/empty secondary entry
-            return fn(key, w);
-          },
-          nullptr);
+      index->Scan(std::string_view(), std::string_view(kMaxEnd),
+                  [&](std::string_view key) -> bool {
+                    DataItem *item = index->Get(key);
+                    if (item == nullptr) return false;
+                    const uint64_t w = stable_pk_count(*item);
+                    if (w == 0) return false;  // dead/empty secondary entry
+                    return fn(key, w);
+                  });
     }
   };
 

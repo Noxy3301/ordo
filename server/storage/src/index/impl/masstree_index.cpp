@@ -139,29 +139,16 @@ inline void schedule_data_item_rcu_free(DataItem *item) {
 }
 
 // Adapter that drives masstree's forward/reverse scan into the LDB callback
-// shape (operation returning `true` means cancel). When `out_versions` is
-// set, every leaf masstree visits records (leaf_ptr, full_version_value) so
-// that MasstreeIndex::ValidatePhantoms can re-check at commit.
+// shape (operation returning `true` means cancel).
 struct ScanAdapter {
   const char *end_ptr;
   size_t end_len;
   bool has_end;
   std::function<bool(std::string_view)> cb;
-  IndexBase *owner;
-  std::vector<NodeVersionEntry> *out_versions;
   size_t count = 0;
 
   template <typename SS, typename K>
-  void visit_leaf(const SS &stack, const K &, threadinfo &) {
-    if (out_versions == nullptr) return;
-    // Use the unlocked projection so the recorded version matches what
-    // ValidatePhantoms (and tcursor's next_full_version_value bumping) read
-    // back later. Otherwise a stack snapshot taken while some writer briefly
-    // held the leaf lock would carry the lock_bit and mismatch.
-    out_versions->push_back({owner, static_cast<const void *>(stack.node()),
-                             static_cast<std::uint64_t>(
-                                 stack.node()->full_unlocked_version_value())});
-  }
+  void visit_leaf(const SS &, const K &, threadinfo &) {}
 
   // Returns true to keep scanning, false to stop (masstree convention).
   bool visit_value(Masstree::Str key, DataItem * /*val*/, threadinfo &) {
@@ -183,21 +170,10 @@ struct ScanValueAdapter {
   size_t end_len;
   bool has_end;
   std::function<bool(std::string_view, DataItem &)> cb;
-  IndexBase *owner;
-  std::vector<NodeVersionEntry> *out_versions;
   size_t count = 0;
 
   template <typename SS, typename K>
-  void visit_leaf(const SS &stack, const K &, threadinfo &) {
-    if (out_versions == nullptr) return;
-    // Use the unlocked projection so the recorded version matches what
-    // ValidatePhantoms (and tcursor's next_full_version_value bumping) read
-    // back later. Otherwise a stack snapshot taken while some writer briefly
-    // held the leaf lock would carry the lock_bit and mismatch.
-    out_versions->push_back({owner, static_cast<const void *>(stack.node()),
-                             static_cast<std::uint64_t>(
-                                 stack.node()->full_unlocked_version_value())});
-  }
+  void visit_leaf(const SS &, const K &, threadinfo &) {}
 
   bool visit_value(Masstree::Str key, DataItem *val, threadinfo &) {
     if (has_end) {
@@ -272,11 +248,7 @@ struct MasstreeIndex::Impl {
   }
 
   // Upsert with a freshly-allocated DataItem. Returns true on success.
-  // When `out_update` is non-null and the call structurally bumps the leaf
-  // (state=1 = key was absent), records (leaf, prev_version, next_version) so
-  // the OCC layer can apply Silo §4.6's own-write node-set rule.
-  bool Put(std::string_view key, DataItem &&rhs,
-           NodeVersionUpdate *out_update = nullptr) {
+  bool Put(std::string_view key, DataItem &&rhs) {
     ensure_thread_active();
     auto *fresh = new DataItem(std::move(rhs));
     cursor_type lp(table_, key.data(), key.size());
@@ -290,14 +262,6 @@ struct MasstreeIndex::Impl {
     } else {
       lp.value() = fresh;
     }
-    if (out_update != nullptr && !found) {
-      out_update->node_ptr = static_cast<const void *>(lp.node());
-      out_update->old_version =
-          static_cast<std::uint64_t>(lp.previous_full_version_value());
-      out_update->new_version =
-          static_cast<std::uint64_t>(lp.next_full_version_value(1));
-      out_update->valid = true;
-    }
     fence();
     // 1 == structural insert (bumps the leaf's vinsert counter), 0 == in-place
     // overwrite. Claiming an insert on overwrite would falsely trigger phantom
@@ -305,62 +269,6 @@ struct MasstreeIndex::Impl {
     lp.finish(found ? 0 : 1, *tls_ti);
     return true;
   }
-
-  // Inserts a blank DataItem if absent. Follows PL's EntryState matrix:
-  //   EXISTS   -> fail (key already in tree, data initialized)
-  //   DELETED  -> succeed (key in tree but data !IsInitialized; reuse slot)
-  //   NOT_EXISTS -> succeed (allocate new slot)
-  // Must not replace an existing DataItem* on DELETED reuse: concurrent
-  // readers may still hold a raw pointer from an earlier Get().
-  // When `out_update` is non-null and the call structurally bumps the leaf
-  // (NOT_EXISTS branch), records the version delta for Silo §4.6 own-write
-  // node-set reconciliation.
-  bool Insert(std::string_view key, NodeVersionUpdate *out_update = nullptr) {
-    ensure_thread_active();
-    cursor_type lp(table_, key.data(), key.size());
-    bool found = lp.find_insert(*tls_ti);
-    if (found) {
-      DataItem *existing = lp.value();
-      if (existing != nullptr && existing->IsPrimaryInitialized()) {
-        lp.finish(0, *tls_ti);
-        return false;
-      }
-      if (existing == nullptr) {
-        // Deleted-slot reuse must preserve the DataItem pointer. The TID
-        // chain on that slot is what lets readers detect delete/reinsert ABA.
-        assert(existing != nullptr);
-        lp.finish(0, *tls_ti);
-        return false;
-      }
-      fence();
-      lp.finish(0, *tls_ti);
-      return true;
-    }
-    if (out_update != nullptr) {
-      out_update->node_ptr = static_cast<const void *>(lp.node());
-      out_update->old_version =
-          static_cast<std::uint64_t>(lp.previous_full_version_value());
-      out_update->new_version =
-          static_cast<std::uint64_t>(lp.next_full_version_value(1));
-      out_update->valid = true;
-    }
-    lp.value() = NewBlankItem();
-    fence();
-    lp.finish(1, *tls_ti);
-    return true;
-  }
-
-  // Logical delete. Contract must match PL: the entry stays reachable via
-  // Get() so that Transaction::Impl::Delete's subsequent Update(nullptr, 0)
-  // finds the DataItem and transitions it to !IsInitialized (PL's DELETED
-  // state: point-present, range-absent, data !init). A physical erase here
-  // would make Get() return nullptr, which Update() interprets as
-  // "key missing" and aborts — breaking every primary-key DELETE.
-  //
-  // The actual structural removal happens later in Purge,
-  // called from the OCC layer after the write-set has been installed (i.e.
-  // after the DataItem already reads back as !IsInitialized to everyone).
-  bool Delete(std::string_view /*key*/) { return true; }
 
   // Structural removal of a committed delete. Invoked by the deferred reaper
   // after it has CAS-locked the DataItem and verified the tombstone TID.
@@ -396,51 +304,33 @@ struct MasstreeIndex::Impl {
     return true;
   }
 
-  // Idempotent blank insert: never removes, just ensures a slot exists. When
-  // `out_update` is non-null and we structurally bumped the leaf, records the
-  // version delta for Silo §4.6 own-write node-set reconciliation.
-  void ForcePutBlankEntry(std::string_view key,
-                          NodeVersionUpdate *out_update = nullptr) {
+  // Idempotent blank insert: never removes, just ensures a slot exists.
+  void PutBlank(std::string_view key) {
     ensure_thread_active();
     cursor_type lp(table_, key.data(), key.size());
     bool found = lp.find_insert(*tls_ti);
     if (!found) {
       lp.value() = NewBlankItem();
     }
-    if (out_update != nullptr && !found) {
-      out_update->node_ptr = static_cast<const void *>(lp.node());
-      out_update->old_version =
-          static_cast<std::uint64_t>(lp.previous_full_version_value());
-      out_update->new_version =
-          static_cast<std::uint64_t>(lp.next_full_version_value(1));
-      out_update->valid = true;
-    }
     fence();
     lp.finish(found ? 0 : 1, *tls_ti);
   }
 
   size_t Scan(std::string_view begin, std::optional<std::string_view> end,
-              std::function<bool(std::string_view)> op, IndexBase *owner,
-              std::vector<NodeVersionEntry> *out_versions) {
+              std::function<bool(std::string_view)> op) {
     ensure_thread_active();
     ScanAdapter adapter{end.has_value() ? end->data() : nullptr,
-                        end.has_value() ? end->size() : 0,
-                        end.has_value(),
-                        std::move(op),
-                        owner,
-                        out_versions,
-                        0};
+                        end.has_value() ? end->size() : 0, end.has_value(),
+                        std::move(op), 0};
     Masstree::Str firstkey(begin.data(), begin.size());
     table_.scan(firstkey, /*emit_firstkey=*/true, adapter, *tls_ti);
     return adapter.count;
   }
 
   size_t Scan(std::string_view begin, std::string_view end,
-              std::function<bool(std::string_view, DataItem &)> op,
-              IndexBase *owner, std::vector<NodeVersionEntry> *out_versions) {
+              std::function<bool(std::string_view, DataItem &)> op) {
     ensure_thread_active();
-    ScanValueAdapter adapter{end.data(), end.size(),   true, std::move(op),
-                             owner,      out_versions, 0};
+    ScanValueAdapter adapter{end.data(), end.size(), true, std::move(op), 0};
     Masstree::Str firstkey(begin.data(), begin.size());
     table_.scan(firstkey, /*emit_firstkey=*/true, adapter, *tls_ti);
     return adapter.count;
@@ -448,8 +338,7 @@ struct MasstreeIndex::Impl {
 
   size_t ScanReverse(std::string_view begin,
                      std::optional<std::string_view> end,
-                     std::function<bool(std::string_view)> op, IndexBase *owner,
-                     std::vector<NodeVersionEntry> *out_versions) {
+                     std::function<bool(std::string_view)> op) {
     ensure_thread_active();
     // Reverse scan walks downward from `end - 1`, stopping once key < begin.
     // Range is [begin, end) just like forward Scan.
@@ -461,8 +350,7 @@ struct MasstreeIndex::Impl {
       if (key_below_begin) return true;  // below begin -> stop
       return cb(key);
     };
-    ScanAdapter adapter{nullptr,      0, false, std::move(adapter_op), owner,
-                        out_versions, 0};
+    ScanAdapter adapter{nullptr, 0, false, std::move(adapter_op), 0};
     if (end.has_value()) {
       Masstree::Str firstkey(end->data(), end->size());
       table_.rscan(firstkey, /*emit_firstkey=*/false, adapter, *tls_ti);
@@ -475,9 +363,7 @@ struct MasstreeIndex::Impl {
   }
 
   size_t ScanReverse(std::string_view begin, std::string_view end,
-                     std::function<bool(std::string_view, DataItem &)> op,
-                     IndexBase *owner,
-                     std::vector<NodeVersionEntry> *out_versions) {
+                     std::function<bool(std::string_view, DataItem &)> op) {
     ensure_thread_active();
     auto adapter_op = [b_ptr = begin.data(), b_len = begin.size(),
                        cb = std::move(op)](std::string_view key,
@@ -488,8 +374,7 @@ struct MasstreeIndex::Impl {
       if (key_below_begin) return true;
       return cb(key, val);
     };
-    ScanValueAdapter adapter{
-        nullptr, 0, false, std::move(adapter_op), owner, out_versions, 0};
+    ScanValueAdapter adapter{nullptr, 0, false, std::move(adapter_op), 0};
     Masstree::Str firstkey(end.data(), end.size());
     table_.rscan(firstkey, /*emit_firstkey=*/false, adapter, *tls_ti);
     return adapter.count;
@@ -497,39 +382,8 @@ struct MasstreeIndex::Impl {
 
   void ForEach(std::function<bool(std::string_view, DataItem &)> op) {
     ensure_thread_active();
-    ScanValueAdapter adapter{nullptr, 0,       false, std::move(op),
-                             nullptr, nullptr, 0};
+    ScanValueAdapter adapter{nullptr, 0, false, std::move(op), 0};
     table_.scan(Masstree::Str(), /*emit_firstkey=*/true, adapter, *tls_ti);
-  }
-
-  bool ValidatePhantoms(const std::vector<NodeVersionEntry> &entries,
-                        IndexBase *self) {
-    // Re-stamp gc_epoch_ before dereferencing leaf pointers from `entries`.
-    // Those pointers were captured during an earlier scan on this or
-    // another thread and are RCU-protected; without an active enrolment
-    // this thread could be invisible to min_active_epoch() and let RCU
-    // free a leaf out from under us mid-check.
-    ensure_thread_active();
-    for (const auto &e : entries) {
-      if (e.owner != self) continue;  // entry belongs to a different index
-      const auto *leaf = static_cast<const leaf_type *>(e.node_ptr);
-      // full_unlocked_version_value() masks the transient lock_bit (and
-      // handles the split-bit corner case), so an unrelated concurrent
-      // writer holding the leaf lock at validation time does not produce
-      // a false-positive abort. tcursor::previous_full_version_value and
-      // next_full_version_value, which seed the entries we are comparing
-      // against, also return the unlocked projection -> apples to apples.
-      if (static_cast<std::uint64_t>(leaf->full_unlocked_version_value()) !=
-          e.version) {
-        return false;
-      }
-    }
-    return true;
-  }
-
-  void WaitForIndexIsLinearizable() {
-    // Masstree's operations are linearizable without explicit fencing on the
-    // caller side; unlike PL there is no epoch-deferred event list to drain.
   }
 };
 
@@ -544,70 +398,39 @@ void MasstreeIndex::SetPaxStore(Pax::PaxStore *store) {
 
 DataItem *MasstreeIndex::Get(std::string_view key) { return impl_->Get(key); }
 
-bool MasstreeIndex::Put(std::string_view key, DataItem &&rhs,
-                        NodeVersionUpdate *out_update) {
-  bool ok = impl_->Put(key, std::move(rhs), out_update);
-  if (out_update != nullptr && out_update->valid) out_update->owner = this;
-  return ok;
+bool MasstreeIndex::Put(std::string_view key, DataItem &&rhs) {
+  return impl_->Put(key, std::move(rhs));
 }
 
-bool MasstreeIndex::Insert(std::string_view key,
-                           NodeVersionUpdate *out_update) {
-  bool ok = impl_->Insert(key, out_update);
-  if (out_update != nullptr && out_update->valid) out_update->owner = this;
-  return ok;
-}
-
-bool MasstreeIndex::Delete(std::string_view key) { return impl_->Delete(key); }
-
-void MasstreeIndex::ForcePutBlankEntry(std::string_view key,
-                                       NodeVersionUpdate *out_update) {
-  impl_->ForcePutBlankEntry(key, out_update);
-  if (out_update != nullptr && out_update->valid) out_update->owner = this;
-}
+void MasstreeIndex::PutBlank(std::string_view key) { impl_->PutBlank(key); }
 
 size_t MasstreeIndex::Scan(std::string_view begin,
                            std::optional<std::string_view> end,
-                           std::function<bool(std::string_view)> operation,
-                           std::vector<NodeVersionEntry> *out_versions) {
-  return impl_->Scan(begin, end, std::move(operation), this, out_versions);
+                           std::function<bool(std::string_view)> operation) {
+  return impl_->Scan(begin, end, std::move(operation));
 }
 
 size_t MasstreeIndex::Scan(
     std::string_view begin, std::string_view end,
-    std::function<bool(std::string_view, DataItem &)> operation,
-    std::vector<NodeVersionEntry> *out_versions) {
-  return impl_->Scan(begin, end, std::move(operation), this, out_versions);
+    std::function<bool(std::string_view, DataItem &)> operation) {
+  return impl_->Scan(begin, end, std::move(operation));
 }
 
 size_t MasstreeIndex::ScanReverse(
     std::string_view begin, std::optional<std::string_view> end,
-    std::function<bool(std::string_view)> operation,
-    std::vector<NodeVersionEntry> *out_versions) {
-  return impl_->ScanReverse(begin, end, std::move(operation), this,
-                            out_versions);
+    std::function<bool(std::string_view)> operation) {
+  return impl_->ScanReverse(begin, end, std::move(operation));
 }
 
 size_t MasstreeIndex::ScanReverse(
     std::string_view begin, std::string_view end,
-    std::function<bool(std::string_view, DataItem &)> operation,
-    std::vector<NodeVersionEntry> *out_versions) {
-  return impl_->ScanReverse(begin, end, std::move(operation), this,
-                            out_versions);
+    std::function<bool(std::string_view, DataItem &)> operation) {
+  return impl_->ScanReverse(begin, end, std::move(operation));
 }
 
 void MasstreeIndex::ForEach(
     std::function<bool(std::string_view, DataItem &)> operation) {
   impl_->ForEach(std::move(operation));
-}
-
-void MasstreeIndex::WaitForIndexIsLinearizable() {
-  impl_->WaitForIndexIsLinearizable();
-}
-
-bool MasstreeIndex::ValidatePhantoms(
-    const std::vector<NodeVersionEntry> &entries) {
-  return impl_->ValidatePhantoms(entries, this);
 }
 
 bool MasstreeIndex::Purge(std::string_view key, DataItem *expected,

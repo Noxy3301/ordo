@@ -45,13 +45,6 @@ class Reaper {
                TransactionId delete_commit_tid);
 
   /**
-   * @brief Native-path form: derives the target index from a committed
-   * write-set Snapshot and enqueues only when it encodes a primary or
-   * secondary delete.
-   */
-  void Enqueue(const Snapshot &snapshot, TransactionId delete_commit_tid);
-
-  /**
    * @brief Purge every candidate whose delete epoch lies more than one full
    * epoch behind `published_epoch`.
    *

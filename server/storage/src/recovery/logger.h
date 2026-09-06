@@ -26,13 +26,15 @@
 #include <string>
 
 #include "log_record.h"
-#include "logger_base.h"
 #include "types/data_buffer.hpp"
 #include "types/definitions.h"
+#include "types/snapshot.hpp"
 #include "wal.h"
 
 namespace LineairDB {
 namespace Recovery {
+
+class ThreadLocalLogger;
 
 /**
  * @brief Owns the write-ahead log and the durability frontier.
@@ -64,16 +66,15 @@ class Logger {
     WriteSetType recovery_set;
   };
 
-  // The record itself lives at namespace scope so that persistence code can
-  // name it without depending on this interface; these aliases keep the
-  // nested names that existing callers use.
-  using LogRecord = Recovery::LogRecord;
-  using LogRecords = Recovery::LogRecords;
-
   explicit Logger(const Config &, WalIo io = WalIo::Posix());
   ~Logger();
 
-  /** See LoggerBase::Enqueue. */
+  /**
+   * @brief Buffers one committed transaction's write set.
+   * @return Whether anything was buffered: a transaction whose write set
+   * produces no key-value pair has nothing to make durable, and the commit
+   * path must not wait for it.
+   */
   bool Enqueue(const WriteSetType &ws_ref, EpochNumber epoch);
 
   /**
@@ -90,15 +91,24 @@ class Logger {
    */
   void StartFlusher();
 
-  /** See LoggerBase::ScheduleFlush. */
+  /**
+   * @brief Publishes a new closed epoch.
+   * @note Called from the epoch writer thread; only records at or below
+   * `closed` may be written, because a later epoch can still gain
+   * participants.
+   */
   void ScheduleFlush(EpochNumber closed);
 
   EpochNumber GetDurableEpoch() const {
     return durable_epoch_.load(std::memory_order_seq_cst);
   }
 
-  /** See LoggerBase::WalFrontier. */
-  EpochNumber GetWalFrontier() const { return logger_->WalFrontier(); }
+  /**
+   * @brief The epoch of the last frame actually written to the log. Safe to
+   * call from a thread other than the flusher's; see Wal::frontier for what
+   * makes that safe and why it is not the same question as GetDurableEpoch.
+   */
+  EpochNumber GetWalFrontier() const;
 
   /**
    * @brief Blocks until the frontier reaches `commit_epoch`.
@@ -185,7 +195,7 @@ class Logger {
 
   // Declared last: the backend's flusher publishes through the members above,
   // so it must be destroyed before them.
-  std::unique_ptr<LoggerBase> logger_;
+  std::unique_ptr<ThreadLocalLogger> logger_;
 };
 
 }  // namespace Recovery

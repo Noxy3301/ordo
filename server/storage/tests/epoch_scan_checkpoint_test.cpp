@@ -146,7 +146,7 @@ class EpochScanCheckpointTest : public ::testing::Test {
 
   static LineairDB::StatelessReadResult Read(LineairDB::Database &db,
                                              const std::string &key) {
-    auto result = db.StatelessRead(kTable, key);
+    auto result = db.Read(kTable, key);
     db.ReleaseMasstreeThreadEpoch();
     return result;
   }
@@ -163,8 +163,7 @@ class EpochScanCheckpointTest : public ::testing::Test {
 
   /** Every secondary-index hit, as `secondary_key/primary_key=value`. */
   static std::vector<std::string> ReadIndex(LineairDB::Database &db) {
-    auto result =
-        db.StatelessSecondaryRangeScan(kTable, kIndex, "", "\xff", 0, false);
+    auto result = db.ScanIndex(kTable, kIndex, "", "\xff", 0, false);
     db.ReleaseMasstreeThreadEpoch();
     std::vector<std::string> hits;
     for (const auto &row : result.rows) {

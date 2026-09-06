@@ -4,13 +4,14 @@
 
 namespace LineairDB::Index {
 
+// The declared kind of one secondary index. kNone and kUnique are the only
+// accepted values; CreateSecondaryIndex refuses anything else.
 class SecondaryIndexType {
  public:
   using RawType = uint32_t;
 
   static constexpr RawType kNone = 0;
-  static constexpr RawType kDictUnique = 1u << 0;
-  static constexpr RawType kDictNotNull = 1u << 1;
+  static constexpr RawType kUnique = 1;
 
   constexpr SecondaryIndexType() : raw_(kNone) {}
   constexpr explicit SecondaryIndexType(RawType raw) : raw_(raw) {}
@@ -20,7 +21,7 @@ class SecondaryIndexType {
   }
 
   constexpr RawType Raw() const { return raw_; }
-  constexpr bool IsUnique() const { return (raw_ & kDictUnique) != 0; }
+  constexpr bool IsUnique() const { return raw_ == kUnique; }
 
  private:
   RawType raw_;

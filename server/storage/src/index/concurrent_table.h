@@ -24,7 +24,7 @@
 #include <string>
 #include <string_view>
 
-#include "index/index_base.h"
+#include "index/impl/masstree_index.hpp"
 #include "types/data_item.hpp"
 #include "types/definitions.h"
 #include "types/snapshot.hpp"
@@ -41,51 +41,33 @@ class ConcurrentTable {
   /**
    * @brief Routes future primary-row placeholders through `store`.
    */
-  void SetPaxStore(Pax::PaxStore *store) { index_->SetPaxStore(store); }
+  void SetPaxStore(Pax::PaxStore *store) { index_.SetPaxStore(store); }
 
   DataItem *Get(const std::string_view key);
-  // GetOrInsert reports a non-null `out_update->valid=true` only when the
-  // missing-key path actually structurally inserted a placeholder leaf.
-  DataItem *GetOrInsert(const std::string_view key,
-                        NodeVersionUpdate *out_update = nullptr);
-  bool Put(const std::string_view key, DataItem &&value,
-           NodeVersionUpdate *out_update = nullptr);
+  DataItem *GetOrInsert(const std::string_view key);
+  bool Put(const std::string_view key, DataItem &&value);
   void ForEach(std::function<bool(std::string_view, DataItem &)>);
   size_t Scan(const std::string_view begin,
               const std::optional<std::string_view> end,
-              std::function<bool(std::string_view)> operation,
-              std::vector<NodeVersionEntry> *out_versions = nullptr);
+              std::function<bool(std::string_view)> operation);
   size_t Scan(const std::string_view begin, const std::string_view end,
-              std::function<bool(std::string_view, DataItem &)> operation,
-              std::vector<NodeVersionEntry> *out_versions = nullptr);
+              std::function<bool(std::string_view, DataItem &)> operation);
   size_t ScanReverse(const std::string_view begin,
                      const std::optional<std::string_view> end,
-                     std::function<bool(std::string_view)> operation,
-                     std::vector<NodeVersionEntry> *out_versions = nullptr);
+                     std::function<bool(std::string_view)> operation);
   size_t ScanReverse(
       const std::string_view begin, const std::string_view end,
-      std::function<bool(std::string_view, DataItem &)> operation,
-      std::vector<NodeVersionEntry> *out_versions = nullptr);
-  bool Insert(const std::string_view key,
-              NodeVersionUpdate *out_update = nullptr);
+      std::function<bool(std::string_view, DataItem &)> operation);
 
-  void ForcePutBlankEntry(const std::string_view key,
-                          NodeVersionUpdate *out_update = nullptr);
-
-  bool Delete(const std::string_view key);
+  void PutBlank(const std::string_view key);
 
   bool Purge(std::string_view key, DataItem *expected,
              TransactionId retired_tid = {}) {
-    return index_->Purge(key, expected, retired_tid);
+    return index_.Purge(key, expected, retired_tid);
   }
 
-  void WaitForIndexIsLinearizable();
-
-  // Re-check deferred phantom snapshots (Masstree backend) for this index.
-  bool ValidatePhantoms(const std::vector<NodeVersionEntry> &entries);
-
  private:
-  std::unique_ptr<IndexBase> index_;
+  MasstreeIndex index_;
   LineairDB::EpochFramework &epoch_manager_ref_;
 };
 }  // namespace Index

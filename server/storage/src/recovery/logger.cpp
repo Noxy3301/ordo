@@ -344,6 +344,8 @@ void Logger::ScheduleFlush(EpochNumber closed) {
   logger_->ScheduleFlush(closed);
 }
 
+EpochNumber Logger::GetWalFrontier() const { return logger_->WalFrontier(); }
+
 bool Logger::IsQuiescent() { return logger_->IsQuiescent(); }
 
 void Logger::StopAndDrainFlusher() {

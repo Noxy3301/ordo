@@ -56,12 +56,9 @@ class Table {
    */
   Pax::PaxStore *GetPaxStore() const { return pax_store_.get(); }
 
-  bool Delete(const std::string_view key) { return primary_index_.Delete(key); }
-
   const std::string &GetTableName() const;
 
   Index::ConcurrentTable &GetPrimaryIndex();
-  void WaitForIndexIsLinearizable();
 
   Index::SecondaryIndex *GetSecondaryIndex(const std::string_view index_name);
 

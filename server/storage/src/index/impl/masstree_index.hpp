@@ -2,10 +2,14 @@
 #define LINEAIRDB_INDEX_IMPL_MASSTREE_INDEX_HPP
 
 #include <lineairdb/config.h>
+#include <lineairdb/pax_store.h>
 
+#include <functional>
 #include <memory>
+#include <optional>
+#include <string_view>
 
-#include "index/index_base.h"
+#include "types/data_item.hpp"
 #include "util/epoch_framework.hpp"
 
 namespace LineairDB {
@@ -15,47 +19,46 @@ namespace Index {
 // masstree_index.cpp; this header stays free of masstree to avoid leaking
 // its templates / macros into the rest of LDB (and through there, into tests
 // that do not have masstree on their include path).
-class MasstreeIndex final : public IndexBase {
+class MasstreeIndex final {
  public:
   MasstreeIndex(Config c, EpochFramework &e);
-  ~MasstreeIndex() override;
+  ~MasstreeIndex();
 
-  void SetPaxStore(Pax::PaxStore *store) override;
+  /**
+   * @brief Routes future blank primary rows through a table PAX store.
+   *
+   * @details Secondary indexes never set a PaxStore: they store index
+   * metadata rather than table row payloads.
+   */
+  void SetPaxStore(Pax::PaxStore *store);
 
-  DataItem *Get(std::string_view key) override;
-  bool Put(std::string_view key, DataItem &&rhs,
-           NodeVersionUpdate *out_update = nullptr) override;
-  bool Insert(std::string_view key,
-              NodeVersionUpdate *out_update = nullptr) override;
-  bool Delete(std::string_view key) override;
+  DataItem *Get(std::string_view key);
+  bool Put(std::string_view key, DataItem &&rhs);
 
-  void ForcePutBlankEntry(std::string_view key,
-                          NodeVersionUpdate *out_update = nullptr) override;
+  // Seed a blank entry for a key that later writes fill in. Idempotent on an
+  // existing key.
+  void PutBlank(std::string_view key);
 
+  // Range operations. Return the number of keys the walk emitted.
   size_t Scan(std::string_view begin, std::optional<std::string_view> end,
-              std::function<bool(std::string_view)> operation,
-              std::vector<NodeVersionEntry> *out_versions = nullptr) override;
+              std::function<bool(std::string_view)> operation);
   size_t Scan(std::string_view begin, std::string_view end,
-              std::function<bool(std::string_view, DataItem &)> operation,
-              std::vector<NodeVersionEntry> *out_versions = nullptr) override;
-  size_t ScanReverse(
-      std::string_view begin, std::optional<std::string_view> end,
-      std::function<bool(std::string_view)> operation,
-      std::vector<NodeVersionEntry> *out_versions = nullptr) override;
+              std::function<bool(std::string_view, DataItem &)> operation);
+  size_t ScanReverse(std::string_view begin,
+                     std::optional<std::string_view> end,
+                     std::function<bool(std::string_view)> operation);
   size_t ScanReverse(
       std::string_view begin, std::string_view end,
-      std::function<bool(std::string_view, DataItem &)> operation,
-      std::vector<NodeVersionEntry> *out_versions = nullptr) override;
+      std::function<bool(std::string_view, DataItem &)> operation);
 
-  void ForEach(
-      std::function<bool(std::string_view, DataItem &)> operation) override;
+  void ForEach(std::function<bool(std::string_view, DataItem &)> operation);
 
-  void WaitForIndexIsLinearizable() override;
-
-  bool ValidatePhantoms(const std::vector<NodeVersionEntry> &entries) override;
-
+  // Structurally remove a committed tombstone. Called by the deferred purge
+  // reaper only, after it has locked `expected`, verified the delete TID, and
+  // confirmed the key still resolves to the same DataItem. `retired_tid` is
+  // published on the removed item before it is RCU-retired.
   bool Purge(std::string_view key, DataItem *expected,
-             TransactionId retired_tid = {}) override;
+             TransactionId retired_tid = {});
 
  private:
   struct Impl;

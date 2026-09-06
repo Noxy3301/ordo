@@ -384,10 +384,10 @@ bool ReplayRange(Ctx &c, const ExternalRangeReadEntry &range) {
 
   if (range.reverse_scan) {
     table.value()->GetPrimaryIndex().ScanReverse(range.start_key, range.end_key,
-                                                 collect_key, nullptr);
+                                                 collect_key);
   } else {
     table.value()->GetPrimaryIndex().Scan(range.start_key, range.end_key,
-                                          collect_key, nullptr);
+                                          collect_key);
   }
   if (aborted) return false;
   return matches && result_pos == range.result_keys.size();
@@ -455,10 +455,9 @@ bool ReplayIndexRange(Ctx &c, const ExternalRangeReadEntry &range) {
   };
 
   if (range.reverse_scan) {
-    index->ScanReverse(range.start_key, range.end_key, collect_secondary_key,
-                       nullptr);
+    index->ScanReverse(range.start_key, range.end_key, collect_secondary_key);
   } else {
-    index->Scan(range.start_key, range.end_key, collect_secondary_key, nullptr);
+    index->Scan(range.start_key, range.end_key, collect_secondary_key);
   }
   if (aborted) return false;
   return matches && result_pos == range.result_keys.size() &&

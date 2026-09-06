@@ -27,30 +27,14 @@
 #include "index/secondary_index_type.h"
 
 namespace LineairDB {
-namespace Index {
-class ConcurrentTable;
-class SecondaryIndex;
-}  // namespace Index
 
 struct Snapshot {
   std::string key;
   DataItem data_item_copy;
   DataItem *index_cache;
-  bool is_read_modify_write;
   std::string table_name;
   std::string index_name;
   Index::SecondaryIndexType index_type;
-  // Owning table / SI of `key`. Populated at Snapshot construction time so
-  // the OCC backend can structurally erase the entry from the underlying
-  // index after a committed delete without re-resolving by table_name.
-  // For primary-index writes pi_ref is non-null; for SI writes
-  // si_ref is non-null. PL backends ignore both (PL doesn't expose
-  // Purge).
-  Index::ConcurrentTable *pi_ref = nullptr;
-  Index::SecondaryIndex *si_ref = nullptr;
-  // Set when this write claimed a key that held no row. Commit refuses it if
-  // the claimed entry holds one by then.
-  bool is_insert = false;
   struct SecondaryIndexDelta {
     std::string primary_key;
     SecondaryIndexOp op;
@@ -61,19 +45,14 @@ struct Snapshot {
            DataItem *const i, std::string_view tn, std::string_view in,
            const TransactionId ver = 0,
            Index::SecondaryIndexType it = Index::SecondaryIndexType())
-      : key(k),
-        index_cache(i),
-        is_read_modify_write(false),
-        table_name(tn),
-        index_name(in),
-        index_type(it) {
+      : key(k), index_cache(i), table_name(tn), index_name(in), index_type(it) {
     if (v != nullptr) data_item_copy.Reset(v, s, ver);
   }
   Snapshot(const Snapshot &) = default;
   Snapshot &operator=(const Snapshot &) = default;
   // Declaring copy ctor/assign above suppresses implicit move generation;
-  // emplace_back(std::move(snapshot)) in transaction_impl.cpp would otherwise
-  // silently fall back to the deep copy path below
+  // an emplace_back(std::move(snapshot)) would otherwise silently fall back
+  // to the deep copy path
   Snapshot(Snapshot &&) = default;
   Snapshot &operator=(Snapshot &&) = default;
 
@@ -87,19 +66,8 @@ struct Snapshot {
     }
     secondary_index_deltas.push_back({std::string(primary_key), op});
   }
-
-  static bool Compare(const Snapshot &left, const Snapshot &right) {
-    if (left.table_name != right.table_name) {
-      return left.table_name < right.table_name;
-    }
-    if (left.index_name != right.index_name) {
-      return left.index_name < right.index_name;
-    }
-    return left.key < right.key;
-  }
 };
 
-using ReadSetType = std::vector<Snapshot>;
 using WriteSetType = std::vector<Snapshot>;
 
 }  // namespace LineairDB

@@ -17,7 +17,7 @@ namespace LineairDB {
 // ---------------------------------------------------------------------
 
 /**
- * @brief Outcome of a single Database::StatelessRead.
+ * @brief Outcome of a single Database::Read.
  *
  * `tid` is the packed (epoch:32 | tid:32) version observed at read time.
  * Resubmit the same `tid` through ValidateAndCommit inside an
@@ -55,7 +55,7 @@ struct StatelessSecondaryScanRow {
 };
 
 /**
- * @brief Outcome of Database::StatelessRangeScan.
+ * @brief Outcome of Database::Scan.
  *
  * `ok` separates a genuine empty result from a Masstree retry that gave up
  * or a missing table. On `ok == false` the caller should abort the logical
@@ -87,7 +87,7 @@ struct StatelessPaxRowRef {
  * @brief Outcome of a PAX primary-index range scan.
  *
  * @details `ok == false` means the caller must use the materializing
- * StatelessRangeScan path instead. This happens when the table is missing, has
+ * Scan path instead. This happens when the table is missing, has
  * no PAX store, contains heap-fallback rows, or the index scan retries out.
  */
 struct StatelessPaxRowRefScanResult {
@@ -98,12 +98,12 @@ struct StatelessPaxRowRefScanResult {
 /**
  * @brief Returns the current packed TID for a PAX row reference.
  *
- * @param row Row reference returned by Database::StatelessPaxRowRefScan.
+ * @param row Row reference returned by Database::ScanPax.
  */
 uint64_t PaxRowRefCurrentTid(const StatelessPaxRowRef &row);
 
 /**
- * @brief Outcome of Database::StatelessSecondaryRangeScan.
+ * @brief Outcome of Database::ScanIndex.
  */
 struct StatelessSecondaryRangeScanResult {
   bool ok = false;

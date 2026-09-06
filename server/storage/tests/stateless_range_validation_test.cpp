@@ -41,8 +41,7 @@ LineairDB::ExternalRangeReadEntry ScanRange(LineairDB::Database &db,
                                             const std::string &end_key,
                                             uint64_t row_limit = 0,
                                             bool reverse_scan = false) {
-  auto scan = db.StatelessRangeScan(kTable, start_key, end_key, row_limit,
-                                    reverse_scan);
+  auto scan = db.Scan(kTable, start_key, end_key, row_limit, reverse_scan);
   db.ReleaseMasstreeThreadEpoch();
   EXPECT_TRUE(scan.ok);
 

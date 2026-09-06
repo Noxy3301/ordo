@@ -42,11 +42,13 @@ std::vector<StatelessReadResult> BatchRead(
   return results;
 }
 
-StatelessRangeScanResult RangeScan(
-    TableDictionary &tables, std::shared_mutex &schema_mutex,
-    const std::string_view table_name, const std::string_view start_key,
-    const std::string_view end_key, uint64_t row_limit, bool reverse_scan,
-    const std::vector<uint32_t> *selected_columns) {
+StatelessRangeScanResult Scan(TableDictionary &tables,
+                              std::shared_mutex &schema_mutex,
+                              const std::string_view table_name,
+                              const std::string_view start_key,
+                              const std::string_view end_key,
+                              uint64_t row_limit, bool reverse_scan,
+                              const std::vector<uint32_t> *selected_columns) {
   StatelessRangeScanResult result;
   if (end_key.empty()) return result;
 
@@ -93,68 +95,7 @@ uint64_t PaxRowRefCurrentTid(const StatelessPaxRowRef &row) {
 
 namespace Silo {
 
-StatelessPaxRowRefScanResult PaxRowRefScan(
-    TableDictionary &tables, std::shared_mutex &schema_mutex,
-    const std::string_view table_name, const std::string_view start_key,
-    const std::string_view end_key, uint64_t row_limit, bool reverse_scan) {
-  StatelessPaxRowRefScanResult result;
-  if (end_key.empty()) return result;
-
-  std::shared_lock<std::shared_mutex> lk(schema_mutex);
-  auto table = tables.GetTable(table_name);
-  if (!table.has_value()) return result;
-
-  // PAX row references are only valid when every live row is in PAX strips.
-  // Heap fallback rows are invisible to strip-only readers, so fall back.
-  auto *store = table.value()->GetPaxStore();
-  if (store == nullptr || store->overflow_count() > 0) return result;
-  result.ok = true;
-
-  uint64_t returned_rows = 0;
-  bool saw_non_pax = false;
-
-  auto append_ref = [&](std::string_view key, DataItem &item_ref) {
-    // Observe the same stable unlocked TID that a materialized read would use.
-    // The caller re-checks this TID after reading cells from the strip.
-    TransactionId tid;
-    for (;;) {
-      tid = item_ref.transaction_id.load();
-      if (!(tid.tid & 1u)) break;
-      _mm_pause();
-    }
-
-    const size_t size = item_ref.buffer.size;
-    if (size == 0) return false;
-    // Mixed PAX/heap storage makes strip-only row references incomplete.
-    if (!item_ref.buffer.is_pax() || !item_ref.buffer.pax_allocated()) {
-      saw_non_pax = true;
-      return true;
-    }
-
-    // Return a reference to the PAX location instead of gathering row bytes.
-    result.rows.push_back({std::string(key), item_ref.buffer.pax_group(),
-                           item_ref.buffer.pax_slot(),
-                           static_cast<uint32_t>(size), PackTransactionId(tid),
-                           &item_ref});
-    ++returned_rows;
-    return row_limit > 0 && returned_rows >= row_limit;
-  };
-
-  if (reverse_scan) {
-    table.value()->GetPrimaryIndex().ScanReverse(start_key, end_key,
-                                                 append_ref);
-  } else {
-    table.value()->GetPrimaryIndex().Scan(start_key, end_key, append_ref);
-  }
-  if (saw_non_pax) {
-    // Keep the fallback contract simple: no partial refs escape on failure.
-    result.ok = false;
-    result.rows.clear();
-  }
-  return result;
-}
-
-StatelessSecondaryRangeScanResult SecondaryRangeScan(
+StatelessSecondaryRangeScanResult ScanIndex(
     TableDictionary &tables, std::shared_mutex &schema_mutex,
     const std::string_view table_name, const std::string_view index_name,
     const std::string_view start_key, const std::string_view end_key,
@@ -211,6 +152,69 @@ StatelessSecondaryRangeScanResult SecondaryRangeScan(
     index->ScanReverse(start_key, end_key, append_secondary_entry);
   } else {
     index->Scan(start_key, end_key, append_secondary_entry);
+  }
+  return result;
+}
+
+StatelessPaxRowRefScanResult ScanPax(TableDictionary &tables,
+                                     std::shared_mutex &schema_mutex,
+                                     const std::string_view table_name,
+                                     const std::string_view start_key,
+                                     const std::string_view end_key,
+                                     uint64_t row_limit, bool reverse_scan) {
+  StatelessPaxRowRefScanResult result;
+  if (end_key.empty()) return result;
+
+  std::shared_lock<std::shared_mutex> lk(schema_mutex);
+  auto table = tables.GetTable(table_name);
+  if (!table.has_value()) return result;
+
+  // PAX row references are only valid when every live row is in PAX strips.
+  // Heap fallback rows are invisible to strip-only readers, so fall back.
+  auto *store = table.value()->GetPaxStore();
+  if (store == nullptr || store->overflow_count() > 0) return result;
+  result.ok = true;
+
+  uint64_t returned_rows = 0;
+  bool saw_non_pax = false;
+
+  auto append_ref = [&](std::string_view key, DataItem &item_ref) {
+    // Observe the same stable unlocked TID that a materialized read would use.
+    // The caller re-checks this TID after reading cells from the strip.
+    TransactionId tid;
+    for (;;) {
+      tid = item_ref.transaction_id.load();
+      if (!(tid.tid & 1u)) break;
+      _mm_pause();
+    }
+
+    const size_t size = item_ref.buffer.size;
+    if (size == 0) return false;
+    // Mixed PAX/heap storage makes strip-only row references incomplete.
+    if (!item_ref.buffer.is_pax() || !item_ref.buffer.pax_allocated()) {
+      saw_non_pax = true;
+      return true;
+    }
+
+    // Return a reference to the PAX location instead of gathering row bytes.
+    result.rows.push_back({std::string(key), item_ref.buffer.pax_group(),
+                           item_ref.buffer.pax_slot(),
+                           static_cast<uint32_t>(size), PackTransactionId(tid),
+                           &item_ref});
+    ++returned_rows;
+    return row_limit > 0 && returned_rows >= row_limit;
+  };
+
+  if (reverse_scan) {
+    table.value()->GetPrimaryIndex().ScanReverse(start_key, end_key,
+                                                 append_ref);
+  } else {
+    table.value()->GetPrimaryIndex().Scan(start_key, end_key, append_ref);
+  }
+  if (saw_non_pax) {
+    // Keep the fallback contract simple: no partial refs escape on failure.
+    result.ok = false;
+    result.rows.clear();
   }
   return result;
 }

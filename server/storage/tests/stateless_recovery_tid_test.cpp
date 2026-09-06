@@ -41,7 +41,7 @@ TEST(StatelessRecoveryTidTest, ARecoveredKeyAcceptsTheNextWrite) {
     LineairDB::Database db(config);
     db.CreateTable(kTable);
 
-    auto read = db.StatelessRead(kTable, "alice");
+    auto read = db.Read(kTable, "alice");
     db.ReleaseMasstreeThreadEpoch();
     ASSERT_TRUE(read.found);
     EXPECT_EQ(read.tid % 2, 0u)

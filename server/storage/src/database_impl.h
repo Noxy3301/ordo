@@ -118,27 +118,28 @@ class Database::Impl {
                             const std::string_view index_name,
                             const uint index_type);
 
-  StatelessReadResult StatelessRead(
+  StatelessReadResult Read(
       const std::string_view table_name, const std::string_view key,
       const std::vector<uint32_t> *selected_columns = nullptr);
 
-  std::vector<StatelessReadResult> StatelessBatchRead(
+  std::vector<StatelessReadResult> BatchRead(
       const std::vector<std::pair<std::string, std::string>> &keys);
 
-  StatelessRangeScanResult StatelessRangeScan(
+  StatelessRangeScanResult Scan(
       const std::string_view table_name, const std::string_view start_key,
       const std::string_view end_key, uint64_t row_limit, bool reverse_scan,
       const std::vector<uint32_t> *selected_columns = nullptr);
 
-  StatelessPaxRowRefScanResult StatelessPaxRowRefScan(
-      const std::string_view table_name, const std::string_view start_key,
-      const std::string_view end_key, uint64_t row_limit, bool reverse_scan);
-
-  StatelessSecondaryRangeScanResult StatelessSecondaryRangeScan(
+  StatelessSecondaryRangeScanResult ScanIndex(
       const std::string_view table_name, const std::string_view index_name,
       const std::string_view start_key, const std::string_view end_key,
       uint64_t row_limit, bool reverse_scan,
       const std::vector<uint32_t> *selected_columns = nullptr);
+
+  StatelessPaxRowRefScanResult ScanPax(const std::string_view table_name,
+                                       const std::string_view start_key,
+                                       const std::string_view end_key,
+                                       uint64_t row_limit, bool reverse_scan);
 
   /**
    * @brief Compute exact NDV for each integer key-part prefix of one index.
@@ -181,8 +182,6 @@ class Database::Impl {
   bool WriteCheckpointImage(uint64_t *out_version_retries);
 
  private:
-  void RegisterDeferredPurge(const Snapshot &snapshot,
-                             TransactionId delete_commit_tid);
   void Recovery();
 
  private:

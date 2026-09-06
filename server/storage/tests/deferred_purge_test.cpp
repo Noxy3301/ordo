@@ -49,7 +49,7 @@ bool CommitDelete(LineairDB::Database &db, const std::string &key,
 
 LineairDB::StatelessReadResult Read(LineairDB::Database &db,
                                     const std::string &key) {
-  auto result = db.StatelessRead(kTable, key);
+  auto result = db.Read(kTable, key);
   db.ReleaseMasstreeThreadEpoch();
   return result;
 }

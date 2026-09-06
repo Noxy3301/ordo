@@ -31,26 +31,6 @@ void Reaper::Enqueue(ConcurrentTable *primary_index,
   deferred_purge_candidates_.emplace_back(std::move(candidate));
 }
 
-void Reaper::Enqueue(const Snapshot &snapshot,
-                     TransactionId delete_commit_tid) {
-  const bool primary_delete = snapshot.index_name.empty() &&
-                              snapshot.pi_ref != nullptr &&
-                              !snapshot.data_item_copy.IsPrimaryInitialized();
-  if (primary_delete) {
-    Enqueue(snapshot.pi_ref, nullptr, snapshot.key, snapshot.index_cache,
-            delete_commit_tid);
-    return;
-  }
-
-  const bool secondary_delete =
-      !snapshot.index_name.empty() && snapshot.si_ref != nullptr &&
-      snapshot.data_item_copy.primary_keys_view().empty();
-  if (secondary_delete) {
-    Enqueue(nullptr, snapshot.si_ref, snapshot.key, snapshot.index_cache,
-            delete_commit_tid);
-  }
-}
-
 DataItem *Reaper::ResolveDeferredPurgeCandidate(
     const DeferredPurgeCandidate &candidate) {
   if (candidate.kind == DeferredPurgeIndexKind::Primary) {

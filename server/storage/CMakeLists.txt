@@ -25,7 +25,6 @@ project(
 
 # Build Options
 option(BUILD_TESTS "Build testing executables" ON)
-option(BUILD_BENCHMARKS "Build benchmarking executables" ON)
 option(BUILD_SANITIZER "Build with clang's address sanitizer" ON)
 
 # Build Parameters
@@ -132,7 +131,6 @@ target_include_directories(
 target_include_directories(
   ${PROJECT_NAME} SYSTEM
   PUBLIC
-    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/third_party/rapidjson/include>
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/third_party/concurrentqueue>
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/third_party/spdlog/include>
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/third_party/msgpack/include>)
@@ -190,25 +188,4 @@ if(IS_TOPLEVEL_PROJECT AND BUILD_TESTS)
     target_include_directories(gtest_main BEFORE PRIVATE ${CMAKE_SOURCE_DIR}/third_party/googletest/googletest/include)
   endif()
   add_subdirectory(tests)
-endif()
-
-# Benchmarks
-if(IS_TOPLEVEL_PROJECT AND BUILD_BENCHMARKS)
-  enable_testing()
-  add_subdirectory(bench)
-endif()
-
-# Documents
-find_package(Doxygen)
-if(DOXYGEN_FOUND)
-  if(CMAKE_BUILD_TYPE MATCHES Debug)
-    set(doxyfile ${CMAKE_CURRENT_SOURCE_DIR}/Doxyfile.debug)
-  else()
-    set(doxyfile ${CMAKE_CURRENT_SOURCE_DIR}/Doxyfile)
-  endif()
-  add_custom_target(
-    "doc"
-    ${DOXYGEN_EXECUTABLE} ${doxyfile}
-    DEPENDS ${doxyfile}
-    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
 endif()

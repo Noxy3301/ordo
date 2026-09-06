@@ -17,8 +17,6 @@ Licenses of 3rd party libraries
 
 | Name      | Copyright                                                           | URL                                  |
 | --------- | ------------------------------------------------------------------- | ------------------------------------ |
-| cxxopts   | Copyright (c) 2014 Jarryd Beck                                      | https://github.com/jarro2783/cxxopts |
-| RapidJSON | Copyright (C) 2015 THL A29 Limited, a Tencent company, and Milo Yip | https://github.com/Tencent/rapidjson |
 | spdlog    | Copyright (c) 2016 Gabi Melman                                      | https://github.com/gabime/spdlog     |
 
 ## Boost

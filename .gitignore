@@ -10,6 +10,7 @@ build-v3
 boost
 
 lineairdb_logs
+.related_work
 
 bench/benchbase-mysql/
 bench/results

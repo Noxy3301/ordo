@@ -24,10 +24,10 @@
 #include "util/logger.hpp"
 namespace LineairDB {
 
-Database::Database() noexcept : db_pimpl_(std::make_unique<Impl>()) {
+Database::Database() : db_pimpl_(std::make_unique<Impl>()) {
   LineairDB::Util::SetUpSPDLog();
 }
-Database::Database(const Config& c) noexcept
+Database::Database(const Config& c)
     : db_pimpl_(std::make_unique<Impl>(c)) {
   LineairDB::Util::SetUpSPDLog();
 }

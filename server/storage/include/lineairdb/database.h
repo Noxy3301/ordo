@@ -43,13 +43,17 @@ class Database {
    * @brief Construct a new Database object. Thread-safe.
    * Note that a default-constructed Config object will be passed.
    */
-  Database() noexcept;
+  Database();
 
   /**
    * @brief Construct a new Database object. Thread-safe.
    * @param config See Config for more details of configuration.
+   * @throws std::system_error when the working directory cannot be opened,
+   * which includes another process already holding the log's exclusive lock.
+   * The caller decides what to do about it; a noexcept constructor would
+   * terminate instead.
    */
-  Database(const Config& config) noexcept;
+  Database(const Config& config);
 
   ~Database() noexcept;
   Database(const Database&) = delete;

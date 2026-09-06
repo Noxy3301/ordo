@@ -51,14 +51,14 @@ namespace {
 
 class key_unparse_unsigned {
  public:
-  static int unparse_key(Masstree::key<std::uint64_t> key, char* buf,
+  static int unparse_key(Masstree::key<std::uint64_t> key, char *buf,
                          int buflen) {
     return snprintf(buf, buflen, "%" PRIu64, key.ikey());
   }
 };
 
 struct table_params : public Masstree::nodeparams<15, 15> {
-  using value_type = DataItem*;
+  using value_type = DataItem *;
   using value_print_type = Masstree::value_print<value_type>;
   using threadinfo_type = threadinfo;
   using key_unparse_type = key_unparse_unsigned;
@@ -69,7 +69,7 @@ using table_type = Masstree::basic_table<table_params>;
 using unlocked_cursor_type = Masstree::unlocked_tcursor<table_params>;
 using cursor_type = Masstree::tcursor<table_params>;
 
-thread_local threadinfo* tls_ti = nullptr;
+thread_local threadinfo *tls_ti = nullptr;
 // True iff this thread has called rcu_start since its last rcu_stop. Used to
 // make ensure_thread_active idempotent within a critical section: re-stamping
 // gc_epoch_ on every masstree op would advance the thread past the epoch
@@ -123,18 +123,18 @@ inline void ensure_thread_active() {
 // same shape as masstree's own gc_layer_rcu_callback, see
 // masstree_remove.hh:135-146).
 struct DataItemRcuCallback : public threadinfo::mrcu_callback {
-  DataItem* item;
-  explicit DataItemRcuCallback(DataItem* it) : item(it) {}
-  void operator()(threadinfo& ti) override {
+  DataItem *item;
+  explicit DataItemRcuCallback(DataItem *it) : item(it) {}
+  void operator()(threadinfo &ti) override {
     delete item;
     ti.deallocate(this, sizeof(DataItemRcuCallback), memtag_masstree_gc);
   }
 };
 
-inline void schedule_data_item_rcu_free(DataItem* item) {
+inline void schedule_data_item_rcu_free(DataItem *item) {
   if (item == nullptr) return;
-  void* mem = tls_ti->allocate(sizeof(DataItemRcuCallback), memtag_masstree_gc);
-  auto* cb = new (mem) DataItemRcuCallback(item);
+  void *mem = tls_ti->allocate(sizeof(DataItemRcuCallback), memtag_masstree_gc);
+  auto *cb = new (mem) DataItemRcuCallback(item);
   tls_ti->rcu_register(cb);
 }
 
@@ -143,36 +143,33 @@ inline void schedule_data_item_rcu_free(DataItem* item) {
 // set, every leaf masstree visits records (leaf_ptr, full_version_value) so
 // that MasstreeIndex::ValidatePhantoms can re-check at commit.
 struct ScanAdapter {
-  const char* end_ptr;
+  const char *end_ptr;
   size_t end_len;
   bool has_end;
   std::function<bool(std::string_view)> cb;
-  IndexBase* owner;
-  std::vector<NodeVersionEntry>* out_versions;
+  IndexBase *owner;
+  std::vector<NodeVersionEntry> *out_versions;
   size_t count = 0;
 
   template <typename SS, typename K>
-  void visit_leaf(const SS& stack, const K&, threadinfo&) {
+  void visit_leaf(const SS &stack, const K &, threadinfo &) {
     if (out_versions == nullptr) return;
     // Use the unlocked projection so the recorded version matches what
     // ValidatePhantoms (and tcursor's next_full_version_value bumping) read
     // back later. Otherwise a stack snapshot taken while some writer briefly
     // held the leaf lock would carry the lock_bit and mismatch.
-    out_versions->push_back(
-        {owner, static_cast<const void*>(stack.node()),
-         static_cast<std::uint64_t>(stack.node()->full_unlocked_version_value())});
+    out_versions->push_back({owner, static_cast<const void *>(stack.node()),
+                             static_cast<std::uint64_t>(
+                                 stack.node()->full_unlocked_version_value())});
   }
 
   // Returns true to keep scanning, false to stop (masstree convention).
-  bool visit_value(Masstree::Str key, DataItem* /*val*/, threadinfo&) {
+  bool visit_value(Masstree::Str key, DataItem * /*val*/, threadinfo &) {
     if (has_end) {
       const int cmp = std::memcmp(
-          end_ptr, key.s,
-          std::min(end_len, static_cast<size_t>(key.len)));
+          end_ptr, key.s, std::min(end_len, static_cast<size_t>(key.len)));
       const bool end_greater =
-          cmp > 0 ||
-          (cmp == 0 &&
-           end_len > static_cast<size_t>(key.len));
+          cmp > 0 || (cmp == 0 && end_len > static_cast<size_t>(key.len));
       if (!end_greater) return false;  // key >= end -> out of range, stop
     }
     ++count;
@@ -182,35 +179,32 @@ struct ScanAdapter {
 };
 
 struct ScanValueAdapter {
-  const char* end_ptr;
+  const char *end_ptr;
   size_t end_len;
   bool has_end;
-  std::function<bool(std::string_view, DataItem&)> cb;
-  IndexBase* owner;
-  std::vector<NodeVersionEntry>* out_versions;
+  std::function<bool(std::string_view, DataItem &)> cb;
+  IndexBase *owner;
+  std::vector<NodeVersionEntry> *out_versions;
   size_t count = 0;
 
   template <typename SS, typename K>
-  void visit_leaf(const SS& stack, const K&, threadinfo&) {
+  void visit_leaf(const SS &stack, const K &, threadinfo &) {
     if (out_versions == nullptr) return;
     // Use the unlocked projection so the recorded version matches what
     // ValidatePhantoms (and tcursor's next_full_version_value bumping) read
     // back later. Otherwise a stack snapshot taken while some writer briefly
     // held the leaf lock would carry the lock_bit and mismatch.
-    out_versions->push_back(
-        {owner, static_cast<const void*>(stack.node()),
-         static_cast<std::uint64_t>(stack.node()->full_unlocked_version_value())});
+    out_versions->push_back({owner, static_cast<const void *>(stack.node()),
+                             static_cast<std::uint64_t>(
+                                 stack.node()->full_unlocked_version_value())});
   }
 
-  bool visit_value(Masstree::Str key, DataItem* val, threadinfo&) {
+  bool visit_value(Masstree::Str key, DataItem *val, threadinfo &) {
     if (has_end) {
       const int cmp = std::memcmp(
-          end_ptr, key.s,
-          std::min(end_len, static_cast<size_t>(key.len)));
+          end_ptr, key.s, std::min(end_len, static_cast<size_t>(key.len)));
       const bool end_greater =
-          cmp > 0 ||
-          (cmp == 0 &&
-           end_len > static_cast<size_t>(key.len));
+          cmp > 0 || (cmp == 0 && end_len > static_cast<size_t>(key.len));
       if (!end_greater) return false;
     }
     ++count;
@@ -261,7 +255,7 @@ struct MasstreeIndex::Impl {
     // reclamation path is required for long-running service deployment.
   }
 
-  DataItem* Get(std::string_view key) {
+  DataItem *Get(std::string_view key) {
     ensure_thread_active();
     unlocked_cursor_type lp(table_, key.data(), key.size());
     if (lp.find_unlocked(*tls_ti)) return lp.value();
@@ -270,9 +264,9 @@ struct MasstreeIndex::Impl {
 
   // Blank rows created after SetPaxStore are initialized in PAX mode so their
   // first committed payload scatters into the table's strips.
-  Pax::PaxStore* pax_store_ = nullptr;
-  DataItem* NewBlankItem() {
-    auto* item = new DataItem();
+  Pax::PaxStore *pax_store_ = nullptr;
+  DataItem *NewBlankItem() {
+    auto *item = new DataItem();
     if (pax_store_ != nullptr) item->buffer.InitPaxBlank(pax_store_);
     return item;
   }
@@ -281,10 +275,10 @@ struct MasstreeIndex::Impl {
   // When `out_update` is non-null and the call structurally bumps the leaf
   // (state=1 = key was absent), records (leaf, prev_version, next_version) so
   // the OCC layer can apply Silo §4.6's own-write node-set rule.
-  bool Put(std::string_view key, DataItem&& rhs,
-           NodeVersionUpdate* out_update = nullptr) {
+  bool Put(std::string_view key, DataItem &&rhs,
+           NodeVersionUpdate *out_update = nullptr) {
     ensure_thread_active();
-    auto* fresh = new DataItem(std::move(rhs));
+    auto *fresh = new DataItem(std::move(rhs));
     cursor_type lp(table_, key.data(), key.size());
     bool found = lp.find_insert(*tls_ti);
     if (found) {
@@ -297,7 +291,7 @@ struct MasstreeIndex::Impl {
       lp.value() = fresh;
     }
     if (out_update != nullptr && !found) {
-      out_update->node_ptr = static_cast<const void*>(lp.node());
+      out_update->node_ptr = static_cast<const void *>(lp.node());
       out_update->old_version =
           static_cast<std::uint64_t>(lp.previous_full_version_value());
       out_update->new_version =
@@ -321,12 +315,12 @@ struct MasstreeIndex::Impl {
   // When `out_update` is non-null and the call structurally bumps the leaf
   // (NOT_EXISTS branch), records the version delta for Silo §4.6 own-write
   // node-set reconciliation.
-  bool Insert(std::string_view key, NodeVersionUpdate* out_update = nullptr) {
+  bool Insert(std::string_view key, NodeVersionUpdate *out_update = nullptr) {
     ensure_thread_active();
     cursor_type lp(table_, key.data(), key.size());
     bool found = lp.find_insert(*tls_ti);
     if (found) {
-      DataItem* existing = lp.value();
+      DataItem *existing = lp.value();
       if (existing != nullptr && existing->IsPrimaryInitialized()) {
         lp.finish(0, *tls_ti);
         return false;
@@ -343,7 +337,7 @@ struct MasstreeIndex::Impl {
       return true;
     }
     if (out_update != nullptr) {
-      out_update->node_ptr = static_cast<const void*>(lp.node());
+      out_update->node_ptr = static_cast<const void *>(lp.node());
       out_update->old_version =
           static_cast<std::uint64_t>(lp.previous_full_version_value());
       out_update->new_version =
@@ -372,7 +366,7 @@ struct MasstreeIndex::Impl {
   // after it has CAS-locked the DataItem and verified the tombstone TID.
   // Returns true if the key was physically removed; false if the slot is
   // already gone or a racing replacement won the position.
-  bool Purge(std::string_view key, DataItem* expected,
+  bool Purge(std::string_view key, DataItem *expected,
              TransactionId retired_tid) {
     ensure_thread_active();
     cursor_type lp(table_, key.data(), key.size());
@@ -381,7 +375,7 @@ struct MasstreeIndex::Impl {
       lp.finish(0, *tls_ti);
       return false;
     }
-    DataItem* current = lp.value();
+    DataItem *current = lp.value();
     if (expected != nullptr && current != expected) {
       // Some other writer replaced the slot between our commit-time decision
       // and this erase. Leave the new occupant alone.
@@ -406,7 +400,7 @@ struct MasstreeIndex::Impl {
   // `out_update` is non-null and we structurally bumped the leaf, records the
   // version delta for Silo §4.6 own-write node-set reconciliation.
   void ForcePutBlankEntry(std::string_view key,
-                           NodeVersionUpdate* out_update = nullptr) {
+                          NodeVersionUpdate *out_update = nullptr) {
     ensure_thread_active();
     cursor_type lp(table_, key.data(), key.size());
     bool found = lp.find_insert(*tls_ti);
@@ -414,7 +408,7 @@ struct MasstreeIndex::Impl {
       lp.value() = NewBlankItem();
     }
     if (out_update != nullptr && !found) {
-      out_update->node_ptr = static_cast<const void*>(lp.node());
+      out_update->node_ptr = static_cast<const void *>(lp.node());
       out_update->old_version =
           static_cast<std::uint64_t>(lp.previous_full_version_value());
       out_update->new_version =
@@ -425,10 +419,9 @@ struct MasstreeIndex::Impl {
     lp.finish(found ? 0 : 1, *tls_ti);
   }
 
-  size_t Scan(
-      std::string_view begin, std::optional<std::string_view> end,
-      std::function<bool(std::string_view)> op, IndexBase* owner,
-      std::vector<NodeVersionEntry>* out_versions) {
+  size_t Scan(std::string_view begin, std::optional<std::string_view> end,
+              std::function<bool(std::string_view)> op, IndexBase *owner,
+              std::vector<NodeVersionEntry> *out_versions) {
     ensure_thread_active();
     ScanAdapter adapter{end.has_value() ? end->data() : nullptr,
                         end.has_value() ? end->size() : 0,
@@ -442,110 +435,84 @@ struct MasstreeIndex::Impl {
     return adapter.count;
   }
 
-  size_t Scan(
-      std::string_view begin, std::string_view end,
-      std::function<bool(std::string_view, DataItem&)> op,
-      IndexBase* owner,
-      std::vector<NodeVersionEntry>* out_versions) {
+  size_t Scan(std::string_view begin, std::string_view end,
+              std::function<bool(std::string_view, DataItem &)> op,
+              IndexBase *owner, std::vector<NodeVersionEntry> *out_versions) {
     ensure_thread_active();
-    ScanValueAdapter adapter{end.data(),
-                             end.size(),
-                             true,
-                             std::move(op),
-                             owner,
-                             out_versions,
-                             0};
+    ScanValueAdapter adapter{end.data(), end.size(),   true, std::move(op),
+                             owner,      out_versions, 0};
     Masstree::Str firstkey(begin.data(), begin.size());
     table_.scan(firstkey, /*emit_firstkey=*/true, adapter, *tls_ti);
     return adapter.count;
   }
 
-  size_t ScanReverse(
-      std::string_view begin, std::optional<std::string_view> end,
-      std::function<bool(std::string_view)> op, IndexBase* owner,
-      std::vector<NodeVersionEntry>* out_versions) {
+  size_t ScanReverse(std::string_view begin,
+                     std::optional<std::string_view> end,
+                     std::function<bool(std::string_view)> op, IndexBase *owner,
+                     std::vector<NodeVersionEntry> *out_versions) {
     ensure_thread_active();
     // Reverse scan walks downward from `end - 1`, stopping once key < begin.
     // Range is [begin, end) just like forward Scan.
     auto adapter_op = [b_ptr = begin.data(), b_len = begin.size(),
                        cb = std::move(op)](std::string_view key) mutable {
-      const int cmp = std::memcmp(
-          b_ptr, key.data(),
-          std::min(b_len, key.size()));
-      const bool key_below_begin =
-          cmp > 0 ||
-          (cmp == 0 && b_len > key.size());
+      const int cmp =
+          std::memcmp(b_ptr, key.data(), std::min(b_len, key.size()));
+      const bool key_below_begin = cmp > 0 || (cmp == 0 && b_len > key.size());
       if (key_below_begin) return true;  // below begin -> stop
       return cb(key);
     };
-    ScanAdapter adapter{nullptr,
-                        0,
-                        false,
-                        std::move(adapter_op),
-                        owner,
-                        out_versions,
-                        0};
+    ScanAdapter adapter{nullptr,      0, false, std::move(adapter_op), owner,
+                        out_versions, 0};
     if (end.has_value()) {
       Masstree::Str firstkey(end->data(), end->size());
       table_.rscan(firstkey, /*emit_firstkey=*/false, adapter, *tls_ti);
     } else {
       // rscan from infinity: use an empty firstkey with emit=true to
       // walk the tail backwards.
-      table_.rscan(Masstree::Str(), /*emit_firstkey=*/true, adapter,
-                   *tls_ti);
+      table_.rscan(Masstree::Str(), /*emit_firstkey=*/true, adapter, *tls_ti);
     }
     return adapter.count;
   }
 
-  size_t ScanReverse(
-      std::string_view begin, std::string_view end,
-      std::function<bool(std::string_view, DataItem&)> op,
-      IndexBase* owner,
-      std::vector<NodeVersionEntry>* out_versions) {
+  size_t ScanReverse(std::string_view begin, std::string_view end,
+                     std::function<bool(std::string_view, DataItem &)> op,
+                     IndexBase *owner,
+                     std::vector<NodeVersionEntry> *out_versions) {
     ensure_thread_active();
     auto adapter_op = [b_ptr = begin.data(), b_len = begin.size(),
                        cb = std::move(op)](std::string_view key,
-                                           DataItem& val) mutable {
-      const int cmp = std::memcmp(
-          b_ptr, key.data(),
-          std::min(b_len, key.size()));
-      const bool key_below_begin =
-          cmp > 0 ||
-          (cmp == 0 && b_len > key.size());
+                                           DataItem &val) mutable {
+      const int cmp =
+          std::memcmp(b_ptr, key.data(), std::min(b_len, key.size()));
+      const bool key_below_begin = cmp > 0 || (cmp == 0 && b_len > key.size());
       if (key_below_begin) return true;
       return cb(key, val);
     };
-    ScanValueAdapter adapter{nullptr,
-                             0,
-                             false,
-                             std::move(adapter_op),
-                             owner,
-                             out_versions,
-                             0};
+    ScanValueAdapter adapter{
+        nullptr, 0, false, std::move(adapter_op), owner, out_versions, 0};
     Masstree::Str firstkey(end.data(), end.size());
     table_.rscan(firstkey, /*emit_firstkey=*/false, adapter, *tls_ti);
     return adapter.count;
   }
 
-  void ForEach(std::function<bool(std::string_view, DataItem&)> op) {
+  void ForEach(std::function<bool(std::string_view, DataItem &)> op) {
     ensure_thread_active();
-    ScanValueAdapter adapter{nullptr, 0, false, std::move(op),
+    ScanValueAdapter adapter{nullptr, 0,       false, std::move(op),
                              nullptr, nullptr, 0};
     table_.scan(Masstree::Str(), /*emit_firstkey=*/true, adapter, *tls_ti);
   }
 
-  bool ValidatePhantoms(const std::vector<NodeVersionEntry>& entries,
-                        IndexBase* self) {
+  bool ValidatePhantoms(const std::vector<NodeVersionEntry> &entries,
+                        IndexBase *self) {
     // Re-stamp gc_epoch_ before dereferencing leaf pointers from `entries`.
     // Those pointers were captured during an earlier scan on this or
     // another thread and are RCU-protected; without an active enrolment
     // this thread could be invisible to min_active_epoch() and let RCU
     // free a leaf out from under us mid-check.
     ensure_thread_active();
-    for (const auto& e : entries) {
+    for (const auto &e : entries) {
       if (e.owner != self) continue;  // entry belongs to a different index
-      const auto* leaf =
-          static_cast<const leaf_type*>(e.node_ptr);
+      const auto *leaf = static_cast<const leaf_type *>(e.node_ptr);
       // full_unlocked_version_value() masks the transient lock_bit (and
       // handles the split-bit corner case), so an unrelated concurrent
       // writer holding the leaf lock at validation time does not produce
@@ -566,75 +533,71 @@ struct MasstreeIndex::Impl {
   }
 };
 
-MasstreeIndex::MasstreeIndex(Config /*c*/, EpochFramework& /*e*/)
+MasstreeIndex::MasstreeIndex(Config /*c*/, EpochFramework & /*e*/)
     : impl_(std::make_unique<Impl>()) {}
 
 MasstreeIndex::~MasstreeIndex() = default;
 
-void MasstreeIndex::SetPaxStore(Pax::PaxStore* store) {
+void MasstreeIndex::SetPaxStore(Pax::PaxStore *store) {
   impl_->pax_store_ = store;
 }
 
-DataItem* MasstreeIndex::Get(std::string_view key) {
-  return impl_->Get(key);
-}
+DataItem *MasstreeIndex::Get(std::string_view key) { return impl_->Get(key); }
 
-bool MasstreeIndex::Put(std::string_view key, DataItem&& rhs,
-                        NodeVersionUpdate* out_update) {
+bool MasstreeIndex::Put(std::string_view key, DataItem &&rhs,
+                        NodeVersionUpdate *out_update) {
   bool ok = impl_->Put(key, std::move(rhs), out_update);
   if (out_update != nullptr && out_update->valid) out_update->owner = this;
   return ok;
 }
 
 bool MasstreeIndex::Insert(std::string_view key,
-                            NodeVersionUpdate* out_update) {
+                           NodeVersionUpdate *out_update) {
   bool ok = impl_->Insert(key, out_update);
   if (out_update != nullptr && out_update->valid) out_update->owner = this;
   return ok;
 }
 
-bool MasstreeIndex::Delete(std::string_view key) {
-  return impl_->Delete(key);
-}
+bool MasstreeIndex::Delete(std::string_view key) { return impl_->Delete(key); }
 
 void MasstreeIndex::ForcePutBlankEntry(std::string_view key,
-                                        NodeVersionUpdate* out_update) {
+                                       NodeVersionUpdate *out_update) {
   impl_->ForcePutBlankEntry(key, out_update);
   if (out_update != nullptr && out_update->valid) out_update->owner = this;
 }
 
-size_t MasstreeIndex::Scan(
-    std::string_view begin, std::optional<std::string_view> end,
-    std::function<bool(std::string_view)> operation,
-    std::vector<NodeVersionEntry>* out_versions) {
+size_t MasstreeIndex::Scan(std::string_view begin,
+                           std::optional<std::string_view> end,
+                           std::function<bool(std::string_view)> operation,
+                           std::vector<NodeVersionEntry> *out_versions) {
   return impl_->Scan(begin, end, std::move(operation), this, out_versions);
 }
 
 size_t MasstreeIndex::Scan(
     std::string_view begin, std::string_view end,
-    std::function<bool(std::string_view, DataItem&)> operation,
-    std::vector<NodeVersionEntry>* out_versions) {
+    std::function<bool(std::string_view, DataItem &)> operation,
+    std::vector<NodeVersionEntry> *out_versions) {
   return impl_->Scan(begin, end, std::move(operation), this, out_versions);
 }
 
 size_t MasstreeIndex::ScanReverse(
     std::string_view begin, std::optional<std::string_view> end,
     std::function<bool(std::string_view)> operation,
-    std::vector<NodeVersionEntry>* out_versions) {
+    std::vector<NodeVersionEntry> *out_versions) {
   return impl_->ScanReverse(begin, end, std::move(operation), this,
                             out_versions);
 }
 
 size_t MasstreeIndex::ScanReverse(
     std::string_view begin, std::string_view end,
-    std::function<bool(std::string_view, DataItem&)> operation,
-    std::vector<NodeVersionEntry>* out_versions) {
+    std::function<bool(std::string_view, DataItem &)> operation,
+    std::vector<NodeVersionEntry> *out_versions) {
   return impl_->ScanReverse(begin, end, std::move(operation), this,
                             out_versions);
 }
 
 void MasstreeIndex::ForEach(
-    std::function<bool(std::string_view, DataItem&)> operation) {
+    std::function<bool(std::string_view, DataItem &)> operation) {
   impl_->ForEach(std::move(operation));
 }
 
@@ -643,11 +606,11 @@ void MasstreeIndex::WaitForIndexIsLinearizable() {
 }
 
 bool MasstreeIndex::ValidatePhantoms(
-    const std::vector<NodeVersionEntry>& entries) {
+    const std::vector<NodeVersionEntry> &entries) {
   return impl_->ValidatePhantoms(entries, this);
 }
 
-bool MasstreeIndex::Purge(std::string_view key, DataItem* expected,
+bool MasstreeIndex::Purge(std::string_view key, DataItem *expected,
                           TransactionId retired_tid) {
   return impl_->Purge(key, expected, retired_tid);
 }

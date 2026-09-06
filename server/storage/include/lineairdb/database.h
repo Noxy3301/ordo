@@ -53,13 +53,13 @@ class Database {
    * The caller decides what to do about it; a noexcept constructor would
    * terminate instead.
    */
-  Database(const Config& config);
+  Database(const Config &config);
 
   ~Database() noexcept;
-  Database(const Database&) = delete;
-  Database& operator=(const Database&) = delete;
-  Database(Database&&) = delete;
-  Database& operator=(Database&&) = delete;
+  Database(const Database &) = delete;
+  Database &operator=(const Database &) = delete;
+  Database(Database &&) = delete;
+  Database &operator=(Database &&) = delete;
 
   /**
    * @brief Return the Config object set by constructor.
@@ -161,9 +161,9 @@ class Database {
    * by the configured index backend, or already installed.
    */
   bool InstallPaxSchema(const std::string_view table_name,
-                        const std::vector<uint32_t>& field_max_bytes,
-                        const std::vector<uint8_t>& field_kind = {},
-                        const std::vector<int8_t>& field_scale = {});
+                        const std::vector<uint32_t> &field_max_bytes,
+                        const std::vector<uint8_t> &field_kind = {},
+                        const std::vector<int8_t> &field_scale = {});
 
   /**
    * @brief Returns the PAX store installed for `table_name`.
@@ -172,7 +172,7 @@ class Database {
    * @return Store pointer, or nullptr when the table is missing or has no PAX
    * schema.
    */
-  Pax::PaxStore* GetPaxStore(const std::string_view table_name);
+  Pax::PaxStore *GetPaxStore(const std::string_view table_name);
 
   /**
    * @brief Handle for one columnar read view.
@@ -208,7 +208,7 @@ class Database {
    * @brief Releases a read view; the last active release clears the undo
    * maps. Safe to call with an invalid handle (no-op).
    */
-  void ReleasePaxReadView(const PaxReadView& view);
+  void ReleasePaxReadView(const PaxReadView &view);
 
   /**
    * @brief Returns whether this read view's results must be discarded.
@@ -217,7 +217,7 @@ class Database {
    * outlived its epoch-lifetime bound. Callers gate every result on this
    * before accepting it.
    */
-  bool PaxReadViewPoisoned(const PaxReadView& view) const;
+  bool PaxReadViewPoisoned(const PaxReadView &view) const;
 
   // ----------------------------------------------------------------------
   // Stateless read / validate-and-commit API.
@@ -248,7 +248,7 @@ class Database {
    */
   StatelessReadResult StatelessRead(
       const std::string_view table_name, const std::string_view key,
-      const std::vector<uint32_t>* selected_columns = nullptr);
+      const std::vector<uint32_t> *selected_columns = nullptr);
 
   /**
    * @brief Read several rows in one call.
@@ -261,7 +261,7 @@ class Database {
    * @return One StatelessReadResult per input, in the same order.
    */
   std::vector<StatelessReadResult> StatelessBatchRead(
-      const std::vector<std::pair<std::string, std::string>>& keys);
+      const std::vector<std::pair<std::string, std::string>> &keys);
 
   /**
    * @brief Range-scan the primary index and return the rows observed in
@@ -285,7 +285,7 @@ class Database {
   StatelessRangeScanResult StatelessRangeScan(
       const std::string_view table_name, const std::string_view start_key,
       const std::string_view end_key, uint64_t row_limit, bool reverse_scan,
-      const std::vector<uint32_t>* selected_columns = nullptr);
+      const std::vector<uint32_t> *selected_columns = nullptr);
 
   /**
    * @brief Range-scans the primary index and returns PAX cell references.
@@ -329,7 +329,7 @@ class Database {
       const std::string_view table_name, const std::string_view index_name,
       const std::string_view start_key, const std::string_view end_key,
       uint64_t row_limit, bool reverse_scan,
-      const std::vector<uint32_t>* selected_columns = nullptr);
+      const std::vector<uint32_t> *selected_columns = nullptr);
 
   /**
    * @brief Compute per-key-part-prefix NDV for an integer encoded index.
@@ -341,8 +341,8 @@ class Database {
    * existing heuristic.
    */
   bool ComputeIndexNdvInt(const std::string_view table_name,
-                          const std::string_view index_name,
-                          uint32_t num_parts, std::vector<uint64_t>& out_ndv);
+                          const std::string_view index_name, uint32_t num_parts,
+                          std::vector<uint64_t> &out_ndv);
 
   /**
    * @brief Build an equi-depth histogram for one index's leading key part.
@@ -355,9 +355,10 @@ class Database {
    * cannot be decoded safely.
    */
   bool ComputeIndexHistogram(const std::string_view table_name,
-                             const std::string_view index_name, uint32_t buckets,
-                             std::vector<std::string>& out_bounds,
-                             std::vector<uint64_t>& out_cum);
+                             const std::string_view index_name,
+                             uint32_t buckets,
+                             std::vector<std::string> &out_bounds,
+                             std::vector<uint64_t> &out_cum);
 
   /**
    * @brief Validate caller-supplied read and write sets and install the
@@ -383,11 +384,11 @@ class Database {
    * @return true on commit; false on validation failure or schema mismatch.
    */
   bool ValidateAndCommit(
-      const std::vector<ExternalReadEntry>& reads,
-      const std::vector<ExternalWriteEntry>& writes,
-      const std::vector<ExternalSecondaryIndexEntry>& secondary_index_ops,
-      const std::vector<ExternalRangeReadEntry>& range_reads = {},
-      std::string* abort_reason = nullptr);
+      const std::vector<ExternalReadEntry> &reads,
+      const std::vector<ExternalWriteEntry> &writes,
+      const std::vector<ExternalSecondaryIndexEntry> &secondary_index_ops,
+      const std::vector<ExternalRangeReadEntry> &range_reads = {},
+      std::string *abort_reason = nullptr);
 
   /**
    * @brief Writes one image of the live rows, on the calling thread.
@@ -405,7 +406,7 @@ class Database {
    *         sync failed after the atomic rename, in which case the new image
    *         is in place but its publication is not yet durable.
    */
-  bool WriteCheckpointImage(uint64_t* out_version_retries = nullptr);
+  bool WriteCheckpointImage(uint64_t *out_version_retries = nullptr);
 
   class Impl;
 

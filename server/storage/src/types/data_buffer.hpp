@@ -18,10 +18,10 @@
 #ifndef LINEAIRDB_DATA_BUFFER_HPP
 #define LINEAIRDB_DATA_BUFFER_HPP
 
+#include <lineairdb/pax_store.h>
+
 #include <atomic>
 #include <cassert>
-
-#include "util/logger.hpp"
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
@@ -31,9 +31,8 @@
 #include <string>
 #include <vector>
 
-#include <lineairdb/pax_store.h>
-
 #include "pax/version_store.hpp"
+#include "util/logger.hpp"
 
 namespace LineairDB {
 
@@ -67,7 +66,7 @@ struct DataBuffer {
   static constexpr uintptr_t kPaxAllocated = 0x2;
   static constexpr uintptr_t kPaxMask = kPaxTag | kPaxAllocated;
 
-  std::byte* value;
+  std::byte *value;
   size_t size;
   size_t capacity;
 
@@ -82,12 +81,12 @@ struct DataBuffer {
   bool pax_allocated() const {
     return (reinterpret_cast<uintptr_t>(value) & kPaxAllocated) != 0;
   }
-  Pax::PaxGroup* pax_group() const {
-    return reinterpret_cast<Pax::PaxGroup*>(
+  Pax::PaxGroup *pax_group() const {
+    return reinterpret_cast<Pax::PaxGroup *>(
         reinterpret_cast<uintptr_t>(value) & ~kPaxMask);
   }
-  Pax::PaxStore* pax_store() const {
-    return reinterpret_cast<Pax::PaxStore*>(
+  Pax::PaxStore *pax_store() const {
+    return reinterpret_cast<Pax::PaxStore *>(
         reinterpret_cast<uintptr_t>(value) & ~kPaxMask);
   }
   uint32_t pax_slot() const { return static_cast<uint32_t>(capacity); }
@@ -98,22 +97,22 @@ struct DataBuffer {
    * @param store Table store that will allocate the concrete row slot on the
    * first non-empty install.
    */
-  void InitPaxBlank(Pax::PaxStore* store) {
+  void InitPaxBlank(Pax::PaxStore *store) {
     assert((reinterpret_cast<uintptr_t>(store) & kPaxMask) == 0);
-    value = reinterpret_cast<std::byte*>(reinterpret_cast<uintptr_t>(store) |
-                                         kPaxTag);
+    value = reinterpret_cast<std::byte *>(reinterpret_cast<uintptr_t>(store) |
+                                          kPaxTag);
     size = 0;
     capacity = 0;
   }
 
-  DataBuffer(DataBuffer&& other) noexcept
+  DataBuffer(DataBuffer &&other) noexcept
       : value(other.value), size(other.size), capacity(other.capacity) {
     other.value = nullptr;
     other.size = 0;
     other.capacity = 0;
   }
 
-  DataBuffer& operator=(DataBuffer&& other) noexcept {
+  DataBuffer &operator=(DataBuffer &&other) noexcept {
     if (this != &other) {
       if (value != nullptr && !is_pax()) delete[] value;
       value = other.value;
@@ -126,19 +125,20 @@ struct DataBuffer {
     return *this;
   }
 
-  DataBuffer(const DataBuffer& other) : value(nullptr), size(0), capacity(0) {
+  DataBuffer(const DataBuffer &other) : value(nullptr), size(0), capacity(0) {
     Reset(other);
   }
 
-  DataBuffer& operator=(const DataBuffer& other) {
+  DataBuffer &operator=(const DataBuffer &other) {
     if (this != &other) {
       Reset(other);
     }
     return *this;
   }
 
-  // NOTE: capacity only grows; consider shrink-to-fit if large records cause bloat.
-  void Reset(const std::byte* v, const size_t s) {
+  // NOTE: capacity only grows; consider shrink-to-fit if large records cause
+  // bloat.
+  void Reset(const std::byte *v, const size_t s) {
     if (is_pax()) {
       ResetPax(v, s);
       return;
@@ -159,7 +159,7 @@ struct DataBuffer {
   /**
    * @brief Resets this buffer to the row payload represented by `rhs`.
    */
-  void Reset(const DataBuffer& rhs) {
+  void Reset(const DataBuffer &rhs) {
     if (!rhs.is_pax()) {
       Reset(rhs.value, rhs.size);
       return;
@@ -184,8 +184,8 @@ struct DataBuffer {
     }
     size = rhs.GatherInto(value);
   }
-  void Reset(const std::string& rhs) {
-    Reset(reinterpret_cast<const std::byte*>(rhs.data()), rhs.size());
+  void Reset(const std::string &rhs) {
+    Reset(reinterpret_cast<const std::byte *>(rhs.data()), rhs.size());
   }
   bool IsEmpty() const { return size == 0; }
 
@@ -195,7 +195,7 @@ struct DataBuffer {
    * @param dst Destination buffer with room for `size` bytes.
    * @return Number of bytes written.
    */
-  size_t GatherInto(std::byte* dst) const {
+  size_t GatherInto(std::byte *dst) const {
     assert(is_pax());
     assert(pax_allocated());
     assert(size > 0);
@@ -203,11 +203,11 @@ struct DataBuffer {
   }
 
   std::string toString() const {
-    if (!is_pax()) return std::string(reinterpret_cast<char*>(value), size);
+    if (!is_pax()) return std::string(reinterpret_cast<char *>(value), size);
     if (size == 0) return {};
     std::string out;
     out.resize(size);
-    GatherInto(reinterpret_cast<std::byte*>(out.data()));
+    GatherInto(reinterpret_cast<std::byte *>(out.data()));
     return out;
   }
 
@@ -222,7 +222,7 @@ struct DataBuffer {
    * active in that state poisons the generation, fail-closed.
    */
   void CaptureBeforeImageForReadView() {
-    auto& version_store = Pax::VersionStore::Global();
+    auto &version_store = Pax::VersionStore::Global();
     if (!version_store.CaptureActive()) return;
     const uint32_t epoch = Pax::CurrentCommitEpoch::Get();
     if (epoch == 0) {
@@ -244,7 +244,7 @@ struct DataBuffer {
    * @details The caller holds the row's TID lock. If the row does not fit its
    * declared cell widths, this buffer permanently switches to heap storage.
    */
-  void ResetPax(const std::byte* v, const size_t s) {
+  void ResetPax(const std::byte *v, const size_t s) {
     if (v == nullptr || s == 0) {
       if (pax_allocated() && size != 0) {
         CaptureBeforeImageForReadView();
@@ -254,7 +254,7 @@ struct DataBuffer {
       return;
     }
     if (!pax_allocated()) {
-      auto* store = pax_store();
+      auto *store = pax_store();
       auto [group, slot] = store->AllocateSlot();
       if (group == nullptr) {  // Table full: permanent heap fallback.
         const uint64_t prior = store->overflow_count();
@@ -276,8 +276,8 @@ struct DataBuffer {
         return;
       }
       assert((reinterpret_cast<uintptr_t>(group) & kPaxMask) == 0);
-      value = reinterpret_cast<std::byte*>(reinterpret_cast<uintptr_t>(group) |
-                                           kPaxTag | kPaxAllocated);
+      value = reinterpret_cast<std::byte *>(reinterpret_cast<uintptr_t>(group) |
+                                            kPaxTag | kPaxAllocated);
       capacity = slot;
     }
     CaptureBeforeImageForReadView();
@@ -289,7 +289,7 @@ struct DataBuffer {
     // Row does not fit (width overflow / shape mismatch): permanent heap
     // fallback for this row. Hide the abandoned slot and disable strip-direct
     // scans for this table because heap fallback rows are not in strips.
-    auto* store = pax_group()->store();
+    auto *store = pax_group()->store();
     const uint64_t prior = store->overflow_count();
     if (prior == 0) {
       SPDLOG_WARN(

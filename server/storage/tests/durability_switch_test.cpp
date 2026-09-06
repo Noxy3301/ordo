@@ -13,8 +13,8 @@ namespace {
 
 constexpr auto kBarrierTimeout = std::chrono::seconds(10);
 constexpr int kValue = 42;
-const char* const kTable = "users";
-const char* const kWorkDir = "lineairdb_durability_switch_logs";
+const char *const kTable = "users";
+const char *const kWorkDir = "lineairdb_durability_switch_logs";
 
 }  // namespace
 

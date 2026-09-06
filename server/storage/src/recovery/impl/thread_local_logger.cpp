@@ -22,8 +22,8 @@
 #include <cstdlib>
 #include <exception>
 #include <iterator>
-#include <utility>
 #include <util/logger.hpp>
+#include <utility>
 
 #include "recovery/flush_trace.h"
 #include "types/definitions.h"
@@ -31,7 +31,7 @@
 namespace LineairDB {
 namespace Recovery {
 
-ThreadLocalLogger::ThreadLocalLogger(const Config& config,
+ThreadLocalLogger::ThreadLocalLogger(const Config &config,
                                      PublishDurable publish_durable,
                                      PublishFailure publish_failure,
                                      ReadDurable read_durable, WalIo io)
@@ -47,11 +47,11 @@ ThreadLocalLogger::ThreadLocalLogger(const Config& config,
 
 ThreadLocalLogger::~ThreadLocalLogger() { StopAndDrainFlusher(); }
 
-bool ThreadLocalLogger::Enqueue(const WriteSetType& ws_ref, EpochNumber epoch) {
+bool ThreadLocalLogger::Enqueue(const WriteSetType &ws_ref, EpochNumber epoch) {
   LogRecord record;
   record.epoch = epoch;
 
-  for (auto& snapshot : ws_ref) {
+  for (auto &snapshot : ws_ref) {
     if (snapshot.index_name.empty()) {
       LogRecord::KeyValuePair kvp;
       kvp.key = snapshot.key;
@@ -67,7 +67,7 @@ bool ThreadLocalLogger::Enqueue(const WriteSetType& ws_ref, EpochNumber epoch) {
     }
 
     if (snapshot.secondary_index_deltas.empty()) continue;
-    for (const auto& delta : snapshot.secondary_index_deltas) {
+    for (const auto &delta : snapshot.secondary_index_deltas) {
       LogRecord::KeyValuePair kvp;
       kvp.key = snapshot.key;
       kvp.buffer = snapshot.data_item_copy.buffer.toString();
@@ -81,12 +81,12 @@ bool ThreadLocalLogger::Enqueue(const WriteSetType& ws_ref, EpochNumber epoch) {
     }
   }
 
-  // Decided after building the record, not from the input write set: a write set
-  // of secondary snapshots that carry no delta produces nothing to persist, and
-  // the commit path must not wait for a record that was never buffered.
+  // Decided after building the record, not from the input write set: a write
+  // set of secondary snapshots that carry no delta produces nothing to persist,
+  // and the commit path must not wait for a record that was never buffered.
   if (record.key_value_pairs.empty()) return false;
 
-  auto* node = nodes_.Get();
+  auto *node = nodes_.Get();
   std::lock_guard<std::mutex> lock(node->log_records_mutex);
   node->log_records.emplace_back(std::move(record));
   return true;
@@ -104,8 +104,8 @@ void ThreadLocalLogger::StartFlusher() {
 }
 
 void ThreadLocalLogger::ScheduleFlush(EpochNumber closed) {
-  auto& trace               = FlushTrace::Instance();
-  const bool traced         = trace.Enabled();
+  auto &trace = FlushTrace::Instance();
+  const bool traced = trace.Enabled();
   const int64_t close_enter = traced ? FlushTrace::Now() : 0;
   {
     std::lock_guard<std::mutex> lock(state_mutex_);
@@ -139,8 +139,7 @@ void ThreadLocalLogger::FlusherLoop() {
     {
       std::unique_lock<std::mutex> lock(state_mutex_);
       work_cv_.wait(lock, [this] {
-        return stop_requested_ || failed_ ||
-               pending_closed_ > read_durable_();
+        return stop_requested_ || failed_ || pending_closed_ > read_durable_();
       });
       if (failed_) return;
       target = pending_closed_;
@@ -157,7 +156,7 @@ void ThreadLocalLogger::FlusherLoop() {
     WalAppendResult result;
     try {
       result = FlushThrough(target);
-    } catch (const std::exception& e) {
+    } catch (const std::exception &e) {
       SPDLOG_CRITICAL("Durability Error: the flusher threw: {0}", e.what());
       result = {false, EIO};
     } catch (...) {
@@ -176,8 +175,8 @@ void ThreadLocalLogger::FlusherLoop() {
     // An empty eligible range publishes without an append: the skipped
     // epochs carry no record, and an epoch with nothing to persist is
     // durable by definition.
-    auto& trace                 = FlushTrace::Instance();
-    const bool traced           = trace.Enabled();
+    auto &trace = FlushTrace::Instance();
+    const bool traced = trace.Enabled();
     const int64_t publish_enter = traced ? FlushTrace::Now() : 0;
     publish_durable_(target);
     if (traced) trace.GroupPublish(target, publish_enter, FlushTrace::Now());
@@ -186,17 +185,17 @@ void ThreadLocalLogger::FlusherLoop() {
 
 WalAppendResult ThreadLocalLogger::FlushThrough(EpochNumber target) {
   const EpochNumber durable_before = read_durable_();
-  auto& trace       = FlushTrace::Instance();
+  auto &trace = FlushTrace::Instance();
   const bool traced = trace.Enabled();
   if (traced) trace.GroupCollectBegin(durable_before);
 
-  nodes_.ForEach([&](ThreadLocalStorageNode* node) {
+  nodes_.ForEach([&](ThreadLocalStorageNode *node) {
     LogRecords swapped;
     {
       std::lock_guard<std::mutex> lock(node->log_records_mutex);
       swapped.swap(node->log_records);
     }
-    for (auto& record : swapped) {
+    for (auto &record : swapped) {
       if (record.epoch <= durable_before) {
         // A producer publishes OFFLINE only after Enqueue returns, so an epoch
         // the writer has already closed cannot gain a record afterwards.

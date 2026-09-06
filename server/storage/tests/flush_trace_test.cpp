@@ -1,3 +1,5 @@
+#include "recovery/flush_trace.h"
+
 #include <fcntl.h>
 #include <gtest/gtest.h>
 #include <sys/file.h>
@@ -9,8 +11,6 @@
 #include <sstream>
 #include <string>
 #include <vector>
-
-#include "recovery/flush_trace.h"
 
 namespace {
 
@@ -29,11 +29,11 @@ struct Meta {
 // each other's files.
 class ScopedTraceDir {
  public:
-  explicit ScopedTraceDir(const char* tag) {
-    std::string pattern = (std::filesystem::temp_directory_path() /
-                           (std::string("lineairdb_flush_trace_") + tag +
-                            "_XXXXXX"))
-                              .string();
+  explicit ScopedTraceDir(const char *tag) {
+    std::string pattern =
+        (std::filesystem::temp_directory_path() /
+         (std::string("lineairdb_flush_trace_") + tag + "_XXXXXX"))
+            .string();
     std::vector<char> buffer(pattern.begin(), pattern.end());
     buffer.push_back('\0');
     EXPECT_NE(::mkdtemp(buffer.data()), nullptr);
@@ -49,7 +49,7 @@ class ScopedTraceDir {
   std::string path_;
 };
 
-Meta ReadMeta(const std::string& prefix) {
+Meta ReadMeta(const std::string &prefix) {
   Meta meta;
   std::ifstream file(prefix + "_meta.csv");
   EXPECT_TRUE(file.is_open()) << prefix + "_meta.csv";
@@ -72,7 +72,7 @@ Meta ReadMeta(const std::string& prefix) {
   return meta;
 }
 
-std::string ReadWholeFile(const std::string& path) {
+std::string ReadWholeFile(const std::string &path) {
   std::ifstream file(path, std::ios::binary);
   std::ostringstream contents;
   contents << file.rdbuf();
@@ -83,7 +83,7 @@ std::string ReadWholeFile(const std::string& path) {
 // Runs inside a death-test child only: FlushTrace reads its enable switch at
 // the first Instance() call, so the parent must never construct it.
 void RecordAndDump() {
-  auto& trace = FlushTrace::Instance();
+  auto &trace = FlushTrace::Instance();
   ASSERT_TRUE(trace.Enabled());
 
   trace.GroupCollectBegin(/*durable_before=*/0);

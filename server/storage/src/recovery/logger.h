@@ -70,11 +70,11 @@ class Logger {
   using LogRecord = Recovery::LogRecord;
   using LogRecords = Recovery::LogRecords;
 
-  explicit Logger(const Config&, WalIo io = WalIo::Posix());
+  explicit Logger(const Config &, WalIo io = WalIo::Posix());
   ~Logger();
 
   /** See LoggerBase::Enqueue. */
-  bool Enqueue(const WriteSetType& ws_ref, EpochNumber epoch);
+  bool Enqueue(const WriteSetType &ws_ref, EpochNumber epoch);
 
   /**
    * @brief Reads the log, repairs an interrupted tail, initializes the

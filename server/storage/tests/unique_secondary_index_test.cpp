@@ -13,10 +13,10 @@ namespace {
 constexpr uint kUnique =
     static_cast<uint>(LineairDB::SecondaryIndexOption::Constraint::UNIQUE);
 
-bool WriteSecondary(LineairDB::Database& db, const std::string& table_name,
-                    const std::string& primary_key, const std::string& value,
-                    const std::string& index_name,
-                    const std::string& secondary_key) {
+bool WriteSecondary(LineairDB::Database &db, const std::string &table_name,
+                    const std::string &primary_key, const std::string &value,
+                    const std::string &index_name,
+                    const std::string &secondary_key) {
   return TestHelper::CommitWrites(
       db, {{table_name, primary_key, value, false, false}},
       {{table_name, index_name, secondary_key, primary_key, false}});

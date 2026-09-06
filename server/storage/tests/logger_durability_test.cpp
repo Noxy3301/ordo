@@ -53,7 +53,7 @@ class LoggerDurabilityTest : public ::testing::Test {
     std::filesystem::remove_all(root_, ec);
   }
 
-  static WriteSetType MakeWriteSet(const std::string& key) {
+  static WriteSetType MakeWriteSet(const std::string &key) {
     Snapshot snapshot(key, nullptr, 0, nullptr, "t", "");
     WriteSetType write_set;
     write_set.emplace_back(std::move(snapshot));
@@ -61,7 +61,7 @@ class LoggerDurabilityTest : public ::testing::Test {
   }
 
   /** A write set of secondary snapshots with no delta persists nothing. */
-  static WriteSetType MakeEmptySecondaryWriteSet(const std::string& key) {
+  static WriteSetType MakeEmptySecondaryWriteSet(const std::string &key) {
     Snapshot snapshot(key, nullptr, 0, nullptr, "t", "idx");
     WriteSetType write_set;
     write_set.emplace_back(std::move(snapshot));
@@ -160,10 +160,10 @@ TEST_F(LoggerDurabilityTest, SyncAcknowledgementFollowsTheFdatasync) {
   // Declared after the future so unwinding runs the guard first; the drain
   // wakes the committer with either the durable epoch or the stopped state.
   struct ReleaseOnExit {
-    Logger& logger;
-    std::mutex& mutex;
-    std::condition_variable& held;
-    bool& released;
+    Logger &logger;
+    std::mutex &mutex;
+    std::condition_variable &held;
+    bool &released;
     ~ReleaseOnExit() {
       {
         std::lock_guard<std::mutex> lock(mutex);
@@ -189,8 +189,8 @@ TEST_F(LoggerDurabilityTest, SyncAcknowledgementFollowsTheFdatasync) {
 
   {
     std::unique_lock<std::mutex> lock(mutex);
-    ASSERT_TRUE(held.wait_for(lock, kTestTimeout,
-                              [&] { return inside_fdatasync; }));
+    ASSERT_TRUE(
+        held.wait_for(lock, kTestTimeout, [&] { return inside_fdatasync; }));
   }
   EXPECT_EQ(committer.wait_for(std::chrono::milliseconds(200)),
             std::future_status::timeout);
@@ -268,10 +268,10 @@ TEST_F(LoggerDurabilityTest, CommitDurabilityIsSwitchableAtRuntime) {
   // and drains the flusher on every exit path, so a failed assertion cannot
   // leave the committer waiting forever.
   struct ReleaseOnExit {
-    Logger& logger;
-    std::mutex& mutex;
-    std::condition_variable& held;
-    bool& released;
+    Logger &logger;
+    std::mutex &mutex;
+    std::condition_variable &held;
+    bool &released;
     ~ReleaseOnExit() {
       {
         std::lock_guard<std::mutex> lock(mutex);
@@ -305,8 +305,8 @@ TEST_F(LoggerDurabilityTest, CommitDurabilityIsSwitchableAtRuntime) {
 
   {
     std::unique_lock<std::mutex> lock(mutex);
-    ASSERT_TRUE(held.wait_for(lock, kTestTimeout,
-                              [&] { return inside_fdatasync; }));
+    ASSERT_TRUE(
+        held.wait_for(lock, kTestTimeout, [&] { return inside_fdatasync; }));
   }
   EXPECT_EQ(committer.wait_for(std::chrono::milliseconds(200)),
             std::future_status::timeout);
@@ -379,8 +379,8 @@ TEST_F(LoggerDurabilityTest, RecordsAboveTheTargetAreCarriedForward) {
 
   // Both epochs must be present, in order, after reopening.
   LineairDB::Recovery::Wal wal(config_.work_dir,
-                              LineairDB::Recovery::WalIo::Posix(),
-                              config_.wal_initial_capacity_bytes);
+                               LineairDB::Recovery::WalIo::Posix(),
+                               config_.wal_initial_capacity_bytes);
   const auto scan = wal.ScanAndRepair();
   ASSERT_EQ(scan.status, LineairDB::Recovery::WalScanResult::Status::Ok);
   EXPECT_EQ(scan.frontier, 9u);
@@ -441,7 +441,7 @@ TEST_F(LoggerDurabilityTest, FdatasyncFailureHoldsTheFrontierAndFailsWaiters) {
 
 TEST_F(LoggerDurabilityTest, WriteFailureFailsWaiters) {
   WalIo io = WalIo::Posix();
-  io.pwrite = [](int, const void*, size_t, off_t) -> ssize_t {
+  io.pwrite = [](int, const void *, size_t, off_t) -> ssize_t {
     errno = EIO;
     return -1;
   };
@@ -483,8 +483,8 @@ TEST_F(LoggerDurabilityTest, StopDrainsWhatWasAlreadyClosed) {
   }
 
   LineairDB::Recovery::Wal wal(config_.work_dir,
-                              LineairDB::Recovery::WalIo::Posix(),
-                              config_.wal_initial_capacity_bytes);
+                               LineairDB::Recovery::WalIo::Posix(),
+                               config_.wal_initial_capacity_bytes);
   const auto scan = wal.ScanAndRepair();
   ASSERT_EQ(scan.status, LineairDB::Recovery::WalScanResult::Status::Ok);
   EXPECT_EQ(scan.frontier, 6u);

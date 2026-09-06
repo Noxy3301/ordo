@@ -34,11 +34,10 @@ namespace Silo {
  * TID and only return it if it has not moved. The caller keeps the
  * returned `tid` and submits it through ValidateAndCommit later.
  */
-StatelessReadResult Read(TableDictionary& tables,
-                         std::shared_mutex& schema_mutex,
-                         std::string_view table_name, std::string_view key,
-                         const std::vector<uint32_t>* selected_columns =
-                             nullptr);
+StatelessReadResult Read(
+    TableDictionary &tables, std::shared_mutex &schema_mutex,
+    std::string_view table_name, std::string_view key,
+    const std::vector<uint32_t> *selected_columns = nullptr);
 
 /**
  * @brief Read several rows in one call.
@@ -48,8 +47,8 @@ StatelessReadResult Read(TableDictionary& tables,
  * RPC.
  */
 std::vector<StatelessReadResult> BatchRead(
-    TableDictionary& tables, std::shared_mutex& schema_mutex,
-    const std::vector<std::pair<std::string, std::string>>& keys);
+    TableDictionary &tables, std::shared_mutex &schema_mutex,
+    const std::vector<std::pair<std::string, std::string>> &keys);
 
 /**
  * @brief Range-scan the primary index and return the rows observed in
@@ -64,14 +63,11 @@ std::vector<StatelessReadResult> BatchRead(
  * `ok` distinguishes a genuine empty result from a Masstree retry that
  * gave up. Callers should treat `!ok` as an abort signal.
  */
-StatelessRangeScanResult RangeScan(TableDictionary& tables,
-                                   std::shared_mutex& schema_mutex,
-                                   std::string_view table_name,
-                                   std::string_view start_key,
-                                   std::string_view end_key,
-                                   uint64_t row_limit, bool reverse_scan,
-                                   const std::vector<uint32_t>*
-                                       selected_columns = nullptr);
+StatelessRangeScanResult RangeScan(
+    TableDictionary &tables, std::shared_mutex &schema_mutex,
+    std::string_view table_name, std::string_view start_key,
+    std::string_view end_key, uint64_t row_limit, bool reverse_scan,
+    const std::vector<uint32_t> *selected_columns = nullptr);
 
 /**
  * @brief Range-scans the primary index and returns PAX cell references.
@@ -80,7 +76,7 @@ StatelessRangeScanResult RangeScan(TableDictionary& tables,
  * after reading. `ok == false` means the caller should use RangeScan instead.
  */
 StatelessPaxRowRefScanResult PaxRowRefScan(
-    TableDictionary& tables, std::shared_mutex& schema_mutex,
+    TableDictionary &tables, std::shared_mutex &schema_mutex,
     std::string_view table_name, std::string_view start_key,
     std::string_view end_key, uint64_t row_limit, bool reverse_scan);
 
@@ -95,11 +91,10 @@ StatelessPaxRowRefScanResult PaxRowRefScan(
  * key lists. `ok == false` is the abort signal, as in RangeScan.
  */
 StatelessSecondaryRangeScanResult SecondaryRangeScan(
-    TableDictionary& tables, std::shared_mutex& schema_mutex,
+    TableDictionary &tables, std::shared_mutex &schema_mutex,
     std::string_view table_name, std::string_view index_name,
     std::string_view start_key, std::string_view end_key, uint64_t row_limit,
-    bool reverse_scan,
-    const std::vector<uint32_t>* selected_columns = nullptr);
+    bool reverse_scan, const std::vector<uint32_t> *selected_columns = nullptr);
 
 }  // namespace Silo
 }  // namespace LineairDB

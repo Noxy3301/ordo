@@ -53,11 +53,11 @@ class ThreadLocalLogger final : public LoggerBase {
   using PublishFailure = std::function<void(int)>;
   using ReadDurable = std::function<EpochNumber()>;
 
-  ThreadLocalLogger(const Config&, PublishDurable, PublishFailure, ReadDurable,
+  ThreadLocalLogger(const Config &, PublishDurable, PublishFailure, ReadDurable,
                     WalIo io = WalIo::Posix());
   ~ThreadLocalLogger() override;
 
-  bool Enqueue(const WriteSetType& ws_ref, EpochNumber epoch) final override;
+  bool Enqueue(const WriteSetType &ws_ref, EpochNumber epoch) final override;
   WalScanResult ScanAndRepairWal(EpochNumber min_epoch) final override;
   EpochNumber WalFrontier() const final override;
   void StartFlusher() final override;

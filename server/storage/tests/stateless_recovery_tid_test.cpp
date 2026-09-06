@@ -8,7 +8,7 @@
 
 namespace {
 
-constexpr const char* kTable = "recovery_tid_test";
+constexpr const char *kTable = "recovery_tid_test";
 
 LineairDB::Config MakeConfig() {
   LineairDB::Config config;

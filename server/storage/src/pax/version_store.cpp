@@ -16,7 +16,7 @@ namespace {
  */
 uint64_t ByteBudgetFromEnv() {
   constexpr uint64_t kDefault = 256ull << 20;
-  const char* v = std::getenv("LINEAIRDB_VERSION_STORE_BUDGET_BYTES");
+  const char *v = std::getenv("LINEAIRDB_VERSION_STORE_BUDGET_BYTES");
   if (v == nullptr) return kDefault;
   const long long parsed = std::strtoll(v, nullptr, 10);
   return parsed > 0 ? static_cast<uint64_t>(parsed) : kDefault;
@@ -25,26 +25,26 @@ uint64_t ByteBudgetFromEnv() {
 
 VersionStore::VersionStore() : byte_budget_(ByteBudgetFromEnv()) {}
 
-VersionStore& VersionStore::Global() {
+VersionStore &VersionStore::Global() {
   static VersionStore instance;
   return instance;
 }
 
-VersionStore::GroupUndo* VersionStore::GetOrCreateGroupUndo(PaxGroup* group) {
+VersionStore::GroupUndo *VersionStore::GetOrCreateGroupUndo(PaxGroup *group) {
   std::lock_guard<std::mutex> lk(groups_mutex_);
-  auto& slot = groups_[group];
+  auto &slot = groups_[group];
   if (!slot) slot = std::make_unique<GroupUndo>();
   return slot.get();
 }
 
-const VersionStore::GroupUndo* VersionStore::FindGroupUndo(
-    const PaxGroup* group) const {
+const VersionStore::GroupUndo *VersionStore::FindGroupUndo(
+    const PaxGroup *group) const {
   std::lock_guard<std::mutex> lk(groups_mutex_);
   auto it = groups_.find(group);
   return it == groups_.end() ? nullptr : it->second.get();
 }
 
-void VersionStore::Capture(PaxGroup* group, uint32_t slot,
+void VersionStore::Capture(PaxGroup *group, uint32_t slot,
                            uint32_t writer_epoch, bool was_visible,
                            std::string old_row) {
   // Shared lock: keeps the zero-transition clear (exclusive) from
@@ -64,7 +64,7 @@ void VersionStore::Capture(PaxGroup* group, uint32_t slot,
     return;
   }
 
-  GroupUndo* undo = GetOrCreateGroupUndo(group);
+  GroupUndo *undo = GetOrCreateGroupUndo(group);
   {
     std::lock_guard<std::mutex> glk(undo->m);
     undo->entries[slot].push_back(
@@ -93,7 +93,7 @@ VersionStore::ReadViewToken VersionStore::BeginCapture() {
   return token;
 }
 
-void VersionStore::EndCapture(const ReadViewToken& token) {
+void VersionStore::EndCapture(const ReadViewToken &token) {
   if (!token.valid) return;
   std::unique_lock<std::shared_mutex> lk(registry_mutex_);
   const auto remaining =
@@ -101,25 +101,25 @@ void VersionStore::EndCapture(const ReadViewToken& token) {
   if (remaining == 0) ClearAllLocked();
 }
 
-bool VersionStore::Poisoned(const ReadViewToken& token) const {
+bool VersionStore::Poisoned(const ReadViewToken &token) const {
   (void)token;
   return poisoned_.load(std::memory_order_seq_cst);
 }
 
-void VersionStore::PoisonActiveGeneration(const char* reason) {
+void VersionStore::PoisonActiveGeneration(const char *reason) {
   poisoned_.store(true, std::memory_order_seq_cst);
   SPDLOG_WARN("PAX version store poisoned: {}", reason);
 }
 
-uint64_t VersionStore::GroupCaptureCount(const PaxGroup* group) const {
-  const GroupUndo* undo = FindGroupUndo(group);
+uint64_t VersionStore::GroupCaptureCount(const PaxGroup *group) const {
+  const GroupUndo *undo = FindGroupUndo(group);
   return undo == nullptr ? 0
                          : undo->capture_count.load(std::memory_order_acquire);
 }
 
-std::vector<VersionStore::Entry> VersionStore::EntriesFor(
-    const PaxGroup* group, uint32_t slot) const {
-  const GroupUndo* undo = FindGroupUndo(group);
+std::vector<VersionStore::Entry> VersionStore::EntriesFor(const PaxGroup *group,
+                                                          uint32_t slot) const {
+  const GroupUndo *undo = FindGroupUndo(group);
   if (undo == nullptr) return {};
   std::lock_guard<std::mutex> glk(undo->m);
   auto it = undo->entries.find(slot);
@@ -128,8 +128,8 @@ std::vector<VersionStore::Entry> VersionStore::EntriesFor(
 }
 
 std::unordered_map<uint32_t, std::vector<VersionStore::Entry>>
-VersionStore::GroupEntries(const PaxGroup* group) const {
-  const GroupUndo* undo = FindGroupUndo(group);
+VersionStore::GroupEntries(const PaxGroup *group) const {
+  const GroupUndo *undo = FindGroupUndo(group);
   if (undo == nullptr) return {};
   std::lock_guard<std::mutex> glk(undo->m);
   return undo->entries;
@@ -137,7 +137,7 @@ VersionStore::GroupEntries(const PaxGroup* group) const {
 
 void VersionStore::ClearAllLocked() {
   std::lock_guard<std::mutex> lk(groups_mutex_);
-  for (auto& [group, undo] : groups_) {
+  for (auto &[group, undo] : groups_) {
     std::lock_guard<std::mutex> glk(undo->m);
     undo->entries.clear();
     // The reset cannot alias two generations: counter comparisons happen
@@ -150,22 +150,21 @@ void VersionStore::ClearAllLocked() {
   poisoned_.store(false, std::memory_order_seq_cst);
 }
 
-uint32_t& CurrentCommitEpoch::Get() {
+uint32_t &CurrentCommitEpoch::Get() {
   thread_local uint32_t epoch = 0;
   return epoch;
 }
 
-uint64_t UndoGroupCaptureCount(const PaxGroup* group) {
+uint64_t UndoGroupCaptureCount(const PaxGroup *group) {
   return VersionStore::Global().GroupCaptureCount(group);
 }
 
 std::unordered_map<uint32_t, std::vector<UndoEntry>> UndoGroupEntries(
-    const PaxGroup* group) {
+    const PaxGroup *group) {
   return VersionStore::Global().GroupEntries(group);
 }
 
-std::vector<UndoEntry> UndoSlotEntries(const PaxGroup* group,
-                                       uint32_t slot) {
+std::vector<UndoEntry> UndoSlotEntries(const PaxGroup *group, uint32_t slot) {
   return VersionStore::Global().EntriesFor(group, slot);
 }
 

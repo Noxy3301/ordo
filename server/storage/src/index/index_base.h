@@ -1,13 +1,13 @@
 #ifndef LINEAIRDB_INDEX_BASE_H
 #define LINEAIRDB_INDEX_BASE_H
 
+#include <lineairdb/pax_store.h>
+
 #include <cstdint>
 #include <functional>
 #include <optional>
 #include <string_view>
 #include <vector>
-
-#include <lineairdb/pax_store.h>
 
 #include "types/data_item.hpp"
 
@@ -22,8 +22,8 @@ class IndexBase;
 // at Precommit. PL ignores these entries because it detects phantoms
 // synchronously at scan time.
 struct NodeVersionEntry {
-  IndexBase* owner;
-  const void* node_ptr;
+  IndexBase *owner;
+  const void *node_ptr;
   std::uint64_t version;
 };
 
@@ -35,8 +35,8 @@ struct NodeVersionEntry {
 // `valid=false` means the call did not bump any leaf version (e.g. an
 // in-place overwrite, or the call was a no-op).
 struct NodeVersionUpdate {
-  IndexBase* owner = nullptr;
-  const void* node_ptr = nullptr;
+  IndexBase *owner = nullptr;
+  const void *node_ptr = nullptr;
   std::uint64_t old_version = 0;
   std::uint64_t new_version = 0;
   bool valid = false;
@@ -53,7 +53,7 @@ class IndexBase {
    * the ordinary heap-backed DataBuffer layout. Secondary indexes never set a
    * PaxStore because they store index metadata rather than table row payloads.
    */
-  virtual void SetPaxStore(Pax::PaxStore* /*store*/) {}
+  virtual void SetPaxStore(Pax::PaxStore * /*store*/) {}
 
   // Point operations. The optional `out_update` lets the OCC layer learn
   // whether the call structurally bumped a leaf version, so it can apply
@@ -61,17 +61,17 @@ class IndexBase {
   // entry from old_version to new_version, abort only on a real race).
   // Backends that do not track leaf versions (PL) leave `out_update->valid`
   // false.
-  virtual DataItem* Get(std::string_view key) = 0;
-  virtual bool Put(std::string_view key, DataItem&& rhs,
-                   NodeVersionUpdate* out_update = nullptr) = 0;
+  virtual DataItem *Get(std::string_view key) = 0;
+  virtual bool Put(std::string_view key, DataItem &&rhs,
+                   NodeVersionUpdate *out_update = nullptr) = 0;
   virtual bool Insert(std::string_view key,
-                      NodeVersionUpdate* out_update = nullptr) = 0;
+                      NodeVersionUpdate *out_update = nullptr) = 0;
   virtual bool Delete(std::string_view key) = 0;
 
   // Seed a blank entry for a key that later writes fill in. Idempotent on an
   // existing key.
   virtual void ForcePutBlankEntry(std::string_view key,
-                                   NodeVersionUpdate* out_update = nullptr) = 0;
+                                  NodeVersionUpdate *out_update = nullptr) = 0;
 
   // Range operations. Returns the number of keys the walk emitted; backends
   // that defer phantom checks append per-scan snapshots into `out_versions`
@@ -79,22 +79,22 @@ class IndexBase {
   virtual size_t Scan(
       std::string_view begin, std::optional<std::string_view> end,
       std::function<bool(std::string_view)> operation,
-      std::vector<NodeVersionEntry>* out_versions = nullptr) = 0;
+      std::vector<NodeVersionEntry> *out_versions = nullptr) = 0;
   virtual size_t Scan(
       std::string_view begin, std::string_view end,
-      std::function<bool(std::string_view, DataItem&)> operation,
-      std::vector<NodeVersionEntry>* out_versions = nullptr) = 0;
+      std::function<bool(std::string_view, DataItem &)> operation,
+      std::vector<NodeVersionEntry> *out_versions = nullptr) = 0;
   virtual size_t ScanReverse(
       std::string_view begin, std::optional<std::string_view> end,
       std::function<bool(std::string_view)> operation,
-      std::vector<NodeVersionEntry>* out_versions = nullptr) = 0;
+      std::vector<NodeVersionEntry> *out_versions = nullptr) = 0;
   virtual size_t ScanReverse(
       std::string_view begin, std::string_view end,
-      std::function<bool(std::string_view, DataItem&)> operation,
-      std::vector<NodeVersionEntry>* out_versions = nullptr) = 0;
+      std::function<bool(std::string_view, DataItem &)> operation,
+      std::vector<NodeVersionEntry> *out_versions = nullptr) = 0;
 
   virtual void ForEach(
-      std::function<bool(std::string_view, DataItem&)> operation) = 0;
+      std::function<bool(std::string_view, DataItem &)> operation) = 0;
 
   virtual void WaitForIndexIsLinearizable() = 0;
 
@@ -103,14 +103,14 @@ class IndexBase {
   // owned by other indexes must be ignored (kept in the combined set so the
   // caller can validate many indexes in one pass).
   virtual bool ValidatePhantoms(
-      const std::vector<NodeVersionEntry>& entries) = 0;
+      const std::vector<NodeVersionEntry> &entries) = 0;
 
   // Structurally remove a committed tombstone from the index. Called by the
   // deferred purge reaper only, after it has locked `expected`, verified the
   // delete TID, and confirmed the key still resolves to the same DataItem.
   // `retired_tid` is published on the removed item before it is RCU-retired.
   // Default no-op for backends without physical reclamation (PL).
-  virtual bool Purge(std::string_view /*key*/, DataItem* /*expected*/,
+  virtual bool Purge(std::string_view /*key*/, DataItem * /*expected*/,
                      TransactionId /*retired_tid*/ = {}) {
     return false;
   }

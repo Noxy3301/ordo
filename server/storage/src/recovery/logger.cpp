@@ -22,8 +22,8 @@
 #include <cstdlib>
 #include <functional>
 #include <unordered_map>
-#include <utility>
 #include <util/logger.hpp>
+#include <utility>
 
 #include "epoch_scan_checkpoint.h"
 #include "flush_trace.h"
@@ -59,14 +59,14 @@ size_t HashCombine(size_t seed, size_t value) {
  * The checkpoint image is folded in ahead of the log's tail as ordinary
  * records, under the same rule that resolves two epochs of the log.
  */
-WriteSetType BuildRecoverySet(const LogRecords& image, const LogRecords& tail) {
+WriteSetType BuildRecoverySet(const LogRecords &image, const LogRecords &tail) {
   struct SecondaryOpKey {
     std::string table_name;
     std::string index_name;
     uint32_t index_type;
     std::string secondary_key;
     std::string primary_key;
-    bool operator==(const SecondaryOpKey& rhs) const {
+    bool operator==(const SecondaryOpKey &rhs) const {
       return table_name == rhs.table_name && index_name == rhs.index_name &&
              index_type == rhs.index_type &&
              secondary_key == rhs.secondary_key &&
@@ -74,7 +74,7 @@ WriteSetType BuildRecoverySet(const LogRecords& image, const LogRecords& tail) {
     }
   };
   struct SecondaryOpKeyHash {
-    size_t operator()(const SecondaryOpKey& key) const {
+    size_t operator()(const SecondaryOpKey &key) const {
       const std::hash<std::string> hasher;
       size_t seed = hasher(key.table_name);
       seed = HashCombine(seed, hasher(key.index_name));
@@ -93,13 +93,13 @@ WriteSetType BuildRecoverySet(const LogRecords& image, const LogRecords& tail) {
     std::string index_name;
     uint32_t index_type;
     std::string secondary_key;
-    bool operator==(const SecondaryGroupKey& rhs) const {
+    bool operator==(const SecondaryGroupKey &rhs) const {
       return table_name == rhs.table_name && index_name == rhs.index_name &&
              index_type == rhs.index_type && secondary_key == rhs.secondary_key;
     }
   };
   struct SecondaryGroupKeyHash {
-    size_t operator()(const SecondaryGroupKey& key) const {
+    size_t operator()(const SecondaryGroupKey &key) const {
       const std::hash<std::string> hasher;
       size_t seed = hasher(key.table_name);
       seed = HashCombine(seed, hasher(key.index_name));
@@ -120,7 +120,7 @@ WriteSetType BuildRecoverySet(const LogRecords& image, const LogRecords& tail) {
   // (table_name, key) -> position in recovery_set. Only the primary path
   // uses it; a primary kvp always carries an empty index_name.
   struct PrimaryKeyHash {
-    size_t operator()(const std::pair<std::string, std::string>& key) const {
+    size_t operator()(const std::pair<std::string, std::string> &key) const {
       const std::hash<std::string> hasher;
       return HashCombine(hasher(key.first), hasher(key.second));
     }
@@ -129,10 +129,10 @@ WriteSetType BuildRecoverySet(const LogRecords& image, const LogRecords& tail) {
                      PrimaryKeyHash>
       primary_position;
 
-  const LogRecords* sources[] = {&image, &tail};
-  for (const auto* source : sources) {
-    for (const auto& log_record : *source) {
-      for (const auto& kvp : log_record.key_value_pairs) {
+  const LogRecords *sources[] = {&image, &tail};
+  for (const auto *source : sources) {
+    for (const auto &log_record : *source) {
+      for (const auto &kvp : log_record.key_value_pairs) {
         const auto op = static_cast<SecondaryIndexOp>(kvp.secondary_op);
         const bool is_secondary_index =
             !kvp.index_name.empty() || op != SecondaryIndexOp::None ||
@@ -140,7 +140,7 @@ WriteSetType BuildRecoverySet(const LogRecords& image, const LogRecords& tail) {
             kvp.index_type != 0;
         if (is_secondary_index) {
           if (op == SecondaryIndexOp::Full) {
-            for (const auto& pk : kvp.primary_keys) {
+            for (const auto &pk : kvp.primary_keys) {
               SecondaryOpKey op_key{kvp.table_name, kvp.index_name,
                                     kvp.index_type, kvp.key, pk};
               auto it = secondary_latest.find(op_key);
@@ -149,8 +149,9 @@ WriteSetType BuildRecoverySet(const LogRecords& image, const LogRecords& tail) {
               }
             }
           } else if (!kvp.secondary_primary_key.empty()) {
-            SecondaryOpKey op_key{kvp.table_name, kvp.index_name, kvp.index_type,
-                                  kvp.key, kvp.secondary_primary_key};
+            SecondaryOpKey op_key{kvp.table_name, kvp.index_name,
+                                  kvp.index_type, kvp.key,
+                                  kvp.secondary_primary_key};
             auto it = secondary_latest.find(op_key);
             if (it == secondary_latest.end() || it->second.tid < kvp.tid) {
               secondary_latest[op_key] = {kvp.tid, op};
@@ -159,30 +160,31 @@ WriteSetType BuildRecoverySet(const LogRecords& image, const LogRecords& tail) {
           continue;
         }
 
-        const std::byte* value_ptr =
+        const std::byte *value_ptr =
             kvp.buffer.empty()
                 ? nullptr
-                : reinterpret_cast<const std::byte*>(kvp.buffer.data());
+                : reinterpret_cast<const std::byte *>(kvp.buffer.data());
         // Folded through an index rather than a rescan of the set: the fold
         // runs once per logged write, and a linear rescan makes recovery
         // quadratic in the log size.
         const auto it = primary_position.find({kvp.table_name, kvp.key});
         const bool not_found = it == primary_position.end();
         if (!not_found) {
-          auto& item = recovery_set[it->second];
+          auto &item = recovery_set[it->second];
           if (item.data_item_copy.transaction_id.load() < kvp.tid) {
             item.data_item_copy.Reset(value_ptr, kvp.buffer.size(), kvp.tid);
             item.table_name = kvp.table_name;
             item.index_name = kvp.index_name;
-            item.index_type = Index::SecondaryIndexType::FromRaw(kvp.index_type);
+            item.index_type =
+                Index::SecondaryIndexType::FromRaw(kvp.index_type);
           }
         }
         if (not_found) {
-          primary_position.emplace(
-              std::make_pair(kvp.table_name, kvp.key), recovery_set.size());
+          primary_position.emplace(std::make_pair(kvp.table_name, kvp.key),
+                                   recovery_set.size());
           Snapshot snapshot = {
               kvp.key,
-              reinterpret_cast<const std::byte*>(kvp.buffer.data()),
+              reinterpret_cast<const std::byte *>(kvp.buffer.data()),
               kvp.buffer.size(),
               nullptr,
               kvp.table_name,
@@ -199,30 +201,30 @@ WriteSetType BuildRecoverySet(const LogRecords& image, const LogRecords& tail) {
   std::unordered_map<SecondaryGroupKey, SecondaryGroupValue,
                      SecondaryGroupKeyHash>
       grouped_secondary;
-  for (const auto& [op_key, state] : secondary_latest) {
+  for (const auto &[op_key, state] : secondary_latest) {
     if (state.op != SecondaryIndexOp::Add) continue;
     SecondaryGroupKey group_key{op_key.table_name, op_key.index_name,
                                 op_key.index_type, op_key.secondary_key};
-    auto& entry = grouped_secondary[group_key];
+    auto &entry = grouped_secondary[group_key];
     entry.primary_keys.emplace_back(op_key.primary_key);
     if (entry.max_tid < state.tid) entry.max_tid = state.tid;
   }
 
-  for (auto& [group_key, entry] : grouped_secondary) {
+  for (auto &[group_key, entry] : grouped_secondary) {
     if (entry.primary_keys.empty()) continue;
     std::sort(entry.primary_keys.begin(), entry.primary_keys.end());
     entry.primary_keys.erase(
         std::unique(entry.primary_keys.begin(), entry.primary_keys.end()),
         entry.primary_keys.end());
-    Snapshot snapshot = {group_key.secondary_key,
-                         nullptr,
-                         0,
-                         nullptr,
-                         group_key.table_name,
-                         group_key.index_name,
-                         entry.max_tid,
-                         Index::SecondaryIndexType::FromRaw(
-                             group_key.index_type)};
+    Snapshot snapshot = {
+        group_key.secondary_key,
+        nullptr,
+        0,
+        nullptr,
+        group_key.table_name,
+        group_key.index_name,
+        entry.max_tid,
+        Index::SecondaryIndexType::FromRaw(group_key.index_type)};
     snapshot.data_item_copy.SetPrimaryKeys(std::move(entry.primary_keys));
     snapshot.data_item_copy.Reset(nullptr, 0, entry.max_tid);
     recovery_set.emplace_back(std::move(snapshot));
@@ -232,7 +234,7 @@ WriteSetType BuildRecoverySet(const LogRecords& image, const LogRecords& tail) {
 
 }  // namespace
 
-Logger::Logger(const Config& config, WalIo io)
+Logger::Logger(const Config &config, WalIo io)
     : work_dir_(config.work_dir),
       durability_(config.commit_durability),
       replays_(config.enable_recovery) {
@@ -248,7 +250,7 @@ Logger::~Logger() {
   logger_.reset();
 }
 
-bool Logger::Enqueue(const WriteSetType& ws_ref, EpochNumber epoch) {
+bool Logger::Enqueue(const WriteSetType &ws_ref, EpochNumber epoch) {
   return logger_->Enqueue(ws_ref, epoch);
 }
 
@@ -273,10 +275,10 @@ Logger::RecoveryResult Logger::Recover() {
   auto scan = logger_->ScanAndRepairWal(image.cut_epoch);
   RecoveryResult result;
   if (scan.status != WalScanResult::Status::Ok) {
-    SPDLOG_CRITICAL("Durability Error: {0} ({1}), errno {2}", scan.detail,
-                    scan.status == WalScanResult::Status::Corrupt ? "corrupt"
-                                                                 : "I/O error",
-                    scan.error_number);
+    SPDLOG_CRITICAL(
+        "Durability Error: {0} ({1}), errno {2}", scan.detail,
+        scan.status == WalScanResult::Status::Corrupt ? "corrupt" : "I/O error",
+        scan.error_number);
     PublishFailure(scan.error_number != 0 ? scan.error_number : EIO);
     result.status = RecoveryStatus::Failed;
     return result;
@@ -386,7 +388,7 @@ void Logger::PublishStopped() {
 }
 
 Logger::WaitResult Logger::WaitUntilDurable(EpochNumber commit_epoch,
-                                           Deadline deadline) {
+                                            Deadline deadline) {
   if (durable_epoch_.load(std::memory_order_seq_cst) >= commit_epoch) {
     return WaitResult::Durable;
   }
@@ -426,12 +428,11 @@ void Logger::AwaitCommitDurability(EpochNumber commit_epoch,
   // durable is represented alongside one that waits. The watermark reading is
   // what the commit saw on arrival; publication can land before the wait makes
   // its own check, which is why the recorded field says only that.
-  auto& trace              = FlushTrace::Instance();
-  const bool sampled       = trace.SampleThisCommit();
+  auto &trace = FlushTrace::Instance();
+  const bool sampled = trace.SampleThisCommit();
   const int64_t wait_enter = sampled ? FlushTrace::Now() : 0;
   const bool not_durable_at_enter =
-      sampled &&
-      durable_epoch_.load(std::memory_order_seq_cst) < commit_epoch;
+      sampled && durable_epoch_.load(std::memory_order_seq_cst) < commit_epoch;
 
   // TimedOut cannot arrive from an infinite deadline; treating it as a failure
   // keeps a later finite deadline from turning into a silent acknowledgement.

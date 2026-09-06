@@ -28,12 +28,12 @@ constexpr auto kNotAnsweredFor = std::chrono::milliseconds(500);
 // Everything a timed call is allowed to overshoot by: thread start, the
 // wake from the mutex, and one epoch tick.
 constexpr auto kSchedulingSlack = std::chrono::milliseconds(200);
-const char* const kWorkDir = "lineairdb_durability_barrier_logs";
-const char* const kTable = "users";
-const char* const kWalPoint = "LINEAIRDB_DEBUG_SYNC_WAL_BEFORE_FDATASYNC";
-const char* const kBarrierPoint =
+const char *const kWorkDir = "lineairdb_durability_barrier_logs";
+const char *const kTable = "users";
+const char *const kWalPoint = "LINEAIRDB_DEBUG_SYNC_WAL_BEFORE_FDATASYNC";
+const char *const kBarrierPoint =
     "LINEAIRDB_DEBUG_SYNC_DATABASE_BEFORE_DURABILITY_BARRIER";
-const char* const kCommitPoint =
+const char *const kCommitPoint =
     "LINEAIRDB_DEBUG_SYNC_SILO_COMMIT_BEFORE_OFFLINE";
 
 /**
@@ -47,11 +47,11 @@ const char* const kCommitPoint =
  */
 class PointHold {
  public:
-  explicit PointHold(const char* variable) : variable_(variable) {
+  explicit PointHold(const char *variable) : variable_(variable) {
     if (::pipe(arrived_) != 0 || ::pipe(release_) != 0) std::abort();
-    const std::string action = "arrive_and_wait:" +
-                               std::to_string(arrived_[1]) + ":" +
-                               std::to_string(release_[0]);
+    const std::string action =
+        "arrive_and_wait:" + std::to_string(arrived_[1]) + ":" +
+        std::to_string(release_[0]);
     ::setenv(variable_, action.c_str(), 1);
   }
 
@@ -93,7 +93,7 @@ class PointHold {
   }
 
  private:
-  const char* variable_;
+  const char *variable_;
   int arrived_[2]{};
   int release_[2]{};
 };
@@ -128,11 +128,11 @@ TEST(DurabilityBarrierTest, SwitchWaitsForAnAsyncCommitToReachTheDevice) {
   // Declared after the database so unwinding frees the flusher first; an
   // assertion failure would otherwise hang in ~Database.
   struct DisarmOnExit {
-    PointHold& hold;
+    PointHold &hold;
     ~DisarmOnExit() { hold.Disarm(); }
   } disarm_on_exit{hold};
 
-  auto* impl = LineairDB::Database::Impl::CurrentDBInstance;
+  auto *impl = LineairDB::Database::Impl::CurrentDBInstance;
   ASSERT_NE(impl, nullptr);
   ASSERT_EQ(db->GetCommitDurability(),
             LineairDB::Config::CommitDurability::Async);
@@ -192,7 +192,7 @@ TEST(DurabilityBarrierTest, AQueuedSwitchExpiresOnItsOwnTimeout) {
 
   auto db = std::make_unique<LineairDB::Database>(BarrierConfig());
   struct DisarmOnExit {
-    PointHold& hold;
+    PointHold &hold;
     ~DisarmOnExit() { hold.Disarm(); }
   } disarm_on_exit{hold};
 
@@ -235,8 +235,7 @@ TEST(DurabilityBarrierTest, AQueuedSwitchExpiresOnItsOwnTimeout) {
          std::chrono::steady_clock::now() < deadline) {
     if (hold.WaitForArrival(std::chrono::milliseconds(50))) hold.Release();
   }
-  ASSERT_EQ(first.wait_for(std::chrono::seconds(0)),
-            std::future_status::ready);
+  ASSERT_EQ(first.wait_for(std::chrono::seconds(0)), std::future_status::ready);
   EXPECT_TRUE(first.get());
 
   hold.DrainUntilIdle();
@@ -254,7 +253,7 @@ TEST(DurabilityBarrierTest, AQueuedSwitchRunsOnItsRemainingBudget) {
 
   auto db = std::make_unique<LineairDB::Database>(BarrierConfig());
   struct DisarmOnExit {
-    PointHold& hold;
+    PointHold &hold;
     ~DisarmOnExit() { hold.Disarm(); }
   } disarm_on_exit{hold};
 
@@ -309,7 +308,7 @@ TEST(DurabilityBarrierTest, AQueuedSwitchDoesNotRestartItsBudget) {
 
   auto db = std::make_unique<LineairDB::Database>(BarrierConfig());
   struct DisarmOnExit {
-    PointHold& hold;
+    PointHold &hold;
     ~DisarmOnExit() { hold.Disarm(); }
   } disarm_flusher{flusher};
 
@@ -335,7 +334,7 @@ TEST(DurabilityBarrierTest, AQueuedSwitchDoesNotRestartItsBudget) {
   // Now stop a commit inside its epoch. From here the epoch clock is frozen.
   PointHold committer_hold(kCommitPoint);
   struct DisarmCommitter {
-    PointHold& hold;
+    PointHold &hold;
     ~DisarmCommitter() { hold.Disarm(); }
   } disarm_committer{committer_hold};
   auto committer = std::async(std::launch::async, [&db] {
@@ -365,8 +364,8 @@ TEST(DurabilityBarrierTest, AQueuedSwitchDoesNotRestartItsBudget) {
   // With the epoch clock running again, the same call succeeds.
   committer_hold.Disarm();
   committer.wait();
-  EXPECT_TRUE(db->SetCommitDurability(
-      LineairDB::Config::CommitDurability::Sync, kBarrierTimeout));
+  EXPECT_TRUE(db->SetCommitDurability(LineairDB::Config::CommitDurability::Sync,
+                                      kBarrierTimeout));
 
   db.reset(nullptr);
   std::filesystem::remove_all(kWorkDir);
@@ -380,7 +379,7 @@ TEST(DurabilityBarrierTest, AnExpiredAsyncSwitchLeavesSyncInPlace) {
 
   auto db = std::make_unique<LineairDB::Database>(BarrierConfig());
   struct DisarmOnExit {
-    PointHold& hold;
+    PointHold &hold;
     ~DisarmOnExit() { hold.Disarm(); }
   } disarm_on_exit{flusher};
 
@@ -403,9 +402,9 @@ TEST(DurabilityBarrierTest, AnExpiredAsyncSwitchLeavesSyncInPlace) {
             std::future_status::timeout);
 
   // A budget too small to outlast the barrier ahead of it.
-  EXPECT_FALSE(db->SetCommitDurability(
-      LineairDB::Config::CommitDurability::Async,
-      std::chrono::milliseconds(1)));
+  EXPECT_FALSE(
+      db->SetCommitDurability(LineairDB::Config::CommitDurability::Async,
+                              std::chrono::milliseconds(1)));
   EXPECT_EQ(db->GetCommitDurability(),
             LineairDB::Config::CommitDurability::Sync);
 
@@ -431,7 +430,7 @@ TEST(DurabilityBarrierTest, ASwitchHeldPastItsDeadlineReportsFailure) {
 
   auto db = std::make_unique<LineairDB::Database>(BarrierConfig());
   struct DisarmOnExit {
-    PointHold& hold;
+    PointHold &hold;
     ~DisarmOnExit() { hold.Disarm(); }
   } disarm_on_exit{hold};
 

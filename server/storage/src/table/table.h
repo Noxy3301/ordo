@@ -1,11 +1,11 @@
 #pragma once
 
+#include <lineairdb/pax_store.h>
+
 #include <memory>
 #include <shared_mutex>
 #include <string>
 #include <unordered_map>
-
-#include <lineairdb/pax_store.h>
 
 #include "index/concurrent_table.h"
 #include "index/secondary_index.h"
@@ -17,7 +17,7 @@ namespace LineairDB {
 
 class Table {
  public:
-  Table(EpochFramework& epoch_framework, const Config& config,
+  Table(EpochFramework &epoch_framework, const Config &config,
         std::string_view table_name);
 
   bool CreateSecondaryIndex(
@@ -54,16 +54,16 @@ class Table {
   /**
    * @brief Returns the table's PAX store, or nullptr when PAX is disabled.
    */
-  Pax::PaxStore* GetPaxStore() const { return pax_store_.get(); }
+  Pax::PaxStore *GetPaxStore() const { return pax_store_.get(); }
 
   bool Delete(const std::string_view key) { return primary_index_.Delete(key); }
 
-  const std::string& GetTableName() const;
+  const std::string &GetTableName() const;
 
-  Index::ConcurrentTable& GetPrimaryIndex();
+  Index::ConcurrentTable &GetPrimaryIndex();
   void WaitForIndexIsLinearizable();
 
-  Index::SecondaryIndex* GetSecondaryIndex(const std::string_view index_name);
+  Index::SecondaryIndex *GetSecondaryIndex(const std::string_view index_name);
 
   size_t GetSecondaryIndexCount() const {
     std::shared_lock<std::shared_mutex> lk(table_lock_);
@@ -71,16 +71,16 @@ class Table {
   }
 
   template <typename Func>
-  void ForEachSecondaryIndex(Func&& f) {
+  void ForEachSecondaryIndex(Func &&f) {
     std::shared_lock<std::shared_mutex> lk(table_lock_);
-    for (auto& [index_name, index_ptr] : secondary_indices_) {
+    for (auto &[index_name, index_ptr] : secondary_indices_) {
       f(index_name, *index_ptr);
     }
   }
 
   bool GetOrCreateSecondaryIndex(const std::string_view index_name,
                                  const Index::SecondaryIndexType index_type,
-                                 Index::SecondaryIndex** out_index) {
+                                 Index::SecondaryIndex **out_index) {
     std::unique_lock<std::shared_mutex> lk(table_lock_);
     auto it = secondary_indices_.find(std::string(index_name));
     if (it != secondary_indices_.end()) {
@@ -95,7 +95,7 @@ class Table {
   }
 
  private:
-  EpochFramework& epoch_framework_;
+  EpochFramework &epoch_framework_;
   Config config_;
   Index::ConcurrentTable primary_index_;
   std::unique_ptr<Pax::PaxStore> pax_store_;

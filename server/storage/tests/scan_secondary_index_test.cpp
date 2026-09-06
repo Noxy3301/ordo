@@ -58,18 +58,18 @@ TEST_F(ScanSecondaryIndexTest, DeleteAndScan) {
        {"users", "alpha_index", "c", "user3", false}}));
 
   // The scan range is half-open: c is the exclusive upper bound.
-  EXPECT_EQ(TestHelper::ScanSecondaryIndex(*db_, "users", "alpha_index", "a",
-                                           "c"),
-            (Entries{{"a", "user1"}, {"b", "user2"}}));
+  EXPECT_EQ(
+      TestHelper::ScanSecondaryIndex(*db_, "users", "alpha_index", "a", "c"),
+      (Entries{{"a", "user1"}, {"b", "user2"}}));
 
   ASSERT_TRUE(TestHelper::CommitWrites(
       *db_, {}, {{"users", "alpha_index", "b", "user2", true}}));
-  EXPECT_TRUE(
-      TestHelper::ReadSecondaryIndex(*db_, "users", "alpha_index", "b").empty());
+  EXPECT_TRUE(TestHelper::ReadSecondaryIndex(*db_, "users", "alpha_index", "b")
+                  .empty());
 
-  EXPECT_EQ(TestHelper::ScanSecondaryIndex(*db_, "users", "alpha_index", "a",
-                                           "c"),
-            (Entries{{"a", "user1"}}));
+  EXPECT_EQ(
+      TestHelper::ScanSecondaryIndex(*db_, "users", "alpha_index", "a", "c"),
+      (Entries{{"a", "user1"}}));
 }
 
 TEST_F(ScanSecondaryIndexTest, ScanShouldIncludeInsertedKeys) {
@@ -90,11 +90,10 @@ TEST_F(ScanSecondaryIndexTest, ScanShouldIncludeInsertedKeys) {
        {"users", "name_index", "erin", "user4", false}}));
 
   // erin is the exclusive upper bound.
-  EXPECT_EQ(TestHelper::ScanSecondaryIndex(*db_, "users", "name_index", "alice",
-                                           "erin"),
-            (Entries{{"alice", "user1"},
-                     {"bob", "user2"},
-                     {"carol", "user3"}}));
+  EXPECT_EQ(
+      TestHelper::ScanSecondaryIndex(*db_, "users", "name_index", "alice",
+                                     "erin"),
+      (Entries{{"alice", "user1"}, {"bob", "user2"}, {"carol", "user3"}}));
 }
 
 TEST_F(ScanSecondaryIndexTest, ScanShouldReturnKeysInOrder) {
@@ -169,11 +168,10 @@ TEST_F(ScanSecondaryIndexTest, ScanShouldStopAtCorrectPosition) {
        {"users", "name_index", "erin", "user5", false}}));
 
   // The row limit caps the scan at carol, well inside the range.
-  EXPECT_EQ(TestHelper::ScanSecondaryIndex(*db_, "users", "name_index", "alice",
-                                           "zzz", 3),
-            (Entries{{"alice", "user1"},
-                     {"bob", "user2"},
-                     {"carol", "user3"}}));
+  EXPECT_EQ(
+      TestHelper::ScanSecondaryIndex(*db_, "users", "name_index", "alice",
+                                     "zzz", 3),
+      (Entries{{"alice", "user1"}, {"bob", "user2"}, {"carol", "user3"}}));
 }
 
 TEST_F(ScanSecondaryIndexTest, ScanShouldExcludeDeletedKeys) {

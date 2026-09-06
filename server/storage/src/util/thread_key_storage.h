@@ -34,7 +34,7 @@
 template <class T>
 class ThreadKeyStorage {
   struct TlsNode {
-    TlsNode* prev;
+    TlsNode *prev;
     T payload;
     TlsNode() : prev(nullptr), payload() {}
     template <class... Ts>
@@ -52,9 +52,9 @@ class ThreadKeyStorage {
   }
 
   ~ThreadKeyStorage() {
-    auto* ptr = head_node_.load();
+    auto *ptr = head_node_.load();
     while (ptr != nullptr) {
-      auto* prev = ptr->prev;
+      auto *prev = ptr->prev;
       delete ptr;
       ptr = prev;
     }
@@ -73,10 +73,10 @@ class ThreadKeyStorage {
    * @return T*
    */
   template <class U>
-  T* Get(std::function<U()>&& func) {
-    void* ptr = pthread_getspecific(key_);
+  T *Get(std::function<U()> &&func) {
+    void *ptr = pthread_getspecific(key_);
     if (ptr == nullptr) {
-      TlsNode* new_obj = new TlsNode(std::move(func));
+      TlsNode *new_obj = new TlsNode(std::move(func));
       int err = ::pthread_setspecific(key_, new_obj);
       if (err == ENOMEM) {
         std::cerr << "::pthread_setspecific failed: no enough memory"
@@ -87,7 +87,7 @@ class ThreadKeyStorage {
         exit(EXIT_FAILURE);
       }
       for (;;) {
-        TlsNode* old = head_node_.load();
+        TlsNode *old = head_node_.load();
         new_obj->prev = old;
         bool ret = head_node_.compare_exchange_weak(old, new_obj);
         if (ret) {
@@ -96,13 +96,13 @@ class ThreadKeyStorage {
       }
       ptr = new_obj;
     }
-    return &reinterpret_cast<TlsNode*>(ptr)->payload;
+    return &reinterpret_cast<TlsNode *>(ptr)->payload;
   }
 
-  T* Get() {
-    void* ptr = pthread_getspecific(key_);
+  T *Get() {
+    void *ptr = pthread_getspecific(key_);
     if (ptr == nullptr) {
-      TlsNode* new_obj = new TlsNode();
+      TlsNode *new_obj = new TlsNode();
       int err = ::pthread_setspecific(key_, new_obj);
       if (err == ENOMEM) {
         std::cerr << "::pthread_setspecific failed: no enough memory"
@@ -113,7 +113,7 @@ class ThreadKeyStorage {
         exit(EXIT_FAILURE);
       }
       for (;;) {
-        TlsNode* old = head_node_.load();
+        TlsNode *old = head_node_.load();
         new_obj->prev = old;
         bool ret = head_node_.compare_exchange_weak(old, new_obj);
         if (ret) {
@@ -122,19 +122,19 @@ class ThreadKeyStorage {
       }
       ptr = new_obj;
     }
-    return &reinterpret_cast<TlsNode*>(ptr)->payload;
+    return &reinterpret_cast<TlsNode *>(ptr)->payload;
   }
 
-  void ForEach(std::function<void(T*)>&& f) {
-    TlsNode* ptr = head_node_.load();
+  void ForEach(std::function<void(T *)> &&f) {
+    TlsNode *ptr = head_node_.load();
     while (ptr != nullptr) {
       f(&ptr->payload);
       ptr = ptr->prev;
     }
   }
 
-  void Every(std::function<bool(T*)>&& f) {
-    TlsNode* ptr = head_node_.load();
+  void Every(std::function<bool(T *)> &&f) {
+    TlsNode *ptr = head_node_.load();
     while (ptr != nullptr) {
       auto result = f(&ptr->payload);
       if (!result) break;
@@ -144,7 +144,7 @@ class ThreadKeyStorage {
 
  private:
   pthread_key_t key_;
-  std::atomic<TlsNode*> head_node_;
+  std::atomic<TlsNode *> head_node_;
 };
 
 #endif  // LINEAIRDB_THREAD_KEY_STORAGE_H

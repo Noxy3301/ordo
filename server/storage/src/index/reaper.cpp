@@ -11,10 +11,9 @@
 namespace LineairDB {
 namespace Index {
 
-void Reaper::Enqueue(ConcurrentTable* primary_index,
-                                   SecondaryIndex* secondary_index,
-                                   std::string_view key, DataItem* item,
-                                   TransactionId delete_commit_tid) {
+void Reaper::Enqueue(ConcurrentTable *primary_index,
+                     SecondaryIndex *secondary_index, std::string_view key,
+                     DataItem *item, TransactionId delete_commit_tid) {
   if (item == nullptr || delete_commit_tid.IsEmpty()) return;
   if (primary_index == nullptr && secondary_index == nullptr) return;
 
@@ -32,8 +31,8 @@ void Reaper::Enqueue(ConcurrentTable* primary_index,
   deferred_purge_candidates_.emplace_back(std::move(candidate));
 }
 
-void Reaper::Enqueue(const Snapshot& snapshot,
-                                   TransactionId delete_commit_tid) {
+void Reaper::Enqueue(const Snapshot &snapshot,
+                     TransactionId delete_commit_tid) {
   const bool primary_delete = snapshot.index_name.empty() &&
                               snapshot.pi_ref != nullptr &&
                               !snapshot.data_item_copy.IsPrimaryInitialized();
@@ -43,18 +42,17 @@ void Reaper::Enqueue(const Snapshot& snapshot,
     return;
   }
 
-  const bool secondary_delete = !snapshot.index_name.empty() &&
-                                snapshot.si_ref != nullptr &&
-                                snapshot.data_item_copy.primary_keys_view()
-                                    .empty();
+  const bool secondary_delete =
+      !snapshot.index_name.empty() && snapshot.si_ref != nullptr &&
+      snapshot.data_item_copy.primary_keys_view().empty();
   if (secondary_delete) {
     Enqueue(nullptr, snapshot.si_ref, snapshot.key, snapshot.index_cache,
             delete_commit_tid);
   }
 }
 
-DataItem* Reaper::ResolveDeferredPurgeCandidate(
-    const DeferredPurgeCandidate& candidate) {
+DataItem *Reaper::ResolveDeferredPurgeCandidate(
+    const DeferredPurgeCandidate &candidate) {
   if (candidate.kind == DeferredPurgeIndexKind::Primary) {
     return candidate.primary_index == nullptr
                ? nullptr
@@ -66,7 +64,7 @@ DataItem* Reaper::ResolveDeferredPurgeCandidate(
 }
 
 bool Reaper::PurgeDeferredPurgeCandidate(
-    const DeferredPurgeCandidate& candidate, TransactionId retired_tid) {
+    const DeferredPurgeCandidate &candidate, TransactionId retired_tid) {
   if (candidate.kind == DeferredPurgeIndexKind::Primary) {
     return candidate.primary_index != nullptr &&
            candidate.primary_index->Purge(candidate.key, candidate.item,
@@ -85,11 +83,10 @@ void Reaper::Reap(EpochNumber published_epoch) {
     pending_before = deferred_purge_candidates_.size();
     std::vector<DeferredPurgeCandidate> pending;
     pending.reserve(deferred_purge_candidates_.size());
-    for (auto& candidate : deferred_purge_candidates_) {
+    for (auto &candidate : deferred_purge_candidates_) {
       const EpochNumber delete_epoch = candidate.delete_commit_tid.epoch;
       const bool one_full_epoch_elapsed =
-          published_epoch > delete_epoch &&
-          published_epoch - delete_epoch > 1;
+          published_epoch > delete_epoch && published_epoch - delete_epoch > 1;
       if (one_full_epoch_elapsed) {
         ready.emplace_back(std::move(candidate));
       } else {
@@ -116,8 +113,8 @@ void Reaper::Reap(EpochNumber published_epoch) {
   size_t requeued = 0;
   size_t dropped = 0;
 
-  for (auto& candidate : ready) {
-    DataItem* item = ResolveDeferredPurgeCandidate(candidate);
+  for (auto &candidate : ready) {
+    DataItem *item = ResolveDeferredPurgeCandidate(candidate);
     if (item != candidate.item) {
       ++dropped;
       continue;

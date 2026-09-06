@@ -35,7 +35,7 @@ class SecondaryIndex;
 struct Snapshot {
   std::string key;
   DataItem data_item_copy;
-  DataItem* index_cache;
+  DataItem *index_cache;
   bool is_read_modify_write;
   std::string table_name;
   std::string index_name;
@@ -46,8 +46,8 @@ struct Snapshot {
   // For primary-index writes pi_ref is non-null; for SI writes
   // si_ref is non-null. PL backends ignore both (PL doesn't expose
   // Purge).
-  Index::ConcurrentTable* pi_ref = nullptr;
-  Index::SecondaryIndex* si_ref = nullptr;
+  Index::ConcurrentTable *pi_ref = nullptr;
+  Index::SecondaryIndex *si_ref = nullptr;
   // Set when this write claimed a key that held no row. Commit refuses it if
   // the claimed entry holds one by then.
   bool is_insert = false;
@@ -58,7 +58,7 @@ struct Snapshot {
   std::vector<SecondaryIndexDelta> secondary_index_deltas;
 
   Snapshot(const std::string_view k, const std::byte v[], const size_t s,
-           DataItem* const i, std::string_view tn, std::string_view in,
+           DataItem *const i, std::string_view tn, std::string_view in,
            const TransactionId ver = 0,
            Index::SecondaryIndexType it = Index::SecondaryIndexType())
       : key(k),
@@ -69,17 +69,17 @@ struct Snapshot {
         index_type(it) {
     if (v != nullptr) data_item_copy.Reset(v, s, ver);
   }
-  Snapshot(const Snapshot&) = default;
-  Snapshot& operator=(const Snapshot&) = default;
+  Snapshot(const Snapshot &) = default;
+  Snapshot &operator=(const Snapshot &) = default;
   // Declaring copy ctor/assign above suppresses implicit move generation;
   // emplace_back(std::move(snapshot)) in transaction_impl.cpp would otherwise
   // silently fall back to the deep copy path below
-  Snapshot(Snapshot&&) = default;
-  Snapshot& operator=(Snapshot&&) = default;
+  Snapshot(Snapshot &&) = default;
+  Snapshot &operator=(Snapshot &&) = default;
 
   void RecordSecondaryIndexDelta(const std::string_view primary_key,
                                  SecondaryIndexOp op) {
-    for (auto& delta : secondary_index_deltas) {
+    for (auto &delta : secondary_index_deltas) {
       if (delta.primary_key == primary_key) {
         delta.op = op;
         return;
@@ -88,7 +88,7 @@ struct Snapshot {
     secondary_index_deltas.push_back({std::string(primary_key), op});
   }
 
-  static bool Compare(const Snapshot& left, const Snapshot& right) {
+  static bool Compare(const Snapshot &left, const Snapshot &right) {
     if (left.table_name != right.table_name) {
       return left.table_name < right.table_name;
     }

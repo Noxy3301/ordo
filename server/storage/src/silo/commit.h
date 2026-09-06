@@ -28,10 +28,10 @@ namespace Silo {
  * installed. A call-site view; it does not own the vectors.
  */
 struct CommitPayload {
-  const std::vector<ExternalReadEntry>& reads;
-  const std::vector<ExternalWriteEntry>& writes;
-  const std::vector<ExternalSecondaryIndexEntry>& secondary_index_ops;
-  const std::vector<ExternalRangeReadEntry>& range_reads;
+  const std::vector<ExternalReadEntry> &reads;
+  const std::vector<ExternalWriteEntry> &writes;
+  const std::vector<ExternalSecondaryIndexEntry> &secondary_index_ops;
+  const std::vector<ExternalRangeReadEntry> &range_reads;
 };
 
 /**
@@ -87,10 +87,10 @@ struct CommitPayload {
  * @return true when the transaction committed; false on abort, after
  * every lock this attempt acquired has been released.
  */
-bool Commit(TableDictionary& tables, std::shared_mutex& schema_mutex,
-            EpochFramework& epoch_framework, Index::Reaper& reaper,
-            Recovery::Logger& logger, const CommitPayload& payload,
-            Config::CommitDurability policy, std::string* abort_reason);
+bool Commit(TableDictionary &tables, std::shared_mutex &schema_mutex,
+            EpochFramework &epoch_framework, Index::Reaper &reaper,
+            Recovery::Logger &logger, const CommitPayload &payload,
+            Config::CommitDurability policy, std::string *abort_reason);
 
 }  // namespace Silo
 }  // namespace LineairDB

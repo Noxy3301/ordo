@@ -61,7 +61,7 @@ TEST(ConcurrentTableTest, ConcurrentInserting) {
   for (size_t i = 0; i < 10; i++) {
     threads.emplace_back([&, i]() { table.Put(std::to_string(i), {}); });
   }
-  for (auto& thread : threads) {
+  for (auto &thread : threads) {
     thread.join();
   }
   for (size_t i = 0; i < 10; i++) {
@@ -79,11 +79,11 @@ TEST(ConcurrentTableTest, ConcurrentAndConflictedInserting) {
   for (size_t i = 0; i < 10; i++) {
     threads.emplace_back([&]() { table.Put("alice", {}); });
   }
-  for (auto& thread : threads) {
+  for (auto &thread : threads) {
     thread.join();
   }
   bool some_item_were_inserted = false;
-  auto* item = table.Get("alice");
+  auto *item = table.Get("alice");
   for (size_t i = 0; i < 10; i++) {
     if (item != nullptr) some_item_were_inserted = true;
   }
@@ -107,13 +107,12 @@ TEST(ConcurrentTableTest, Scan) {
   epoch.Sync();
   ASSERT_EQ(size_t(2),
             table.Scan("alice", "carol", [](auto) { return false; }));
-  ASSERT_EQ(size_t(1),
-            table.Scan("alice", "carol", [](auto) { return true; }));
+  ASSERT_EQ(size_t(1), table.Scan("alice", "carol", [](auto) { return true; }));
 }
 
 TEST(ConcurrentTableTest, TremendousPut) {
   std::vector<std::thread> threads;
-  std::vector<LineairDB::DataItem*> items;
+  std::vector<LineairDB::DataItem *> items;
   LineairDB::EpochFramework epoch;
   epoch.Start();
   LineairDB::Index::ConcurrentTable table(epoch);
@@ -127,14 +126,14 @@ TEST(ConcurrentTableTest, TremendousPut) {
       }
     });
   }
-  for (auto& thread : threads) {
+  for (auto &thread : threads) {
     thread.join();
   }
 }
 
 TEST(ConcurrentTableTest, TremendousGetAndPut) {
   std::vector<std::thread> threads;
-  std::vector<LineairDB::DataItem*> items;
+  std::vector<LineairDB::DataItem *> items;
   LineairDB::EpochFramework epoch;
   epoch.Start();
   LineairDB::Index::ConcurrentTable table(epoch);
@@ -149,7 +148,7 @@ TEST(ConcurrentTableTest, TremendousGetAndPut) {
       }
     });
   }
-  for (auto& thread : threads) {
+  for (auto &thread : threads) {
     thread.join();
   }
 }
@@ -157,7 +156,7 @@ TEST(ConcurrentTableTest, TremendousGetAndPut) {
 TEST(ConcurrentTableTest, ForEachIsSafeWithRehashing) {
   // Test scenario: #Rehash and #ForEach are concurrently executed.
   std::vector<std::thread> threads;
-  std::vector<LineairDB::DataItem*> items;
+  std::vector<LineairDB::DataItem *> items;
   LineairDB::EpochFramework epoch(1);
   epoch.Start();
   LineairDB::Index::ConcurrentTable table(epoch);
@@ -181,7 +180,7 @@ TEST(ConcurrentTableTest, ForEachIsSafeWithRehashing) {
       }
     });
   }
-  for (auto& thread : threads) {
+  for (auto &thread : threads) {
     thread.join();
   }
 }

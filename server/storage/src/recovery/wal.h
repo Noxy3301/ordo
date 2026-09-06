@@ -86,10 +86,10 @@ struct WalAppendResult {
  * fit in a long, stops startup.
  */
 struct WalIo {
-  std::function<ssize_t(int, const void*, size_t, off_t)> pwrite;
+  std::function<ssize_t(int, const void *, size_t, off_t)> pwrite;
   std::function<int(int)> fdatasync;
-  std::function<ssize_t(int, const void*, size_t, off_t)> initialise_pwrite;
-  std::function<ssize_t(int, void*, size_t, off_t)> pread;
+  std::function<ssize_t(int, const void *, size_t, off_t)> initialise_pwrite;
+  std::function<ssize_t(int, void *, size_t, off_t)> pread;
 
   static WalIo Posix();
 };
@@ -138,12 +138,12 @@ class Wal {
    * written, which is what the Volatile contract is given: it writes no
    * record at all, so reserving would occupy the space for nothing.
    */
-  Wal(const std::string& work_dir, WalIo io = WalIo::Posix(),
+  Wal(const std::string &work_dir, WalIo io = WalIo::Posix(),
       uint64_t initial_capacity_bytes = kDefaultCapacityBytes);
   ~Wal();
 
-  Wal(const Wal&) = delete;
-  Wal& operator=(const Wal&) = delete;
+  Wal(const Wal &) = delete;
+  Wal &operator=(const Wal &) = delete;
 
   /**
    * @brief Reads the log from the beginning, repairs an interrupted tail,
@@ -179,10 +179,10 @@ class Wal {
    * left the end of the log unknown, fail-stops the process rather than
    * returning: there is nothing trustworthy to append at.
    */
-  WalAppendResult AppendGroup(const std::map<EpochNumber, LogRecords>& buckets,
-                             EpochNumber target);
+  WalAppendResult AppendGroup(const std::map<EpochNumber, LogRecords> &buckets,
+                              EpochNumber target);
 
-  const std::string& path() const { return path_; }
+  const std::string &path() const { return path_; }
 
   /** @brief Offset one past the last frame, which is where the next group
    * lands. */
@@ -230,25 +230,25 @@ class Wal {
    */
   enum class Probe { NoFrame, Frame, IoError, Undecidable };
 
-  WalScanResult Corrupt(const std::string& detail);
-  WalScanResult IoFailure(const std::string& operation, int error);
-  WalScanResult FinishScan(WalScanResult&& result, off_t end_of_log);
-  bool HopCoveredFrames(EpochNumber min_epoch, off_t file_size, off_t* offset,
-                       EpochNumber* frontier, bool* have_frame,
-                       size_t* frames_skipped, uint64_t* bytes_skipped,
-                       bool* guard_pending, off_t* guard_offset,
-                       uint32_t* guard_payload_size, uint8_t* guard_header,
-                       int* error) const;
-  Probe ProbeFrameAt(off_t offset, off_t file_size, uint64_t* io_budget,
-                     int* error) const;
+  WalScanResult Corrupt(const std::string &detail);
+  WalScanResult IoFailure(const std::string &operation, int error);
+  WalScanResult FinishScan(WalScanResult &&result, off_t end_of_log);
+  bool HopCoveredFrames(EpochNumber min_epoch, off_t file_size, off_t *offset,
+                        EpochNumber *frontier, bool *have_frame,
+                        size_t *frames_skipped, uint64_t *bytes_skipped,
+                        bool *guard_pending, off_t *guard_offset,
+                        uint32_t *guard_payload_size, uint8_t *guard_header,
+                        int *error) const;
+  Probe ProbeFrameAt(off_t offset, off_t file_size, uint64_t *io_budget,
+                     int *error) const;
   Probe SearchForFrameAfter(off_t offset, off_t search_end, off_t file_size,
-                            int* error) const;
-  bool FindLastNonZero(off_t from, off_t to, off_t* last_non_zero,
-                       int* error) const;
-  bool EnsureCapacityFor(off_t end_of_log, size_t group_size, int* error);
-  bool WriteZeroesAndSync(off_t from, off_t to, int* error);
-  bool WriteAllAt(const uint8_t* data, size_t size, off_t offset, int* error);
-  bool PreadAll(uint8_t* out, size_t size, off_t offset, int* error) const;
+                            int *error) const;
+  bool FindLastNonZero(off_t from, off_t to, off_t *last_non_zero,
+                       int *error) const;
+  bool EnsureCapacityFor(off_t end_of_log, size_t group_size, int *error);
+  bool WriteZeroesAndSync(off_t from, off_t to, int *error);
+  bool WriteAllAt(const uint8_t *data, size_t size, off_t offset, int *error);
+  bool PreadAll(uint8_t *out, size_t size, off_t offset, int *error) const;
 
   // Cumulative bytes SearchForFrameAfter and the ProbeFrameAt calls it makes
   // may read while looking for a survivor past one damaged tail. Bounds the
@@ -262,7 +262,8 @@ class Wal {
   uint64_t initial_capacity_bytes_;
   State state_{State::Unscanned};
   off_t write_offset_{0};
-  std::atomic<EpochNumber> frontier_{0};  // read cross-thread through frontier()
+  std::atomic<EpochNumber> frontier_{
+      0};  // read cross-thread through frontier()
   /**
    * @brief The file's size, which under preallocation is also the offset
    * below which every block is allocated and holds written-out zeroes.

@@ -48,7 +48,7 @@
 #include <string>
 #include <thread>
 
-extern char** environ;
+extern char **environ;
 
 namespace LineairDB {
 namespace Util {
@@ -56,7 +56,7 @@ namespace Util {
 inline bool DebugSyncEnabled() {
   static const bool enabled = [] {
     constexpr char kPrefix[] = "LINEAIRDB_DEBUG_SYNC_";
-    for (char** e = environ; *e != nullptr; ++e) {
+    for (char **e = environ; *e != nullptr; ++e) {
       if (std::strncmp(*e, kPrefix, sizeof(kPrefix) - 1) == 0) return true;
     }
     return false;
@@ -64,8 +64,8 @@ inline bool DebugSyncEnabled() {
   return enabled;
 }
 
-[[noreturn]] inline void DebugSyncFatal(const char* point_name,
-                                        const char* detail) {
+[[noreturn]] inline void DebugSyncFatal(const char *point_name,
+                                        const char *detail) {
   std::fprintf(stderr, "LineairDB debug sync point '%s': %s\n", point_name,
                detail);
   std::abort();
@@ -74,14 +74,14 @@ inline bool DebugSyncEnabled() {
 // Reads a nonnegative decimal from *cursor and leaves it past the separator.
 // The grammar is digits only: no sign, no whitespace, nothing after the value
 // but the separator. Anything else is a broken activation, not an unlucky one.
-inline long DebugSyncParseNonnegative(const char* point_name,
-                                      const char** cursor, char separator,
-                                      const char* grammar) {
+inline long DebugSyncParseNonnegative(const char *point_name,
+                                      const char **cursor, char separator,
+                                      const char *grammar) {
   if (!std::isdigit(static_cast<unsigned char>(**cursor))) {
     DebugSyncFatal(point_name, grammar);
   }
   errno = 0;
-  char* end = nullptr;
+  char *end = nullptr;
   const long value = std::strtol(*cursor, &end, 10);
   if (*end != separator || errno == ERANGE) {
     DebugSyncFatal(point_name, grammar);
@@ -91,7 +91,7 @@ inline long DebugSyncParseNonnegative(const char* point_name,
 }
 
 // A descriptor must additionally fit in an int.
-inline int DebugSyncParseDescriptor(const char* point_name, const char** cursor,
+inline int DebugSyncParseDescriptor(const char *point_name, const char **cursor,
                                     char separator) {
   constexpr char kGrammar[] = "expected arrive_and_wait:<fd>:<fd>";
   const long value =
@@ -109,7 +109,7 @@ inline int DebugSyncParseDescriptor(const char* point_name, const char** cursor,
 // the failure surfaces as EPIPE from write. The mask is deliberately not
 // restored on the fatal path: restoring it first would deliver the pending
 // signal and skip the diagnostic.
-inline void DebugSyncArriveAndWait(const char* point_name, int arrived_fd,
+inline void DebugSyncArriveAndWait(const char *point_name, int arrived_fd,
                                    int release_fd) {
   sigset_t sigpipe;
   sigemptyset(&sigpipe);
@@ -137,18 +137,18 @@ inline void DebugSyncArriveAndWait(const char* point_name, int arrived_fd,
 }
 
 // Slow path: runs only when at least one point is activated.
-inline void DebugSyncPoint(const char* point_name) {
+inline void DebugSyncPoint(const char *point_name) {
   std::string var = "LINEAIRDB_DEBUG_SYNC_";
-  for (const char* p = point_name; *p != '\0'; ++p) {
+  for (const char *p = point_name; *p != '\0'; ++p) {
     var.push_back(*p == '.' ? '_'
                             : static_cast<char>(std::toupper(
                                   static_cast<unsigned char>(*p))));
   }
-  const char* action = std::getenv(var.c_str());
+  const char *action = std::getenv(var.c_str());
   if (action == nullptr) return;
   constexpr char kSleep[] = "sleep:";
   if (std::strncmp(action, kSleep, sizeof(kSleep) - 1) == 0) {
-    const char* cursor = action + sizeof(kSleep) - 1;
+    const char *cursor = action + sizeof(kSleep) - 1;
     const long ms = DebugSyncParseNonnegative(point_name, &cursor, '\0',
                                               "expected sleep:<ms>");
     std::this_thread::sleep_for(
@@ -158,7 +158,7 @@ inline void DebugSyncPoint(const char* point_name) {
 
   constexpr char kArriveAndWait[] = "arrive_and_wait:";
   if (std::strncmp(action, kArriveAndWait, sizeof(kArriveAndWait) - 1) == 0) {
-    const char* cursor = action + sizeof(kArriveAndWait) - 1;
+    const char *cursor = action + sizeof(kArriveAndWait) - 1;
     const int arrived_fd = DebugSyncParseDescriptor(point_name, &cursor, ':');
     const int release_fd = DebugSyncParseDescriptor(point_name, &cursor, '\0');
     DebugSyncArriveAndWait(point_name, arrived_fd, release_fd);
@@ -171,11 +171,11 @@ inline void DebugSyncPoint(const char* point_name) {
 }  // namespace Util
 }  // namespace LineairDB
 
-#define LINEAIRDB_DEBUG_SYNC(point_name)                 \
-  do {                                                   \
-    if (::LineairDB::Util::DebugSyncEnabled()) {         \
-      ::LineairDB::Util::DebugSyncPoint(point_name);     \
-    }                                                    \
+#define LINEAIRDB_DEBUG_SYNC(point_name)             \
+  do {                                               \
+    if (::LineairDB::Util::DebugSyncEnabled()) {     \
+      ::LineairDB::Util::DebugSyncPoint(point_name); \
+    }                                                \
   } while (0)
 
 #endif  // LINEAIRDB_UTIL_DEBUG_SYNC_HPP

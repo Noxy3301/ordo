@@ -1,3 +1,5 @@
+#include "util/debug_sync.hpp"
+
 #include <fcntl.h>
 #include <gtest/gtest.h>
 #include <unistd.h>
@@ -8,8 +10,6 @@
 #include <string>
 #include <thread>
 #include <vector>
-
-#include "util/debug_sync.hpp"
 
 namespace {
 
@@ -29,7 +29,7 @@ class Pipe {
   void CloseWrite() { Close(&fds_[1]); }
 
  private:
-  static void Close(int* fd) {
+  static void Close(int *fd) {
     if (*fd >= 0) {
       ::close(*fd);
       *fd = -1;
@@ -43,9 +43,7 @@ class Pipe {
 // success path is never read and harmless.
 struct ReleaseOnExit {
   int fd;
-  ~ReleaseOnExit() {
-    [[maybe_unused]] const ssize_t rc = ::write(fd, "r", 1);
-  }
+  ~ReleaseOnExit() { [[maybe_unused]] const ssize_t rc = ::write(fd, "r", 1); }
 };
 
 // The facility decides once per process whether anything is armed. This
@@ -58,13 +56,13 @@ class DebugSyncTest : public ::testing::Test {
     ::setenv("LINEAIRDB_DEBUG_SYNC_KEEPS_THE_FACILITY_ARMED", "sleep:0", 1);
   }
 
-  void Arm(const std::string& variable, const std::string& action) {
+  void Arm(const std::string &variable, const std::string &action) {
     ::setenv(variable.c_str(), action.c_str(), 1);
     armed_.push_back(variable);
   }
 
   void TearDown() override {
-    for (const auto& variable : armed_) {
+    for (const auto &variable : armed_) {
       ::unsetenv(variable.c_str());
     }
     armed_.clear();
@@ -83,9 +81,8 @@ TEST_F(DebugSyncTest, ArriveAndWaitBlocksUntilReleased) {
       "arrive_and_wait:" + std::to_string(arrived.write_fd()) + ":" +
           std::to_string(release.read_fd()));
 
-  auto reached = std::async(std::launch::async, [] {
-    LINEAIRDB_DEBUG_SYNC("test.handshake");
-  });
+  auto reached = std::async(std::launch::async,
+                            [] { LINEAIRDB_DEBUG_SYNC("test.handshake"); });
   ReleaseOnExit always_release{release.write_fd()};
 
   char announcement = 0;
@@ -157,33 +154,32 @@ TEST_F(DebugSyncTest, AnUnusableDescriptorIsAFailure) {
 
 TEST_F(DebugSyncTest, MalformedActivationsAreFailures) {
   const std::string variable = "LINEAIRDB_DEBUG_SYNC_TEST_MALFORMED";
-  const char* const malformed[] = {
-      "arrive_and_wait:",          // no descriptors
-      "arrive_and_wait:3",         // only one
-      "arrive_and_wait:3:4:5",     // one too many
-      "arrive_and_wait:-1:4",      // negative
-      "arrive_and_wait:3:-4",      // negative in the second position
-      "arrive_and_wait: 3:4",      // leading whitespace
-      "arrive_and_wait:+3:4",      // explicit sign
-      "arrive_and_wait:-0:4",      // negative zero
-      "arrive_and_wait:3:+4",      // sign in the second position
-      "arrive_and_wait:x:4",       // not a number
+  const char *const malformed[] = {
+      "arrive_and_wait:",       // no descriptors
+      "arrive_and_wait:3",      // only one
+      "arrive_and_wait:3:4:5",  // one too many
+      "arrive_and_wait:-1:4",   // negative
+      "arrive_and_wait:3:-4",   // negative in the second position
+      "arrive_and_wait: 3:4",   // leading whitespace
+      "arrive_and_wait:+3:4",   // explicit sign
+      "arrive_and_wait:-0:4",   // negative zero
+      "arrive_and_wait:3:+4",   // sign in the second position
+      "arrive_and_wait:x:4",    // not a number
       "arrive_and_wait:99999999999999999999:4",  // out of range
       "arrive_and_wait:3:99999999999999999999",
       // Above INT_MAX but within long on LP64, so strtol reports no error and
       // only the explicit bound rejects it.
-      "arrive_and_wait:2147483648:4",
-      "arrive_and_wait:3:2147483648",
-      "sleep:",                    // no duration
-      "sleep:abc",                 // not a number
-      "sleep:1junk",               // trailing garbage
-      "sleep:-5",                  // sign
-      "sleep: 5",                  // leading whitespace
+      "arrive_and_wait:2147483648:4", "arrive_and_wait:3:2147483648",
+      "sleep:",                      // no duration
+      "sleep:abc",                   // not a number
+      "sleep:1junk",                 // trailing garbage
+      "sleep:-5",                    // sign
+      "sleep: 5",                    // leading whitespace
       "sleep:99999999999999999999",  // out of long range
-      "hold_forever",              // an action that does not exist
-      "",                          // armed with nothing
+      "hold_forever",                // an action that does not exist
+      "",                            // armed with nothing
   };
-  for (const char* action : malformed) {
+  for (const char *action : malformed) {
     Arm(variable, action);
     EXPECT_DEATH(LINEAIRDB_DEBUG_SYNC("test.malformed"),
                  "LineairDB debug sync point")

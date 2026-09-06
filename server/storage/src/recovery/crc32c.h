@@ -17,14 +17,14 @@ namespace Recovery {
  */
 class Crc32c {
  public:
-  void Update(const void* data, size_t size);
+  void Update(const void *data, size_t size);
   uint32_t Finish() const { return state_ ^ 0xffffffffu; }
 
  private:
   uint32_t state_{0xffffffffu};
 };
 
-uint32_t ComputeCrc32c(const void* data, size_t size);
+uint32_t ComputeCrc32c(const void *data, size_t size);
 
 /**
  * @brief Test-only: forces the table or hardware path regardless of what the
@@ -32,9 +32,9 @@ uint32_t ComputeCrc32c(const void* data, size_t size);
  * the table off x86 or without SSE4.2; check HasSse42ForTesting() to know
  * which.
  */
-uint32_t UpdateWithTableForTesting(uint32_t state, const void* data,
+uint32_t UpdateWithTableForTesting(uint32_t state, const void *data,
                                    size_t size);
-uint32_t UpdateWithSse42ForTesting(uint32_t state, const void* data,
+uint32_t UpdateWithSse42ForTesting(uint32_t state, const void *data,
                                    size_t size);
 bool HasSse42ForTesting();
 

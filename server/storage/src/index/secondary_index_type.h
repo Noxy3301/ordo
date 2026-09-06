@@ -9,7 +9,7 @@ class SecondaryIndexType {
   using RawType = uint32_t;
 
   static constexpr RawType kNone = 0;
-  static constexpr RawType kDictUnique  = 1u << 0;
+  static constexpr RawType kDictUnique = 1u << 0;
   static constexpr RawType kDictNotNull = 1u << 1;
 
   constexpr SecondaryIndexType() : raw_(kNone) {}

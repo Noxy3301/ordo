@@ -56,15 +56,15 @@ TEST_F(ManipulateSecondaryIndexTest, ReadWriteMultipleSecondaryIndex) {
   ASSERT_TRUE(db_->CreateSecondaryIndex("users", "age_index", 0));
 
   // The repeated 30/user3 entry must not produce a duplicate primary key.
-  ASSERT_TRUE(TestHelper::CommitWrites(
-      *db_,
-      {{"users", "user1", "Alice", false, false},
-       {"users", "user2", "Bob", false, false},
-       {"users", "user3", "Carol", false, false}},
-      {{"users", "age_index", "25", "user1", false},
-       {"users", "age_index", "25", "user2", false},
-       {"users", "age_index", "30", "user3", false},
-       {"users", "age_index", "30", "user3", false}}));
+  ASSERT_TRUE(
+      TestHelper::CommitWrites(*db_,
+                               {{"users", "user1", "Alice", false, false},
+                                {"users", "user2", "Bob", false, false},
+                                {"users", "user3", "Carol", false, false}},
+                               {{"users", "age_index", "25", "user1", false},
+                                {"users", "age_index", "25", "user2", false},
+                                {"users", "age_index", "30", "user3", false},
+                                {"users", "age_index", "30", "user3", false}}));
 
   EXPECT_EQ(
       TestHelper::ReadSecondaryIndex(*db_, "users", "age_index", "25").size(),
@@ -78,19 +78,19 @@ TEST_F(ManipulateSecondaryIndexTest, ReadDataViaSecondaryIndex) {
   ASSERT_TRUE(db_->CreateTable("users"));
   ASSERT_TRUE(db_->CreateSecondaryIndex("users", "age_index", 0));
 
-  ASSERT_TRUE(TestHelper::CommitWrites(
-      *db_,
-      {{"users", "user1", "Alice", false, false},
-       {"users", "user2", "Bob", false, false}},
-      {{"users", "age_index", "25", "user1", false},
-       {"users", "age_index", "25", "user2", false}}));
+  ASSERT_TRUE(
+      TestHelper::CommitWrites(*db_,
+                               {{"users", "user1", "Alice", false, false},
+                                {"users", "user2", "Bob", false, false}},
+                               {{"users", "age_index", "25", "user1", false},
+                                {"users", "age_index", "25", "user2", false}}));
 
   const auto primary_keys =
       TestHelper::ReadSecondaryIndex(*db_, "users", "age_index", "25");
   ASSERT_EQ(primary_keys.size(), 2u);
 
   std::vector<std::string> names;
-  for (const auto& primary_key : primary_keys) {
+  for (const auto &primary_key : primary_keys) {
     const auto row = TestHelper::Read(*db_, "users", primary_key);
     ASSERT_TRUE(row.has_value());
     names.push_back(*row);
@@ -108,10 +108,10 @@ TEST_F(ManipulateSecondaryIndexTest, UpdateSecondaryIndexMovesPrimaryKey) {
 
   // An update is the removal of the old entry and the add of the new one,
   // submitted together.
-  ASSERT_TRUE(TestHelper::CommitWrites(
-      *db_, {},
-      {{"users", "age_index", "25", "user1", true},
-       {"users", "age_index", "30", "user1", false}}));
+  ASSERT_TRUE(
+      TestHelper::CommitWrites(*db_, {},
+                               {{"users", "age_index", "25", "user1", true},
+                                {"users", "age_index", "30", "user1", false}}));
 
   EXPECT_TRUE(
       TestHelper::ReadSecondaryIndex(*db_, "users", "age_index", "25").empty());
@@ -131,10 +131,10 @@ TEST_F(ManipulateSecondaryIndexTest,
       {{"users", "age_index", "25", "user1", false},
        {"users", "age_index", "30", "user1", false}}));
 
-  ASSERT_TRUE(TestHelper::CommitWrites(
-      *db_, {},
-      {{"users", "age_index", "25", "user1", true},
-       {"users", "age_index", "30", "user1", false}}));
+  ASSERT_TRUE(
+      TestHelper::CommitWrites(*db_, {},
+                               {{"users", "age_index", "25", "user1", true},
+                                {"users", "age_index", "30", "user1", false}}));
 
   EXPECT_TRUE(
       TestHelper::ReadSecondaryIndex(*db_, "users", "age_index", "25").empty());
@@ -153,10 +153,10 @@ TEST_F(ManipulateSecondaryIndexTest,
       *db_, {{"users", "user1", "Alice", false, false}}));
 
   // Removing an entry that was never there leaves the add unaffected.
-  ASSERT_TRUE(TestHelper::CommitWrites(
-      *db_, {},
-      {{"users", "age_index", "99", "user1", true},
-       {"users", "age_index", "40", "user1", false}}));
+  ASSERT_TRUE(
+      TestHelper::CommitWrites(*db_, {},
+                               {{"users", "age_index", "99", "user1", true},
+                                {"users", "age_index", "40", "user1", false}}));
 
   EXPECT_TRUE(
       TestHelper::ReadSecondaryIndex(*db_, "users", "age_index", "99").empty());
@@ -189,14 +189,14 @@ TEST_F(ManipulateSecondaryIndexTest,
   ASSERT_TRUE(db_->CreateTable("users"));
   ASSERT_TRUE(db_->CreateSecondaryIndex("users", "age_index", 0));
 
-  ASSERT_TRUE(TestHelper::CommitWrites(
-      *db_,
-      {{"users", "user1", "Alice", false, false},
-       {"users", "user2", "Bob", false, false},
-       {"users", "user3", "Carol", false, false}},
-      {{"users", "age_index", "25", "user1", false},
-       {"users", "age_index", "25", "user2", false},
-       {"users", "age_index", "25", "user3", false}}));
+  ASSERT_TRUE(
+      TestHelper::CommitWrites(*db_,
+                               {{"users", "user1", "Alice", false, false},
+                                {"users", "user2", "Bob", false, false},
+                                {"users", "user3", "Carol", false, false}},
+                               {{"users", "age_index", "25", "user1", false},
+                                {"users", "age_index", "25", "user2", false},
+                                {"users", "age_index", "25", "user3", false}}));
   ASSERT_EQ(
       TestHelper::ReadSecondaryIndex(*db_, "users", "age_index", "25").size(),
       3u);
@@ -220,12 +220,12 @@ TEST_F(ManipulateSecondaryIndexTest,
       {{"users", "age_index", "18", "user1", false}}));
 
   // 18 -> 19 -> 20 in one request: the index ops are applied in order.
-  ASSERT_TRUE(TestHelper::CommitWrites(
-      *db_, {},
-      {{"users", "age_index", "18", "user1", true},
-       {"users", "age_index", "19", "user1", false},
-       {"users", "age_index", "19", "user1", true},
-       {"users", "age_index", "20", "user1", false}}));
+  ASSERT_TRUE(
+      TestHelper::CommitWrites(*db_, {},
+                               {{"users", "age_index", "18", "user1", true},
+                                {"users", "age_index", "19", "user1", false},
+                                {"users", "age_index", "19", "user1", true},
+                                {"users", "age_index", "20", "user1", false}}));
 
   EXPECT_TRUE(
       TestHelper::ReadSecondaryIndex(*db_, "users", "age_index", "18").empty());

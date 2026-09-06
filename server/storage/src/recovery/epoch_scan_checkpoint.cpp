@@ -45,29 +45,29 @@ constexpr auto kRetryPause = std::chrono::milliseconds(25);
 // flusher is not running rather than that the epoch is slow.
 constexpr auto kDurabilityWait = std::chrono::seconds(60);
 
-void PutLe16(uint8_t* out, uint16_t value) {
+void PutLe16(uint8_t *out, uint16_t value) {
   out[0] = static_cast<uint8_t>(value & 0xffu);
   out[1] = static_cast<uint8_t>((value >> 8) & 0xffu);
 }
 
-void PutLe32(uint8_t* out, uint32_t value) {
+void PutLe32(uint8_t *out, uint32_t value) {
   for (size_t i = 0; i < 4; ++i) {
     out[i] = static_cast<uint8_t>((value >> (8 * i)) & 0xffu);
   }
 }
 
-void PutLe64(uint8_t* out, uint64_t value) {
+void PutLe64(uint8_t *out, uint64_t value) {
   for (size_t i = 0; i < 8; ++i) {
     out[i] = static_cast<uint8_t>((value >> (8 * i)) & 0xffu);
   }
 }
 
-uint16_t GetLe16(const uint8_t* in) {
+uint16_t GetLe16(const uint8_t *in) {
   return static_cast<uint16_t>(static_cast<uint16_t>(in[0]) |
                                static_cast<uint16_t>(in[1] << 8));
 }
 
-uint32_t GetLe32(const uint8_t* in) {
+uint32_t GetLe32(const uint8_t *in) {
   uint32_t value = 0;
   for (size_t i = 0; i < 4; ++i) {
     value |= static_cast<uint32_t>(in[i]) << (8 * i);
@@ -75,7 +75,7 @@ uint32_t GetLe32(const uint8_t* in) {
   return value;
 }
 
-uint64_t GetLe64(const uint8_t* in) {
+uint64_t GetLe64(const uint8_t *in) {
   uint64_t value = 0;
   for (size_t i = 0; i < 8; ++i) {
     value |= static_cast<uint64_t>(in[i]) << (8 * i);
@@ -89,8 +89,8 @@ int64_t ElapsedMs(Clock::time_point from) {
       .count();
 }
 
-bool WriteAll(int fd, const void* data, size_t size) {
-  const auto* bytes = static_cast<const uint8_t*>(data);
+bool WriteAll(int fd, const void *data, size_t size) {
+  const auto *bytes = static_cast<const uint8_t *>(data);
   while (size != 0) {
     const ssize_t written = ::write(fd, bytes, size);
     if (written > 0) {
@@ -104,8 +104,8 @@ bool WriteAll(int fd, const void* data, size_t size) {
   return true;
 }
 
-bool ReadAll(int fd, void* data, size_t size, off_t offset) {
-  auto* bytes = static_cast<uint8_t*>(data);
+bool ReadAll(int fd, void *data, size_t size, off_t offset) {
+  auto *bytes = static_cast<uint8_t *>(data);
   while (size != 0) {
     const ssize_t got = ::pread(fd, bytes, size, offset);
     if (got > 0) {
@@ -127,8 +127,8 @@ struct OpenFile {
   ~OpenFile() {
     if (fd >= 0) ::close(fd);
   }
-  OpenFile(const OpenFile&) = delete;
-  OpenFile& operator=(const OpenFile&) = delete;
+  OpenFile(const OpenFile &) = delete;
+  OpenFile &operator=(const OpenFile &) = delete;
   int fd;
 };
 
@@ -142,9 +142,8 @@ int FsyncRetryingOnInterrupt(int fd) {
 
 // A file's own fsync does not make its name durable, and the name is what the
 // rename publishes.
-bool FsyncDirectory(const std::string& directory) {
-  const int fd =
-      ::open(directory.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+bool FsyncDirectory(const std::string &directory) {
+  const int fd = ::open(directory.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
   if (fd < 0) return false;
   const bool ok = FsyncRetryingOnInterrupt(fd) == 0;
   ::close(fd);
@@ -153,8 +152,8 @@ bool FsyncDirectory(const std::string& directory) {
 
 }  // namespace
 
-const char* EpochScanCheckpoint::ImageFileName() { return "checkpoint.img"; }
-const char* EpochScanCheckpoint::WorkingFileName() {
+const char *EpochScanCheckpoint::ImageFileName() { return "checkpoint.img"; }
+const char *EpochScanCheckpoint::WorkingFileName() {
   return "checkpoint.working";
 }
 
@@ -165,8 +164,8 @@ const char* EpochScanCheckpoint::WorkingFileName() {
  * skipped, since its holder may abort and leave no record of the value.
  */
 EpochScanCheckpoint::Capture EpochScanCheckpoint::CapturePrimaryRow(
-    const std::string& table_name, std::string_view key, const DataItem& item,
-    LogRecord::KeyValuePair* out, uint64_t* retries) {
+    const std::string &table_name, std::string_view key, const DataItem &item,
+    LogRecord::KeyValuePair *out, uint64_t *retries) {
   // FIXME: the copy reads the row's storage without pinning it, as the read
   // path does, so an install that reallocates it during the copy is caught by
   // the version recheck rather than prevented
@@ -208,9 +207,9 @@ EpochScanCheckpoint::Capture EpochScanCheckpoint::CapturePrimaryRow(
  * in the log composes with it the way one delta composes with another.
  */
 EpochScanCheckpoint::Capture EpochScanCheckpoint::CaptureSecondaryEntry(
-    const std::string& table_name, const std::string& index_name,
-    uint32_t index_type, std::string_view key, const DataItem& item,
-    LogRecord::KeyValuePair* out, uint64_t* retries) {
+    const std::string &table_name, const std::string &index_name,
+    uint32_t index_type, std::string_view key, const DataItem &item,
+    LogRecord::KeyValuePair *out, uint64_t *retries) {
   for (unsigned attempt = 0; attempt < kSpinAttempts; ++attempt) {
     const TransactionId first = item.transaction_id.load();
     if (first.tid & 1u) {
@@ -240,19 +239,18 @@ EpochScanCheckpoint::Capture EpochScanCheckpoint::CaptureSecondaryEntry(
   return EpochScanCheckpoint::Capture::Unstable;
 }
 
-EpochScanCheckpoint::EpochScanCheckpoint(const Config& config,
-                                         TableDictionary& tables,
-                                         EpochFramework& epoch_framework,
-                                         Logger& logger)
+EpochScanCheckpoint::EpochScanCheckpoint(const Config &config,
+                                         TableDictionary &tables,
+                                         EpochFramework &epoch_framework,
+                                         Logger &logger)
     : config_(config),
       tables_(tables),
       epoch_framework_(epoch_framework),
       logger_(logger),
-      image_path_((std::filesystem::path(config.work_dir) / ImageFileName())
-                      .string()),
-      working_path_(
-          (std::filesystem::path(config.work_dir) / WorkingFileName())
-              .string()) {}
+      image_path_(
+          (std::filesystem::path(config.work_dir) / ImageFileName()).string()),
+      working_path_((std::filesystem::path(config.work_dir) / WorkingFileName())
+                        .string()) {}
 
 EpochScanCheckpoint::~EpochScanCheckpoint() { Stop(); }
 
@@ -302,7 +300,7 @@ void EpochScanCheckpoint::Loop() {
   }
 }
 
-bool EpochScanCheckpoint::RunOnce(Stats* out_stats) {
+bool EpochScanCheckpoint::RunOnce(Stats *out_stats) {
   if (!Supported()) return false;
 
   std::unique_lock<std::mutex> capture(capture_mutex_, std::try_to_lock);
@@ -329,7 +327,7 @@ bool EpochScanCheckpoint::RunOnce(Stats* out_stats) {
   const auto scan_begin = Clock::now();
   LogRecords records;
   bool abandoned = false;
-  tables_.ForEachTable([&](Table& table) {
+  tables_.ForEachTable([&](Table &table) {
     if (abandoned) return;
     LogRecord record;
     record.epoch = stats.cut_epoch;
@@ -375,16 +373,16 @@ bool EpochScanCheckpoint::RunOnce(Stats* out_stats) {
   return true;
 }
 
-bool EpochScanCheckpoint::CaptureTable(Table& table, LogRecord* record,
-                                       Stats* stats) {
-  const std::string& table_name = table.GetTableName();
+bool EpochScanCheckpoint::CaptureTable(Table &table, LogRecord *record,
+                                       Stats *stats) {
+  const std::string &table_name = table.GetTableName();
   std::vector<std::string> unstable_rows;
   std::vector<std::pair<std::string, std::string>> unstable_entries;
 
   // The walk's callback returns whether to stop, which is the Masstree
   // backend's reading of it and the opposite of the hash backend's; startup
   // refuses any other index structure rather than write a one-row image.
-  table.GetPrimaryIndex().ForEach([&](std::string_view key, DataItem& item) {
+  table.GetPrimaryIndex().ForEach([&](std::string_view key, DataItem &item) {
     LogRecord::KeyValuePair kvp;
     switch (CapturePrimaryRow(table_name, key, item, &kvp, &stats->retries)) {
       case Capture::Taken:
@@ -400,27 +398,27 @@ bool EpochScanCheckpoint::CaptureTable(Table& table, LogRecord* record,
     return false;
   });
 
-  table.ForEachSecondaryIndex([&](const std::string& index_name,
-                                  Index::SecondaryIndex& index) {
-    const uint32_t index_type = index.GetIndexType().Raw();
-    index.ForEach([&](std::string_view key, DataItem& item) {
-      LogRecord::KeyValuePair kvp;
-      switch (CaptureSecondaryEntry(table_name, index_name, index_type, key,
-                                    item, &kvp, &stats->retries)) {
-        case Capture::Taken:
-          ++stats->secondary_entries;
-          record->key_value_pairs.emplace_back(std::move(kvp));
-          break;
-        case Capture::Skipped:
-          break;
-        case Capture::Unstable:
-          unstable_entries.emplace_back(index_name,
-                                        std::string(key.data(), key.size()));
-          break;
-      }
-      return false;
-    });
-  });
+  table.ForEachSecondaryIndex(
+      [&](const std::string &index_name, Index::SecondaryIndex &index) {
+        const uint32_t index_type = index.GetIndexType().Raw();
+        index.ForEach([&](std::string_view key, DataItem &item) {
+          LogRecord::KeyValuePair kvp;
+          switch (CaptureSecondaryEntry(table_name, index_name, index_type, key,
+                                        item, &kvp, &stats->retries)) {
+            case Capture::Taken:
+              ++stats->secondary_entries;
+              record->key_value_pairs.emplace_back(std::move(kvp));
+              break;
+            case Capture::Skipped:
+              break;
+            case Capture::Unstable:
+              unstable_entries.emplace_back(
+                  index_name, std::string(key.data(), key.size()));
+              break;
+          }
+          return false;
+        });
+      });
 
   // Rows held by a writer for the whole spin are resolved again by key: the
   // slot they were in may have been purged and replaced meanwhile, and a
@@ -436,12 +434,12 @@ bool EpochScanCheckpoint::CaptureTable(Table& table, LogRecord* record,
     std::this_thread::sleep_for(kRetryPause);
 
     std::vector<std::string> rows_left;
-    for (const auto& key : unstable_rows) {
-      DataItem* item = table.GetPrimaryIndex().Get(key);
+    for (const auto &key : unstable_rows) {
+      DataItem *item = table.GetPrimaryIndex().Get(key);
       if (item == nullptr) continue;
       LogRecord::KeyValuePair kvp;
-      switch (CapturePrimaryRow(table_name, key, *item, &kvp,
-                                &stats->retries)) {
+      switch (
+          CapturePrimaryRow(table_name, key, *item, &kvp, &stats->retries)) {
         case Capture::Taken:
           ++stats->primary_rows;
           record->key_value_pairs.emplace_back(std::move(kvp));
@@ -456,10 +454,10 @@ bool EpochScanCheckpoint::CaptureTable(Table& table, LogRecord* record,
     unstable_rows.swap(rows_left);
 
     std::vector<std::pair<std::string, std::string>> entries_left;
-    for (const auto& [index_name, key] : unstable_entries) {
-      Index::SecondaryIndex* index = table.GetSecondaryIndex(index_name);
+    for (const auto &[index_name, key] : unstable_entries) {
+      Index::SecondaryIndex *index = table.GetSecondaryIndex(index_name);
       if (index == nullptr) continue;
-      DataItem* item = index->Get(key);
+      DataItem *item = index->Get(key);
       if (item == nullptr) continue;
       LogRecord::KeyValuePair kvp;
       switch (CaptureSecondaryEntry(table_name, index_name,
@@ -482,7 +480,7 @@ bool EpochScanCheckpoint::CaptureTable(Table& table, LogRecord* record,
   return !stopped && unstable_rows.empty() && unstable_entries.empty();
 }
 
-bool EpochScanCheckpoint::Publish(const LogRecords& records, Stats* stats) {
+bool EpochScanCheckpoint::Publish(const LogRecords &records, Stats *stats) {
   msgpack::sbuffer payload;
   msgpack::pack(payload, records);
 
@@ -491,9 +489,8 @@ bool EpochScanCheckpoint::Publish(const LogRecords& records, Stats* stats) {
   // precedes the header build, which embeds the frontier read once it returns.
   const auto gate_begin = Clock::now();
   if (config_.enable_logging) {
-    const auto result =
-        logger_.WaitUntilDurable(stats->end_epoch, Clock::now() +
-                                                       kDurabilityWait);
+    const auto result = logger_.WaitUntilDurable(
+        stats->end_epoch, Clock::now() + kDurabilityWait);
     if (result != Logger::WaitResult::Durable) {
       // Nothing was written this round; drop any working file an earlier
       // failed attempt left behind.
@@ -565,27 +562,27 @@ bool EpochScanCheckpoint::Publish(const LogRecords& records, Stats* stats) {
 }
 
 EpochScanCheckpoint::Image EpochScanCheckpoint::Load(
-    const std::string& work_dir) {
+    const std::string &work_dir) {
   Image image;
   const std::string path =
       (std::filesystem::path(work_dir) / ImageFileName()).string();
   const OpenFile file(::open(path.c_str(), O_RDONLY | O_CLOEXEC));
   if (file.fd < 0) {
-    image.status = errno == ENOENT ? Image::Status::Absent
-                                   : Image::Status::Unusable;
+    image.status =
+        errno == ENOENT ? Image::Status::Absent : Image::Status::Unusable;
     image.detail = "open " + path + " (errno " + std::to_string(errno) + ")";
     return image;
   }
   const int fd = file.fd;
 
-  auto unusable = [&](const std::string& detail) {
+  auto unusable = [&](const std::string &detail) {
     image.status = Image::Status::Unusable;
     image.detail = detail;
     image.records.clear();
     return image;
   };
 
-  struct stat file_stat{};
+  struct stat file_stat {};
   if (::fstat(fd, &file_stat) < 0) return unusable("the image cannot be sized");
   if (file_stat.st_size < static_cast<off_t>(kHeaderSize)) {
     return unusable("the image is shorter than its header");
@@ -603,8 +600,7 @@ EpochScanCheckpoint::Image EpochScanCheckpoint::Load(
     return unusable("the image carries unknown flags");
   }
   const uint64_t payload_size = GetLe64(header + 44);
-  if (payload_size !=
-      static_cast<uint64_t>(file_stat.st_size) - kHeaderSize) {
+  if (payload_size != static_cast<uint64_t>(file_stat.st_size) - kHeaderSize) {
     return unusable("the image length disagrees with its header");
   }
 
@@ -633,14 +629,14 @@ EpochScanCheckpoint::Image EpochScanCheckpoint::Load(
     }
 
     size_t consumed = 0;
-    auto handle = msgpack::unpack(
-        reinterpret_cast<const char*>(payload.data()), payload.size(),
-        consumed);
+    auto handle =
+        msgpack::unpack(reinterpret_cast<const char *>(payload.data()),
+                        payload.size(), consumed);
     handle.get().convert(image.records);
     if (consumed != payload.size()) {
       return unusable("the image payload has trailing bytes");
     }
-  } catch (const std::exception& e) {
+  } catch (const std::exception &e) {
     return unusable(std::string("the image payload does not decode: ") +
                     e.what());
   } catch (...) {

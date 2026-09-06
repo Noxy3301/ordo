@@ -17,47 +17,44 @@ namespace Index {
 // that do not have masstree on their include path).
 class MasstreeIndex final : public IndexBase {
  public:
-  MasstreeIndex(Config c, EpochFramework& e);
+  MasstreeIndex(Config c, EpochFramework &e);
   ~MasstreeIndex() override;
 
-  void SetPaxStore(Pax::PaxStore* store) override;
+  void SetPaxStore(Pax::PaxStore *store) override;
 
-  DataItem* Get(std::string_view key) override;
-  bool Put(std::string_view key, DataItem&& rhs,
-           NodeVersionUpdate* out_update = nullptr) override;
+  DataItem *Get(std::string_view key) override;
+  bool Put(std::string_view key, DataItem &&rhs,
+           NodeVersionUpdate *out_update = nullptr) override;
   bool Insert(std::string_view key,
-              NodeVersionUpdate* out_update = nullptr) override;
+              NodeVersionUpdate *out_update = nullptr) override;
   bool Delete(std::string_view key) override;
 
   void ForcePutBlankEntry(std::string_view key,
-                          NodeVersionUpdate* out_update = nullptr) override;
+                          NodeVersionUpdate *out_update = nullptr) override;
 
-  size_t Scan(
-      std::string_view begin, std::optional<std::string_view> end,
-      std::function<bool(std::string_view)> operation,
-      std::vector<NodeVersionEntry>* out_versions = nullptr) override;
-  size_t Scan(
-      std::string_view begin, std::string_view end,
-      std::function<bool(std::string_view, DataItem&)> operation,
-      std::vector<NodeVersionEntry>* out_versions = nullptr) override;
+  size_t Scan(std::string_view begin, std::optional<std::string_view> end,
+              std::function<bool(std::string_view)> operation,
+              std::vector<NodeVersionEntry> *out_versions = nullptr) override;
+  size_t Scan(std::string_view begin, std::string_view end,
+              std::function<bool(std::string_view, DataItem &)> operation,
+              std::vector<NodeVersionEntry> *out_versions = nullptr) override;
   size_t ScanReverse(
       std::string_view begin, std::optional<std::string_view> end,
       std::function<bool(std::string_view)> operation,
-      std::vector<NodeVersionEntry>* out_versions = nullptr) override;
+      std::vector<NodeVersionEntry> *out_versions = nullptr) override;
   size_t ScanReverse(
       std::string_view begin, std::string_view end,
-      std::function<bool(std::string_view, DataItem&)> operation,
-      std::vector<NodeVersionEntry>* out_versions = nullptr) override;
+      std::function<bool(std::string_view, DataItem &)> operation,
+      std::vector<NodeVersionEntry> *out_versions = nullptr) override;
 
   void ForEach(
-      std::function<bool(std::string_view, DataItem&)> operation) override;
+      std::function<bool(std::string_view, DataItem &)> operation) override;
 
   void WaitForIndexIsLinearizable() override;
 
-  bool ValidatePhantoms(
-      const std::vector<NodeVersionEntry>& entries) override;
+  bool ValidatePhantoms(const std::vector<NodeVersionEntry> &entries) override;
 
-  bool Purge(std::string_view key, DataItem* expected,
+  bool Purge(std::string_view key, DataItem *expected,
              TransactionId retired_tid = {}) override;
 
  private:

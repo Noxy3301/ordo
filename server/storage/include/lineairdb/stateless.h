@@ -24,9 +24,9 @@ namespace LineairDB {
  * ExternalReadEntry to assert that the row did not move before commit.
  */
 struct StatelessReadResult {
-  bool found = false;   ///< True when the key existed and was non-empty.
-  std::string value;    ///< Row payload, valid only when @ref found is true.
-  uint64_t tid = 0;     ///< Packed (epoch | tid) version observed at read time.
+  bool found = false;  ///< True when the key existed and was non-empty.
+  std::string value;   ///< Row payload, valid only when @ref found is true.
+  uint64_t tid = 0;    ///< Packed (epoch | tid) version observed at read time.
 };
 
 /**
@@ -35,8 +35,9 @@ struct StatelessReadResult {
 struct StatelessScanRow {
   std::string key;
   std::string value;
-  uint64_t tid = 0;     ///< Packed version observed for this row.
-  bool found = false;   ///< Tombstones are normally filtered out before this struct is produced.
+  uint64_t tid = 0;    ///< Packed version observed for this row.
+  bool found = false;  ///< Tombstones are normally filtered out before this
+                       ///< struct is produced.
 };
 
 /**
@@ -49,7 +50,7 @@ struct StatelessSecondaryScanRow {
   std::string secondary_key;
   std::string primary_key;
   std::string value;
-  uint64_t tid = 0;     ///< Packed version of the base row.
+  uint64_t tid = 0;  ///< Packed version of the base row.
   bool found = false;
 };
 
@@ -75,11 +76,11 @@ struct StatelessRangeScanResult {
  */
 struct StatelessPaxRowRef {
   std::string key;
-  const void* group = nullptr;
+  const void *group = nullptr;
   uint32_t slot = 0;
   uint32_t row_size = 0;
   uint64_t tid = 0;
-  const void* item = nullptr;
+  const void *item = nullptr;
 };
 
 /**
@@ -99,7 +100,7 @@ struct StatelessPaxRowRefScanResult {
  *
  * @param row Row reference returned by Database::StatelessPaxRowRefScan.
  */
-uint64_t PaxRowRefCurrentTid(const StatelessPaxRowRef& row);
+uint64_t PaxRowRefCurrentTid(const StatelessPaxRowRef &row);
 
 /**
  * @brief Outcome of Database::StatelessSecondaryRangeScan.
@@ -143,7 +144,8 @@ struct ExternalWriteEntry {
   bool is_insert = false;
 };
 
-/// Abort reason ValidateAndCommit reports when an insert entry finds a live row.
+/// Abort reason ValidateAndCommit reports when an insert entry finds a live
+/// row.
 inline constexpr char kDuplicateKeyAbortReason[] = "duplicate_primary_key";
 
 /**
@@ -169,13 +171,14 @@ struct ExternalSecondaryIndexEntry {
  */
 struct ExternalRangeReadEntry {
   std::string table_name;
-  std::string index_name;   ///< Empty marks a primary-index range.
-  std::string start_key;    ///< Scan start (inclusive).
-  std::string end_key;      ///< Scan end (exclusive). Must be non-empty.
-  uint64_t row_limit = 0;   ///< Row cap applied during scan.
-  bool reverse_scan = false;///< Scan direction.
-  std::vector<std::string> result_keys;          ///< Observed key set.
-  std::vector<std::string> result_primary_keys;  ///< Secondary index: paired primary keys.
+  std::string index_name;     ///< Empty marks a primary-index range.
+  std::string start_key;      ///< Scan start (inclusive).
+  std::string end_key;        ///< Scan end (exclusive). Must be non-empty.
+  uint64_t row_limit = 0;     ///< Row cap applied during scan.
+  bool reverse_scan = false;  ///< Scan direction.
+  std::vector<std::string> result_keys;  ///< Observed key set.
+  std::vector<std::string>
+      result_primary_keys;  ///< Secondary index: paired primary keys.
 };
 
 }  // namespace LineairDB

@@ -67,7 +67,7 @@ TEST_F(ConcurrentCreateTableTest, ConcurrentCreateTableAcrossEpochs) {
       std::chrono::milliseconds(config_.epoch_duration_ms * 3));
 
   stop.store(true);
-  for (auto& w : workers) {
+  for (auto &w : workers) {
     w.join();
   }
 }

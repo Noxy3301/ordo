@@ -20,8 +20,7 @@
 #include <lineairdb/database.h>
 #include <lineairdb/tx_status.h>
 #include <table/table.h>
-
-#include "index/impl/masstree_index.hpp"
+#include <xmmintrin.h>
 
 #include <algorithm>
 #include <chrono>
@@ -37,17 +36,17 @@
 #include <unordered_set>
 #include <utility>
 #include <vector>
-#include <xmmintrin.h>
 
+#include "index/impl/masstree_index.hpp"
+#include "index/reaper.h"
 #include "pax/version_store.hpp"
 #include "recovery/epoch_scan_checkpoint.h"
 #include "recovery/flush_trace.h"
-#include "silo/stable_read.hpp"
-#include "index/reaper.h"
 #include "recovery/logger.h"
 #include "silo/commit.h"
 #include "silo/packed_transaction_id.hpp"
 #include "silo/read.h"
+#include "silo/stable_read.hpp"
 #include "table/table.h"
 #include "table/table_dictionary.hpp"
 #include "types/snapshot.hpp"
@@ -62,7 +61,7 @@ namespace LineairDB {
 
 class Database::Impl {
  public:
-  inline static Database::Impl* CurrentDBInstance;
+  inline static Database::Impl *CurrentDBInstance;
 
  private:
   /**
@@ -104,7 +103,7 @@ class Database::Impl {
   }
 
  public:
-  Impl(const Config& c = Config())
+  Impl(const Config &c = Config())
       : config_(NormalizeAndValidateConfig(c)),
         logger_(config_),
         epoch_framework_(config_.epoch_duration_ms, EventsOnEpochIsUpdated()),
@@ -128,7 +127,8 @@ class Database::Impl {
       auto scanned = logger_.Recover();
       if (scanned.status != Recovery::Logger::RecoveryStatus::Ok) {
         SPDLOG_CRITICAL(
-            "Startup failed: the write-ahead log could not be read; refusing to "
+            "Startup failed: the write-ahead log could not be read; refusing "
+            "to "
             "start with an unknown durable state");
         exit(EXIT_FAILURE);
       }
@@ -230,7 +230,7 @@ class Database::Impl {
     return epoch_framework_.GetGlobalEpoch();
   }
 
-  const Config& GetConfig() const { return config_; }
+  const Config &GetConfig() const { return config_; }
 
   // NOTE: Called by a special thread managed by EpochFramework.
   std::function<void(EpochNumber)> EventsOnEpochIsUpdated() {
@@ -256,7 +256,7 @@ class Database::Impl {
     return table_dictionary_.CreateTable(table_name, epoch_framework_, config_);
   }
 
-  Pax::PaxStore* GetPaxStore(const std::string_view table_name) {
+  Pax::PaxStore *GetPaxStore(const std::string_view table_name) {
     auto table = GetTable(table_name);
     if (!table.has_value()) return nullptr;
     return table.value()->GetPaxStore();
@@ -310,7 +310,7 @@ class Database::Impl {
     return handle;
   }
 
-  void ReleasePaxReadView(const Database::PaxReadView& view) {
+  void ReleasePaxReadView(const Database::PaxReadView &view) {
     if (!view.valid) return;
     Pax::VersionStore::ReadViewToken token;
     token.id = view.token;
@@ -325,7 +325,7 @@ class Database::Impl {
   // epoch cycle takes years), keeping accepted results inside the bound.
   static constexpr EpochNumber kPaxReadViewEpochLifetime = 1u << 19;
 
-  bool PaxReadViewPoisoned(const Database::PaxReadView& view) const {
+  bool PaxReadViewPoisoned(const Database::PaxReadView &view) const {
     if (!view.valid) return true;
     if (epoch_framework_.GetGlobalEpoch() - view.cut_epoch >=
         kPaxReadViewEpochLifetime) {
@@ -338,9 +338,9 @@ class Database::Impl {
   }
 
   bool InstallPaxSchema(const std::string_view table_name,
-                        const std::vector<uint32_t>& field_max_bytes,
-                        const std::vector<uint8_t>& field_kind = {},
-                        const std::vector<int8_t>& field_scale = {}) {
+                        const std::vector<uint32_t> &field_max_bytes,
+                        const std::vector<uint8_t> &field_kind = {},
+                        const std::vector<int8_t> &field_scale = {}) {
     if (!config_.enable_pax_storage) return false;
     if (field_max_bytes.empty()) return false;
     auto table = GetTable(table_name);
@@ -376,40 +376,40 @@ class Database::Impl {
 
   StatelessReadResult StatelessRead(
       const std::string_view table_name, const std::string_view key,
-      const std::vector<uint32_t>* selected_columns = nullptr) {
+      const std::vector<uint32_t> *selected_columns = nullptr) {
     return Silo::Read(table_dictionary_, schema_mutex_, table_name, key,
-                           selected_columns);
+                      selected_columns);
   }
 
   std::vector<StatelessReadResult> StatelessBatchRead(
-      const std::vector<std::pair<std::string, std::string>>& keys) {
+      const std::vector<std::pair<std::string, std::string>> &keys) {
     return Silo::BatchRead(table_dictionary_, schema_mutex_, keys);
   }
 
   StatelessRangeScanResult StatelessRangeScan(
       const std::string_view table_name, const std::string_view start_key,
       const std::string_view end_key, uint64_t row_limit, bool reverse_scan,
-      const std::vector<uint32_t>* selected_columns = nullptr) {
+      const std::vector<uint32_t> *selected_columns = nullptr) {
     return Silo::RangeScan(table_dictionary_, schema_mutex_, table_name,
-                                start_key, end_key, row_limit, reverse_scan,
-                                selected_columns);
+                           start_key, end_key, row_limit, reverse_scan,
+                           selected_columns);
   }
 
   StatelessPaxRowRefScanResult StatelessPaxRowRefScan(
       const std::string_view table_name, const std::string_view start_key,
       const std::string_view end_key, uint64_t row_limit, bool reverse_scan) {
     return Silo::PaxRowRefScan(table_dictionary_, schema_mutex_, table_name,
-                                 start_key, end_key, row_limit, reverse_scan);
+                               start_key, end_key, row_limit, reverse_scan);
   }
 
   StatelessSecondaryRangeScanResult StatelessSecondaryRangeScan(
       const std::string_view table_name, const std::string_view index_name,
       const std::string_view start_key, const std::string_view end_key,
       uint64_t row_limit, bool reverse_scan,
-      const std::vector<uint32_t>* selected_columns = nullptr) {
-    return Silo::SecondaryRangeScan(
-        table_dictionary_, schema_mutex_, table_name, index_name, start_key,
-        end_key, row_limit, reverse_scan, selected_columns);
+      const std::vector<uint32_t> *selected_columns = nullptr) {
+    return Silo::SecondaryRangeScan(table_dictionary_, schema_mutex_,
+                                    table_name, index_name, start_key, end_key,
+                                    row_limit, reverse_scan, selected_columns);
   }
 
   /**
@@ -421,7 +421,7 @@ class Database::Impl {
    */
   bool ComputeIndexNdvInt(const std::string_view table_name,
                           const std::string_view index_name, uint32_t num_parts,
-                          std::vector<uint64_t>& out_ndv) {
+                          std::vector<uint64_t> &out_ndv) {
     out_ndv.assign(num_parts, 0);
     if (num_parts == 0) return false;
 
@@ -451,8 +451,7 @@ class Database::Impl {
           return true;
         }
         const size_t len =
-            (static_cast<size_t>(
-                 static_cast<unsigned char>(key[offset + 2]))
+            (static_cast<size_t>(static_cast<unsigned char>(key[offset + 2]))
              << 8) |
             static_cast<unsigned char>(key[offset + 3]);
         offset += 4 + len;
@@ -468,7 +467,8 @@ class Database::Impl {
         for (uint32_t part = 0; part < num_parts; ++part) out_ndv[part] = 1;
         first = false;
       } else {
-        // Count a new prefix whenever bytes up to that key-part boundary differ.
+        // Count a new prefix whenever bytes up to that key-part boundary
+        // differ.
         const std::string_view prev(prev_key);
         for (uint32_t part = 0; part < num_parts; ++part) {
           if (part_ends[part] != prev_part_ends[part] ||
@@ -485,7 +485,7 @@ class Database::Impl {
     };
 
     // Stable-read base liveness without copying the row payload.
-    auto stable_live_base = [](const DataItem& item) {
+    auto stable_live_base = [](const DataItem &item) {
       for (;;) {
         TransactionId tid = item.transaction_id.load();
         if (tid.tid & 1u) {
@@ -499,24 +499,24 @@ class Database::Impl {
     };
 
     static const std::string kFullScanEnd(16, static_cast<char>(0xff));
-    auto& primary_index = table.value()->GetPrimaryIndex();
+    auto &primary_index = table.value()->GetPrimaryIndex();
 
     if (index_name.empty()) {
       // Primary index entries are base rows, so count live rows directly.
       primary_index.Scan(
           std::string_view(), std::string_view(kFullScanEnd),
-          [&](std::string_view key, DataItem& item) -> bool {
+          [&](std::string_view key, DataItem &item) -> bool {
             if (!stable_live_base(item)) return false;
             return count_key(key);
           },
           nullptr);
     } else {
-      Index::SecondaryIndex* index =
+      Index::SecondaryIndex *index =
           table.value()->GetSecondaryIndex(index_name);
       if (index == nullptr) return false;
 
       // Pin the secondary primary-key list under one stable TID.
-      auto stable_live_secondary = [&](const DataItem& item) {
+      auto stable_live_secondary = [&](const DataItem &item) {
         PackedPrimaryKeys::Ptr primary_keys;
         for (;;) {
           TransactionId tid = item.transaction_id.load();
@@ -536,7 +536,7 @@ class Database::Impl {
         // Secondary entries count only if one referenced base row is live.
         for (std::string_view primary_key :
              PackedPrimaryKeysView(primary_keys)) {
-          DataItem* base_item = primary_index.Get(primary_key);
+          DataItem *base_item = primary_index.Get(primary_key);
           if (base_item != nullptr && stable_live_base(*base_item)) return true;
         }
         return false;
@@ -545,7 +545,7 @@ class Database::Impl {
       index->Scan(
           std::string_view(), std::string_view(kFullScanEnd),
           [&](std::string_view key) -> bool {
-            DataItem* item = index->Get(key);
+            DataItem *item = index->Get(key);
             if (item == nullptr || !stable_live_secondary(*item)) {
               return false;
             }
@@ -575,9 +575,10 @@ class Database::Impl {
    * or malformed encodings return false, letting the proxy keep its heuristic.
    */
   bool ComputeIndexHistogram(const std::string_view table_name,
-                             const std::string_view index_name, uint32_t buckets,
-                             std::vector<std::string>& out_bounds,
-                             std::vector<uint64_t>& out_cum) {
+                             const std::string_view index_name,
+                             uint32_t buckets,
+                             std::vector<std::string> &out_bounds,
+                             std::vector<uint64_t> &out_cum) {
     out_bounds.clear();
     out_cum.clear();
     if (buckets == 0) return false;
@@ -600,7 +601,7 @@ class Database::Impl {
     };
 
     // Stable-read base-row liveness without copying the row payload.
-    const auto stable_live_base = [](DataItem& di) -> bool {
+    const auto stable_live_base = [](DataItem &di) -> bool {
       for (;;) {
         TransactionId tid = di.transaction_id.load();
         if (tid.tid & 1u) {
@@ -614,7 +615,7 @@ class Database::Impl {
 
     // Secondary scans visit one entry per key, but the histogram is over rows.
     // Use the PK-list length as that key's row weight.
-    const auto stable_pk_count = [](DataItem& di) -> uint64_t {
+    const auto stable_pk_count = [](DataItem &di) -> uint64_t {
       for (;;) {
         TransactionId tid = di.transaction_id.load();
         if (tid.tid & 1u) {
@@ -630,17 +631,18 @@ class Database::Impl {
 
     // Walk one index in key order and expose each live key with its row weight.
     bool malformed = false;
-    auto walk = [&](auto&& fn) {
+    auto walk = [&](auto &&fn) {
       if (index_name.empty()) {
         table.value()->GetPrimaryIndex().Scan(
             std::string_view(), std::string_view(kMaxEnd),
-            [&](std::string_view key, DataItem& di) -> bool {
-              if (stable_live_base(di)) return fn(key, static_cast<uint64_t>(1));
+            [&](std::string_view key, DataItem &di) -> bool {
+              if (stable_live_base(di))
+                return fn(key, static_cast<uint64_t>(1));
               return false;
             },
             nullptr);
       } else {
-        Index::SecondaryIndex* index =
+        Index::SecondaryIndex *index =
             table.value()->GetSecondaryIndex(index_name);
         if (index == nullptr) {
           malformed = true;
@@ -649,7 +651,7 @@ class Database::Impl {
         index->Scan(
             std::string_view(), std::string_view(kMaxEnd),
             [&](std::string_view key) -> bool {
-              DataItem* item = index->Get(key);
+              DataItem *item = index->Get(key);
               if (item == nullptr) return false;
               const uint64_t w = stable_pk_count(*item);
               if (w == 0) return false;  // dead/empty secondary entry
@@ -705,23 +707,23 @@ class Database::Impl {
   }
 
   bool ValidateAndCommit(
-      const std::vector<ExternalReadEntry>& reads,
-      const std::vector<ExternalWriteEntry>& writes,
-      const std::vector<ExternalSecondaryIndexEntry>& secondary_index_ops,
-      const std::vector<ExternalRangeReadEntry>& range_reads,
-      std::string* abort_reason = nullptr) {
+      const std::vector<ExternalReadEntry> &reads,
+      const std::vector<ExternalWriteEntry> &writes,
+      const std::vector<ExternalSecondaryIndexEntry> &secondary_index_ops,
+      const std::vector<ExternalRangeReadEntry> &range_reads,
+      std::string *abort_reason = nullptr) {
     const Silo::CommitPayload payload{reads, writes, secondary_index_ops,
-                                    range_reads};
+                                      range_reads};
     return Silo::Commit(table_dictionary_, schema_mutex_, epoch_framework_,
-                      reaper_, logger_, payload, GetCommitDurability(),
-                      abort_reason);
+                        reaper_, logger_, payload, GetCommitDurability(),
+                        abort_reason);
   }
 
-  std::optional<Table*> GetTable(const std::string_view table_name) {
+  std::optional<Table *> GetTable(const std::string_view table_name) {
     return table_dictionary_.GetTable(table_name);
   }
 
-  bool WriteCheckpointImage(uint64_t* out_version_retries) {
+  bool WriteCheckpointImage(uint64_t *out_version_retries) {
     Recovery::EpochScanCheckpoint::Stats stats;
     const bool published = scan_checkpoint_.RunOnce(&stats);
     if (out_version_retries != nullptr) *out_version_retries = stats.retries;
@@ -729,7 +731,7 @@ class Database::Impl {
   }
 
  private:
-  void RegisterDeferredPurge(const Snapshot& snapshot,
+  void RegisterDeferredPurge(const Snapshot &snapshot,
                              TransactionId delete_commit_tid) {
     reaper_.Enqueue(snapshot, delete_commit_tid);
   }
@@ -751,14 +753,13 @@ class Database::Impl {
     epoch_framework_.MakeMeOnline();
     epoch_framework_.SetMyThreadLocalEpochForRecovery(durable_epoch);
 
-    auto&& recovery_sets = std::move(recovered.recovery_set);
+    auto &&recovery_sets = std::move(recovered.recovery_set);
 
-    for (auto& recovery_set : recovery_sets) {
+    for (auto &recovery_set : recovery_sets) {
       // Skip deleted entries.
-      const bool live =
-          recovery_set.index_name.empty()
-              ? recovery_set.data_item_copy.IsPrimaryInitialized()
-              : recovery_set.data_item_copy.IsInitialized();
+      const bool live = recovery_set.index_name.empty()
+                            ? recovery_set.data_item_copy.IsPrimaryInitialized()
+                            : recovery_set.data_item_copy.IsInitialized();
       if (!live) continue;
       CreateTable(recovery_set.table_name);
       auto table = GetTable(recovery_set.table_name);
@@ -779,7 +780,7 @@ class Database::Impl {
             recovery_set.key, std::move(recovery_set.data_item_copy));
       } else {
         // Secondary Index recovery
-        Index::SecondaryIndex* idx = nullptr;
+        Index::SecondaryIndex *idx = nullptr;
         table.value()->GetOrCreateSecondaryIndex(recovery_set.index_name,
                                                  recovery_set.index_type, &idx);
         if (idx != nullptr) {

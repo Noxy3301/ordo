@@ -28,7 +28,7 @@
 #include "util/logger.hpp"
 
 namespace {
-constexpr const char* kTable = "users";
+constexpr const char *kTable = "users";
 }  // namespace
 
 class DurabilityTest : public ::testing::Test {
@@ -110,7 +110,7 @@ TEST_F(DurabilityTest, RecoveryInContendedWorkload) {
       }
     });
   }
-  for (auto& writer : writers) writer.join();
+  for (auto &writer : writers) writer.join();
 
   db_.reset(nullptr);
   db_ = std::make_unique<LineairDB::Database>(config);

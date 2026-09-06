@@ -2,8 +2,8 @@
 
 #include <string>
 
-#include "util/mpmc_concurrent_set.hpp"
 #include "table/table.h"
+#include "util/mpmc_concurrent_set.hpp"
 
 namespace LineairDB {
 class TableDictionary {
@@ -11,27 +11,27 @@ class TableDictionary {
   TableDictionary() = default;
   ~TableDictionary() = default;
 
-  bool CreateTable(std::string_view table_name, EpochFramework& epoch_framework,
-                   const Config& config) {
+  bool CreateTable(std::string_view table_name, EpochFramework &epoch_framework,
+                   const Config &config) {
     if (tables_.Get(table_name) != nullptr) {
       return false;
     }
-    auto* tbl = new Table(epoch_framework, config, std::string(table_name));
+    auto *tbl = new Table(epoch_framework, config, std::string(table_name));
     auto inserted = tables_.Put(table_name, tbl);
     if (!inserted) delete tbl;
     return true;
   }
 
-  std::optional<Table*> GetTable(const std::string_view table_name) {
-    auto* table = tables_.Get(table_name);
+  std::optional<Table *> GetTable(const std::string_view table_name) {
+    auto *table = tables_.Get(table_name);
     if (table == nullptr) {
       return std::nullopt;
     }
     return table;
   }
 
-  void ForEachTable(std::function<void(Table&)> f) {
-    tables_.ForEach([&](std::string_view, Table& table) {
+  void ForEachTable(std::function<void(Table &)> f) {
+    tables_.ForEach([&](std::string_view, Table &table) {
       f(table);
       return true;
     });

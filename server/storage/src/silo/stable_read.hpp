@@ -1,11 +1,12 @@
 #ifndef LINEAIRDB_SILO_STABLE_READ_HPP
 #define LINEAIRDB_SILO_STABLE_READ_HPP
 
+#include <xmmintrin.h>
+
 #include <string>
 #include <string_view>
 #include <utility>
 #include <vector>
-#include <xmmintrin.h>
 
 #include "types/data_item.hpp"
 #include "types/transaction_id.hpp"
@@ -54,7 +55,7 @@ struct StablePrimaryKeys {
  *
  * `found` is false for tombstones and uninitialized slots.
  */
-inline StableValue StableReadValue(const DataItem& item) {
+inline StableValue StableReadValue(const DataItem &item) {
   for (;;) {
     TransactionId tid = item.transaction_id.load();
     if (tid.tid & 1u) {
@@ -70,9 +71,9 @@ inline StableValue StableReadValue(const DataItem& item) {
         // install) is rejected by the TID re-check below, same as a torn
         // pointer copy would be.
         value.resize(item.size());
-        item.buffer.GatherInto(reinterpret_cast<std::byte*>(value.data()));
+        item.buffer.GatherInto(reinterpret_cast<std::byte *>(value.data()));
       } else {
-        value.assign(reinterpret_cast<const char*>(item.value()), item.size());
+        value.assign(reinterpret_cast<const char *>(item.value()), item.size());
       }
     }
 
@@ -94,8 +95,8 @@ inline StableValue StableReadValue(const DataItem& item) {
  * order.
  * @param n_columns Number of entries in `columns`.
  */
-inline StableValue StableReadValueMasked(const DataItem& item,
-                                         const uint32_t* columns,
+inline StableValue StableReadValueMasked(const DataItem &item,
+                                         const uint32_t *columns,
                                          size_t n_columns) {
   for (;;) {
     TransactionId tid = item.transaction_id.load();
@@ -111,7 +112,7 @@ inline StableValue StableReadValueMasked(const DataItem& item,
         item.buffer.pax_group()->GatherRowMasked(item.buffer.pax_slot(),
                                                  columns, n_columns, value);
       } else {
-        value.assign(reinterpret_cast<const char*>(item.value()), item.size());
+        value.assign(reinterpret_cast<const char *>(item.value()), item.size());
       }
     }
 
@@ -127,7 +128,7 @@ inline StableValue StableReadValueMasked(const DataItem& item,
  *
  * `found` is false when the slot is uninitialized or the list is empty.
  */
-inline StablePrimaryKeys StableReadPrimaryKeys(const DataItem& item) {
+inline StablePrimaryKeys StableReadPrimaryKeys(const DataItem &item) {
   for (;;) {
     TransactionId tid = item.transaction_id.load();
     if (tid.tid & 1u) {

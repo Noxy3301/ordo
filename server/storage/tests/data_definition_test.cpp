@@ -73,8 +73,8 @@ TEST_F(DataDefinitionTest, ConcurrencyControlBetweenMultipleTables) {
     tx2_ready = true;
     while (!tx1_ready) std::this_thread::yield();  // Wait for tx1 to be ready
     // The key tx1 writes into users never appears in accounts.
-    EXPECT_FALSE(
-        TestHelper::Read<int>(*db_, "accounts", "user1_only_users").has_value());
+    EXPECT_FALSE(TestHelper::Read<int>(*db_, "accounts", "user1_only_users")
+                     .has_value());
     EXPECT_TRUE(TestHelper::Write<int>(*db_, "accounts", "user1", 100));
   });
 
@@ -96,9 +96,9 @@ TEST_F(DataDefinitionTest, WriteSameKeyIntoTwoTables) {
   db_->CreateTable("accounts");
 
   ASSERT_TRUE(TestHelper::CommitWrites(
-      *db_, {{"users", "user1", TestHelper::Encode<int>(42), false, false},
-             {"accounts", "user1", TestHelper::Encode<int>(100), false,
-              false}}));
+      *db_,
+      {{"users", "user1", TestHelper::Encode<int>(42), false, false},
+       {"accounts", "user1", TestHelper::Encode<int>(100), false, false}}));
 
   // Check Results
   auto data = TestHelper::Read<int>(*db_, "users", "user1");

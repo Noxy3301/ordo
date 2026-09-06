@@ -29,7 +29,7 @@ constexpr std::array<uint32_t, 256> MakeTable() {
 
 constexpr std::array<uint32_t, 256> kTable = MakeTable();
 
-uint32_t UpdateWithTable(uint32_t state, const uint8_t* bytes, size_t size) {
+uint32_t UpdateWithTable(uint32_t state, const uint8_t *bytes, size_t size) {
   for (size_t i = 0; i < size; ++i) {
     state = kTable[(state ^ bytes[i]) & 0xffu] ^ (state >> 8);
   }
@@ -40,8 +40,9 @@ uint32_t UpdateWithTable(uint32_t state, const uint8_t* bytes, size_t size) {
 
 // Compiled via the target attribute, not -msse4.2/-march=native, so it builds
 // in every configuration; HasSse42() is what keeps it off CPUs without it.
-__attribute__((target("sse4.2"))) uint32_t UpdateWithSse42(
-    uint32_t state, const uint8_t* bytes, size_t size) {
+__attribute__((target("sse4.2"))) uint32_t UpdateWithSse42(uint32_t state,
+                                                           const uint8_t *bytes,
+                                                           size_t size) {
   uint64_t crc = state;
   while (size >= sizeof(uint64_t)) {
     uint64_t chunk;
@@ -67,8 +68,8 @@ bool HasSse42() {
 
 }  // namespace
 
-void Crc32c::Update(const void* data, size_t size) {
-  const auto* bytes = static_cast<const uint8_t*>(data);
+void Crc32c::Update(const void *data, size_t size) {
+  const auto *bytes = static_cast<const uint8_t *>(data);
 #if LINEAIRDB_CRC32C_X86_SSE42
   if (HasSse42()) {
     state_ = UpdateWithSse42(state_, bytes, size);
@@ -78,25 +79,25 @@ void Crc32c::Update(const void* data, size_t size) {
   state_ = UpdateWithTable(state_, bytes, size);
 }
 
-uint32_t ComputeCrc32c(const void* data, size_t size) {
+uint32_t ComputeCrc32c(const void *data, size_t size) {
   Crc32c crc;
   crc.Update(data, size);
   return crc.Finish();
 }
 
-uint32_t UpdateWithTableForTesting(uint32_t state, const void* data,
+uint32_t UpdateWithTableForTesting(uint32_t state, const void *data,
                                    size_t size) {
-  return UpdateWithTable(state, static_cast<const uint8_t*>(data), size);
+  return UpdateWithTable(state, static_cast<const uint8_t *>(data), size);
 }
 
-uint32_t UpdateWithSse42ForTesting(uint32_t state, const void* data,
+uint32_t UpdateWithSse42ForTesting(uint32_t state, const void *data,
                                    size_t size) {
 #if LINEAIRDB_CRC32C_X86_SSE42
   if (HasSse42()) {
-    return UpdateWithSse42(state, static_cast<const uint8_t*>(data), size);
+    return UpdateWithSse42(state, static_cast<const uint8_t *>(data), size);
   }
 #endif
-  return UpdateWithTable(state, static_cast<const uint8_t*>(data), size);
+  return UpdateWithTable(state, static_cast<const uint8_t *>(data), size);
 }
 
 bool HasSse42ForTesting() {

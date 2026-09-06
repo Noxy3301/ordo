@@ -12,8 +12,8 @@
 
 namespace {
 
-constexpr const char* kTable = "recovery_test";
-constexpr const char* kIndex = "idx";
+constexpr const char *kTable = "recovery_test";
+constexpr const char *kIndex = "idx";
 
 using LineairDB::Recovery::Wal;
 using LineairDB::Recovery::WalScanResult;
@@ -49,27 +49,27 @@ class StatelessRecoveryTest : public ::testing::Test {
     return config;
   }
 
-  static bool CommitWrite(LineairDB::Database& db, const std::string& key,
-                          const std::string& value) {
+  static bool CommitWrite(LineairDB::Database &db, const std::string &key,
+                          const std::string &value) {
     const bool committed =
         db.ValidateAndCommit({}, {{kTable, key, value, false}}, {}, {});
     db.ReleaseMasstreeThreadEpoch();
     return committed;
   }
 
-  static bool CommitWriteWithIndexEntry(LineairDB::Database& db,
-                                        const std::string& key,
-                                        const std::string& value,
-                                        const std::string& secondary_key) {
-    const bool committed = db.ValidateAndCommit(
-        {}, {{kTable, key, value, false}},
-        {{kTable, kIndex, secondary_key, key, false}}, {});
+  static bool CommitWriteWithIndexEntry(LineairDB::Database &db,
+                                        const std::string &key,
+                                        const std::string &value,
+                                        const std::string &secondary_key) {
+    const bool committed =
+        db.ValidateAndCommit({}, {{kTable, key, value, false}},
+                             {{kTable, kIndex, secondary_key, key, false}}, {});
     db.ReleaseMasstreeThreadEpoch();
     return committed;
   }
 
-  static LineairDB::StatelessReadResult Read(LineairDB::Database& db,
-                                             const std::string& key) {
+  static LineairDB::StatelessReadResult Read(LineairDB::Database &db,
+                                             const std::string &key) {
     auto result = db.StatelessRead(kTable, key);
     db.ReleaseMasstreeThreadEpoch();
     return result;
@@ -94,8 +94,8 @@ TEST_F(StatelessRecoveryTest, ALoggedWriteCarriesTheUnlockedTid) {
 
   bool seen_row = false;
   bool seen_index_entry = false;
-  for (const auto& record : scan.records) {
-    for (const auto& kvp : record.key_value_pairs) {
+  for (const auto &record : scan.records) {
+    for (const auto &kvp : record.key_value_pairs) {
       if (kvp.index_name.empty()) {
         if (kvp.key != "k") continue;
         seen_row = true;
@@ -133,8 +133,8 @@ TEST_F(StatelessRecoveryTest, ARecoveredKeyAcceptsAFurtherWrite) {
     Wal wal(work_dir_, LineairDB::Recovery::WalIo::Posix(), 1ull << 20);
     auto scan = wal.ScanAndRepair();
     ASSERT_EQ(scan.status, WalScanResult::Status::Ok);
-    for (const auto& record : scan.records) {
-      for (const auto& kvp : record.key_value_pairs) {
+    for (const auto &record : scan.records) {
+      for (const auto &kvp : record.key_value_pairs) {
         if (kvp.key == "k") {
           ASSERT_EQ(kvp.tid.tid % 2, 0u);
         }

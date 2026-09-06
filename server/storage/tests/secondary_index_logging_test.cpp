@@ -44,10 +44,10 @@ struct SecondaryLogStats {
   size_t primary_keys_bytes = 0;
 };
 
-size_t GetLogDirectorySize(const LineairDB::Config& conf) {
+size_t GetLogDirectorySize(const LineairDB::Config &conf) {
   namespace fs = std::filesystem;
   size_t size = 0;
-  for (const auto& entry : fs::directory_iterator(conf.work_dir)) {
+  for (const auto &entry : fs::directory_iterator(conf.work_dir)) {
     if (entry.path().filename().generic_string().find("working") !=
         std::string::npos)
       continue;
@@ -64,7 +64,7 @@ size_t GetLogDirectorySize(const LineairDB::Config& conf) {
  * appending to.
  */
 SecondaryLogStats GetSecondaryIndexLogStatsForLatestEpoch(
-    const LineairDB::Config& conf) {
+    const LineairDB::Config &conf) {
   namespace fs = std::filesystem;
   SecondaryLogStats stats{};
   if (!fs::exists(fs::path(conf.work_dir) / "wal.log")) return stats;
@@ -78,17 +78,17 @@ SecondaryLogStats GetSecondaryIndexLogStatsForLatestEpoch(
   }
 
   LineairDB::EpochNumber max_epoch = 0;
-  for (const auto& record : scan.records) {
+  for (const auto &record : scan.records) {
     if (record.epoch > max_epoch) max_epoch = record.epoch;
   }
 
-  for (const auto& record : scan.records) {
+  for (const auto &record : scan.records) {
     if (record.epoch != max_epoch) continue;
-    for (const auto& kvp : record.key_value_pairs) {
+    for (const auto &kvp : record.key_value_pairs) {
       if (kvp.index_name.empty()) continue;
       stats.record_count++;
       stats.primary_keys_count += kvp.primary_keys.size();
-      for (const auto& pk : kvp.primary_keys) {
+      for (const auto &pk : kvp.primary_keys) {
         stats.primary_keys_bytes += pk.size();
       }
     }
@@ -220,7 +220,7 @@ TEST_F(SecondaryIndexLoggingTest, RecoveryWithSecondaryIndexWithoutCheckpoint) {
   {
     std::vector<LineairDB::ExternalWriteEntry> writes;
     std::vector<LineairDB::ExternalSecondaryIndexEntry> index_ops;
-    for (const auto& primary_key : primary_keys) {
+    for (const auto &primary_key : primary_keys) {
       writes.push_back(
           {table_name, primary_key, "value_" + primary_key, false, false});
       index_ops.push_back(
@@ -236,7 +236,7 @@ TEST_F(SecondaryIndexLoggingTest, RecoveryWithSecondaryIndexWithoutCheckpoint) {
       TestHelper::ReadSecondaryIndex(*db_, table_name, index_name, index_key);
   const std::set<std::string> recovered(results.begin(), results.end());
   ASSERT_EQ(recovered.size(), primary_keys.size());
-  for (const auto& expected : primary_keys) {
+  for (const auto &expected : primary_keys) {
     ASSERT_TRUE(recovered.count(expected));
   }
 }

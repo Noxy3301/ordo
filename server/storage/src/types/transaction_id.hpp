@@ -28,14 +28,14 @@ struct TransactionId {
 
   TransactionId() noexcept : epoch(0), tid(0) {}
   TransactionId(const EpochNumber e, uint32_t t) : epoch(e), tid(t) {}
-  TransactionId(const TransactionId&) = default;
+  TransactionId(const TransactionId &) = default;
   TransactionId(uint64_t n) : epoch(n >> 32), tid(n & ~1llu >> 32) {}
-  TransactionId& operator=(const TransactionId&) = default;
-  bool operator==(const TransactionId& rhs) {
+  TransactionId &operator=(const TransactionId &) = default;
+  bool operator==(const TransactionId &rhs) {
     return (epoch == rhs.epoch && tid == rhs.tid);
   }
-  bool operator!=(const TransactionId& rhs) { return !(*this == rhs); }
-  bool operator<(const TransactionId& rhs) {
+  bool operator!=(const TransactionId &rhs) { return !(*this == rhs); }
+  bool operator<(const TransactionId &rhs) {
     if (epoch == rhs.epoch) {
       return tid < rhs.tid;
     } else {

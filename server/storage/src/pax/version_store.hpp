@@ -50,7 +50,7 @@ class VersionStore {
   /**
    * @brief Returns the process-wide store instance.
    */
-  static VersionStore& Global();
+  static VersionStore &Global();
 
   // Writer side ------------------------------------------------------
 
@@ -68,7 +68,7 @@ class VersionStore {
    * visibility-bit mutation. A first install into a fresh slot passes
    * was_visible=false and an empty row.
    */
-  void Capture(PaxGroup* group, uint32_t slot, uint32_t writer_epoch,
+  void Capture(PaxGroup *group, uint32_t slot, uint32_t writer_epoch,
                bool was_visible, std::string old_row);
 
   // Reader side ------------------------------------------------------
@@ -93,13 +93,13 @@ class VersionStore {
    * group's entries and resets the poison flag. Token ids are diagnostic;
    * a double or stale release is not detected.
    */
-  void EndCapture(const ReadViewToken& token);
+  void EndCapture(const ReadViewToken &token);
 
   /**
    * @brief Returns whether the generation was poisoned while this read view
    * was active; a poisoned read view's result must be discarded.
    */
-  bool Poisoned(const ReadViewToken& token) const;
+  bool Poisoned(const ReadViewToken &token) const;
 
   /**
    * @brief Fails every active read view and rejects new ones until the last
@@ -110,26 +110,26 @@ class VersionStore {
    * may land on the next generation, whose results are then discarded;
    * both orderings fail closed.
    */
-  void PoisonActiveGeneration(const char* reason);
+  void PoisonActiveGeneration(const char *reason);
 
   /**
    * @brief Returns the capture_count of the group's undo map, 0 if the
    * group has none.
    */
-  uint64_t GroupCaptureCount(const PaxGroup* group) const;
+  uint64_t GroupCaptureCount(const PaxGroup *group) const;
 
   /**
    * @brief Copies the entries for (group, slot); empty if none.
    *
    * @details Copies keep callers immune to concurrent vector reallocation.
    */
-  std::vector<Entry> EntriesFor(const PaxGroup* group, uint32_t slot) const;
+  std::vector<Entry> EntriesFor(const PaxGroup *group, uint32_t slot) const;
 
   /**
    * @brief Copies the group's whole slot->entries map in one locking pass.
    */
   std::unordered_map<uint32_t, std::vector<Entry>> GroupEntries(
-      const PaxGroup* group) const;
+      const PaxGroup *group) const;
 
  private:
   // seq_cst on both sides is load-bearing for the fence proof; do not
@@ -145,14 +145,14 @@ class VersionStore {
   // store.
   mutable std::shared_mutex registry_mutex_;
   mutable std::mutex groups_mutex_;
-  std::unordered_map<const PaxGroup*, std::unique_ptr<GroupUndo>> groups_;
+  std::unordered_map<const PaxGroup *, std::unique_ptr<GroupUndo>> groups_;
 
   uint64_t next_view_id_ = 1;
   uint64_t byte_budget_;
 
   VersionStore();
-  GroupUndo* GetOrCreateGroupUndo(PaxGroup* group);
-  const GroupUndo* FindGroupUndo(const PaxGroup* group) const;
+  GroupUndo *GetOrCreateGroupUndo(PaxGroup *group);
+  const GroupUndo *FindGroupUndo(const PaxGroup *group) const;
   void ClearAllLocked();
 };
 
@@ -164,7 +164,7 @@ class VersionStore {
  * generation on a zero-epoch install.
  */
 struct CurrentCommitEpoch {
-  static uint32_t& Get();
+  static uint32_t &Get();
 };
 
 /**
@@ -178,8 +178,8 @@ class ScopedCommitEpoch {
     CurrentCommitEpoch::Get() = epoch;
   }
   ~ScopedCommitEpoch() { CurrentCommitEpoch::Get() = previous_; }
-  ScopedCommitEpoch(const ScopedCommitEpoch&) = delete;
-  ScopedCommitEpoch& operator=(const ScopedCommitEpoch&) = delete;
+  ScopedCommitEpoch(const ScopedCommitEpoch &) = delete;
+  ScopedCommitEpoch &operator=(const ScopedCommitEpoch &) = delete;
 
  private:
   const uint32_t previous_;

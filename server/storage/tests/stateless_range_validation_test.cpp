@@ -1,16 +1,15 @@
-#include "lineairdb/database.h"
-
 #include <filesystem>
 #include <string>
 #include <vector>
 
 #include "gtest/gtest.h"
 #include "lineairdb/config.h"
+#include "lineairdb/database.h"
 #include "lineairdb/stateless.h"
 
 namespace {
 
-constexpr const char* kTable = "range_validation_test";
+constexpr const char *kTable = "range_validation_test";
 
 LineairDB::Config MakeConfig() {
   LineairDB::Config config;
@@ -21,28 +20,29 @@ LineairDB::Config MakeConfig() {
   return config;
 }
 
-bool CommitWrite(LineairDB::Database& db, const std::string& key,
-                 const std::string& value) {
+bool CommitWrite(LineairDB::Database &db, const std::string &key,
+                 const std::string &value) {
   const bool committed =
       db.ValidateAndCommit({}, {{kTable, key, value, false}}, {});
   db.ReleaseMasstreeThreadEpoch();
   return committed;
 }
 
-bool CommitDelete(LineairDB::Database& db, const std::string& key) {
-  const bool committed = db.ValidateAndCommit({}, {{kTable, key, "", true}}, {});
+bool CommitDelete(LineairDB::Database &db, const std::string &key) {
+  const bool committed =
+      db.ValidateAndCommit({}, {{kTable, key, "", true}}, {});
   db.ReleaseMasstreeThreadEpoch();
   return committed;
 }
 
 /// Scan the range and assemble the evidence a caller submits at commit.
-LineairDB::ExternalRangeReadEntry ScanRange(LineairDB::Database& db,
-                                           const std::string& start_key,
-                                           const std::string& end_key,
-                                           uint64_t row_limit = 0,
-                                           bool reverse_scan = false) {
-  auto scan =
-      db.StatelessRangeScan(kTable, start_key, end_key, row_limit, reverse_scan);
+LineairDB::ExternalRangeReadEntry ScanRange(LineairDB::Database &db,
+                                            const std::string &start_key,
+                                            const std::string &end_key,
+                                            uint64_t row_limit = 0,
+                                            bool reverse_scan = false) {
+  auto scan = db.StatelessRangeScan(kTable, start_key, end_key, row_limit,
+                                    reverse_scan);
   db.ReleaseMasstreeThreadEpoch();
   EXPECT_TRUE(scan.ok);
 
@@ -52,33 +52,32 @@ LineairDB::ExternalRangeReadEntry ScanRange(LineairDB::Database& db,
   range.end_key = end_key;
   range.row_limit = row_limit;
   range.reverse_scan = reverse_scan;
-  for (const auto& row : scan.rows) {
+  for (const auto &row : scan.rows) {
     range.result_keys.emplace_back(row.key);
   }
   return range;
 }
 
-bool Revalidate(LineairDB::Database& db,
-                const LineairDB::ExternalRangeReadEntry& range,
-                std::string* reason) {
+bool Revalidate(LineairDB::Database &db,
+                const LineairDB::ExternalRangeReadEntry &range,
+                std::string *reason) {
   const bool committed = db.ValidateAndCommit({}, {}, {}, {range}, reason);
   db.ReleaseMasstreeThreadEpoch();
   return committed;
 }
 
-void SeedRows(LineairDB::Database& db) {
-  for (const char* key : {"k1", "k2", "k3", "k4"}) {
+void SeedRows(LineairDB::Database &db) {
+  for (const char *key : {"k1", "k2", "k3", "k4"}) {
     ASSERT_TRUE(CommitWrite(db, key, "v"));
   }
 }
 
 /// Materialize a key without ever initializing it. Resolving a write inserts
 /// the slot before validation runs, and an aborted commit leaves it behind.
-void LeaveBlankSlot(LineairDB::Database& db, const std::string& key) {
+void LeaveBlankSlot(LineairDB::Database &db, const std::string &key) {
   std::string reason;
-  const bool committed =
-      db.ValidateAndCommit({{kTable, "k1", 0, true}},
-                           {{kTable, key, "v", false}}, {}, {}, &reason);
+  const bool committed = db.ValidateAndCommit(
+      {{kTable, "k1", 0, true}}, {{kTable, key, "v", false}}, {}, {}, &reason);
   db.ReleaseMasstreeThreadEpoch();
   ASSERT_FALSE(committed) << "the write was supposed to abort";
 }

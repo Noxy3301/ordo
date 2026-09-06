@@ -36,7 +36,7 @@ class LoggerBase {
    * produces no key-value pair has nothing to make durable, and the commit
    * path must not wait for it.
    */
-  virtual bool Enqueue(const WriteSetType& ws_ref, EpochNumber epoch) = 0;
+  virtual bool Enqueue(const WriteSetType &ws_ref, EpochNumber epoch) = 0;
 
   /**
    * @brief Reads and repairs the log. Must complete before the flusher

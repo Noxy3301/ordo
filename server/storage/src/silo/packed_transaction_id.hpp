@@ -13,7 +13,7 @@ namespace Silo {
  * @brief Pack a {epoch, tid} pair into one uint64_t so it can travel over
  * the RPC as an opaque version token.
  */
-inline uint64_t PackTransactionId(const TransactionId& tid) {
+inline uint64_t PackTransactionId(const TransactionId &tid) {
   return (static_cast<uint64_t>(tid.epoch) << 32) |
          static_cast<uint64_t>(tid.tid);
 }

@@ -1,3 +1,5 @@
+#include "recovery/epoch_scan_checkpoint.h"
+
 #include <gtest/gtest.h>
 #include <poll.h>
 #include <unistd.h>
@@ -15,13 +17,12 @@
 #include "lineairdb/config.h"
 #include "lineairdb/database.h"
 #include "lineairdb/stateless.h"
-#include "recovery/epoch_scan_checkpoint.h"
 #include "recovery/wal.h"
 
 namespace {
 
-constexpr const char* kTable = "checkpoint_test";
-constexpr const char* kIndex = "idx";
+constexpr const char *kTable = "checkpoint_test";
+constexpr const char *kIndex = "idx";
 constexpr auto kTestTimeout = std::chrono::seconds(10);
 
 using LineairDB::Recovery::EpochScanCheckpoint;
@@ -43,7 +44,7 @@ class Pipe {
   void CloseWrite() { Close(&fds_[1]); }
 
  private:
-  static void Close(int* fd) {
+  static void Close(int *fd) {
     if (*fd >= 0) {
       ::close(*fd);
       *fd = -1;
@@ -57,16 +58,14 @@ class Pipe {
 // success path is never read and harmless. Ported from debug_sync_test.cpp.
 struct ReleaseOnExit {
   int fd;
-  ~ReleaseOnExit() {
-    [[maybe_unused]] const ssize_t rc = ::write(fd, "r", 1);
-  }
+  ~ReleaseOnExit() { [[maybe_unused]] const ssize_t rc = ::write(fd, "r", 1); }
 };
 
 // Closes the write end on scope exit. Declared after the future whose read
 // loop owns the other end, so an early return delivers the EOF that ends it
 // before that future's destructor would otherwise block joining it.
 struct CloseWriteOnExit {
-  Pipe& pipe;
+  Pipe &pipe;
   ~CloseWriteOnExit() { pipe.CloseWrite(); }
 };
 
@@ -98,13 +97,13 @@ class EpochScanCheckpointTest : public ::testing::Test {
   }
 
   void TearDown() override {
-    for (const auto& variable : armed_) ::unsetenv(variable.c_str());
+    for (const auto &variable : armed_) ::unsetenv(variable.c_str());
     armed_.clear();
     std::error_code ec;
     std::filesystem::remove_all(root_, ec);
   }
 
-  void Arm(const std::string& variable, const std::string& action) {
+  void Arm(const std::string &variable, const std::string &action) {
     ::setenv(variable.c_str(), action.c_str(), 1);
     armed_.push_back(variable);
   }
@@ -119,43 +118,43 @@ class EpochScanCheckpointTest : public ::testing::Test {
     return config;
   }
 
-  static bool CommitWrite(LineairDB::Database& db, const std::string& key,
-                          const std::string& value) {
+  static bool CommitWrite(LineairDB::Database &db, const std::string &key,
+                          const std::string &value) {
     const bool committed =
         db.ValidateAndCommit({}, {{kTable, key, value, false}}, {}, {});
     db.ReleaseMasstreeThreadEpoch();
     return committed;
   }
 
-  static bool CommitDelete(LineairDB::Database& db, const std::string& key) {
+  static bool CommitDelete(LineairDB::Database &db, const std::string &key) {
     const bool committed =
         db.ValidateAndCommit({}, {{kTable, key, "", true}}, {}, {});
     db.ReleaseMasstreeThreadEpoch();
     return committed;
   }
 
-  static bool CommitIndexedWrite(LineairDB::Database& db,
-                                 const std::string& key,
-                                 const std::string& value,
-                                 const std::string& secondary_key) {
-    const bool committed = db.ValidateAndCommit(
-        {}, {{kTable, key, value, false}},
-        {{kTable, kIndex, secondary_key, key, false}}, {});
+  static bool CommitIndexedWrite(LineairDB::Database &db,
+                                 const std::string &key,
+                                 const std::string &value,
+                                 const std::string &secondary_key) {
+    const bool committed =
+        db.ValidateAndCommit({}, {{kTable, key, value, false}},
+                             {{kTable, kIndex, secondary_key, key, false}}, {});
     db.ReleaseMasstreeThreadEpoch();
     return committed;
   }
 
-  static LineairDB::StatelessReadResult Read(LineairDB::Database& db,
-                                             const std::string& key) {
+  static LineairDB::StatelessReadResult Read(LineairDB::Database &db,
+                                             const std::string &key) {
     auto result = db.StatelessRead(kTable, key);
     db.ReleaseMasstreeThreadEpoch();
     return result;
   }
 
   /** Every key's value, in key order, as the database currently holds it. */
-  static std::vector<std::string> ReadAll(LineairDB::Database& db) {
+  static std::vector<std::string> ReadAll(LineairDB::Database &db) {
     std::vector<std::string> rows;
-    for (const char* key : {"alice", "bob", "carol"}) {
+    for (const char *key : {"alice", "bob", "carol"}) {
       const auto row = Read(db, key);
       rows.emplace_back(std::string(key) + "=" + (row.found ? row.value : ""));
     }
@@ -163,12 +162,12 @@ class EpochScanCheckpointTest : public ::testing::Test {
   }
 
   /** Every secondary-index hit, as `secondary_key/primary_key=value`. */
-  static std::vector<std::string> ReadIndex(LineairDB::Database& db) {
-    auto result = db.StatelessSecondaryRangeScan(kTable, kIndex, "", "\xff", 0,
-                                                 false);
+  static std::vector<std::string> ReadIndex(LineairDB::Database &db) {
+    auto result =
+        db.StatelessSecondaryRangeScan(kTable, kIndex, "", "\xff", 0, false);
     db.ReleaseMasstreeThreadEpoch();
     std::vector<std::string> hits;
-    for (const auto& row : result.rows) {
+    for (const auto &row : result.rows) {
       hits.emplace_back(row.secondary_key + "/" + row.primary_key + "=" +
                         row.value);
     }
@@ -178,9 +177,9 @@ class EpochScanCheckpointTest : public ::testing::Test {
 
   /** The row value the image holds for `key`, if it holds one. */
   static std::optional<std::string> RowInImage(
-      const EpochScanCheckpoint::Image& image, const std::string& key) {
-    for (const auto& record : image.records) {
-      for (const auto& kvp : record.key_value_pairs) {
+      const EpochScanCheckpoint::Image &image, const std::string &key) {
+    for (const auto &record : image.records) {
+      for (const auto &kvp : record.key_value_pairs) {
         if (!kvp.index_name.empty() || kvp.key != key) continue;
         return kvp.buffer;
       }
@@ -190,9 +189,9 @@ class EpochScanCheckpointTest : public ::testing::Test {
 
   /** The primary keys the image lists under a secondary key. */
   static std::vector<std::string> IndexEntryInImage(
-      const EpochScanCheckpoint::Image& image, const std::string& key) {
-    for (const auto& record : image.records) {
-      for (const auto& kvp : record.key_value_pairs) {
+      const EpochScanCheckpoint::Image &image, const std::string &key) {
+    for (const auto &record : image.records) {
+      for (const auto &kvp : record.key_value_pairs) {
         if (kvp.index_name != kIndex || kvp.key != key) continue;
         return kvp.primary_keys;
       }
@@ -349,7 +348,7 @@ TEST_F(EpochScanCheckpointTest, RecoveryWithTheImageMatchesRecoveryWithout) {
     EXPECT_GT(filtered.bytes_skipped, 0u);
     // The end of the log and how far it is durable come from every frame.
     EXPECT_EQ(filtered.frontier, frontier_);
-    for (const auto& record : filtered.records) {
+    for (const auto &record : filtered.records) {
       EXPECT_GT(record.epoch, image.cut_epoch);
     }
   }
@@ -441,9 +440,8 @@ TEST_F(EpochScanCheckpointTest, ALogShorterThanThePublishFrontierIsRejected) {
 
   // Stand in for a log genuinely truncated, or substituted, after the image
   // was published: put the earlier, shorter log back in its place.
-  std::filesystem::copy_file(
-      short_log_copy, work_dir_ + "/wal.log",
-      std::filesystem::copy_options::overwrite_existing);
+  std::filesystem::copy_file(short_log_copy, work_dir_ + "/wal.log",
+                             std::filesystem::copy_options::overwrite_existing);
   {
     Wal wal(work_dir_, LineairDB::Recovery::WalIo::Posix(), 1ull << 20);
     const auto scan = wal.ScanAndRepair(0);
@@ -479,7 +477,7 @@ TEST_F(EpochScanCheckpointTest, AV1FormatImageIsRefused) {
     ASSERT_TRUE(file.is_open());
     file.seekp(4);
     const uint8_t v1_version[2] = {0x01, 0x00};
-    file.write(reinterpret_cast<const char*>(v1_version), sizeof(v1_version));
+    file.write(reinterpret_cast<const char *>(v1_version), sizeof(v1_version));
   }
 
   auto image = EpochScanCheckpoint::Load(work_dir_);
@@ -525,11 +523,11 @@ TEST_F(EpochScanCheckpointTest, ARowLockedDuringTheScanIsRetried) {
   ASSERT_EQ(::read(scan_arrived.read_fd(), &announcement, 1), 1);
 
   auto writer = std::async(std::launch::async, [&db] {
-    const bool committed = db.ValidateAndCommit(
-        {},
-        {{kTable, "alice", std::string(64, 'b'), false},
-         {kTable, "bob", std::string(64, 'b'), false}},
-        {}, {});
+    const bool committed =
+        db.ValidateAndCommit({},
+                             {{kTable, "alice", std::string(64, 'b'), false},
+                              {kTable, "bob", std::string(64, 'b'), false}},
+                             {}, {});
     db.ReleaseMasstreeThreadEpoch();
     return committed;
   });
@@ -573,7 +571,7 @@ TEST_F(EpochScanCheckpointTest, ARowLockedDuringTheScanIsRetried) {
   ASSERT_EQ(image.status, EpochScanCheckpoint::Image::Status::Ok);
   // Either version is a correct answer for a scan that runs alongside a
   // writer. A mixture of the two is not.
-  for (const char* key : {"alice", "bob"}) {
+  for (const char *key : {"alice", "bob"}) {
     const auto value = RowInImage(image, key);
     ASSERT_TRUE(value.has_value()) << key;
     EXPECT_TRUE(*value == std::string(64, 'a') ||

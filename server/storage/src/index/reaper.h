@@ -40,8 +40,8 @@ class Reaper {
    * no-op when `item` is null, `delete_commit_tid` is empty, or neither
    * index is given.
    */
-  void Enqueue(ConcurrentTable* primary_index, SecondaryIndex* secondary_index,
-               std::string_view key, DataItem* item,
+  void Enqueue(ConcurrentTable *primary_index, SecondaryIndex *secondary_index,
+               std::string_view key, DataItem *item,
                TransactionId delete_commit_tid);
 
   /**
@@ -49,7 +49,7 @@ class Reaper {
    * write-set Snapshot and enqueues only when it encodes a primary or
    * secondary delete.
    */
-  void Enqueue(const Snapshot& snapshot, TransactionId delete_commit_tid);
+  void Enqueue(const Snapshot &snapshot, TransactionId delete_commit_tid);
 
   /**
    * @brief Purge every candidate whose delete epoch lies more than one full
@@ -75,10 +75,10 @@ class Reaper {
    */
   struct DeferredPurgeCandidate {
     DeferredPurgeIndexKind kind;
-    ConcurrentTable* primary_index = nullptr;
-    SecondaryIndex* secondary_index = nullptr;
+    ConcurrentTable *primary_index = nullptr;
+    SecondaryIndex *secondary_index = nullptr;
     std::string key;
-    DataItem* item = nullptr;
+    DataItem *item = nullptr;
     TransactionId delete_commit_tid;
   };
 
@@ -89,8 +89,8 @@ class Reaper {
    * be called with a const left-hand side; this helper compares the same
    * two fields.
    */
-  static bool SameTransactionId(const TransactionId& lhs,
-                                const TransactionId& rhs) {
+  static bool SameTransactionId(const TransactionId &lhs,
+                                const TransactionId &rhs) {
     return lhs.epoch == rhs.epoch && lhs.tid == rhs.tid;
   }
 
@@ -101,8 +101,8 @@ class Reaper {
    * Reap compares the result with `candidate.item`: a mismatch means the
    * slot was already purged and re-created, so the candidate is stale.
    */
-  DataItem* ResolveDeferredPurgeCandidate(
-      const DeferredPurgeCandidate& candidate);
+  DataItem *ResolveDeferredPurgeCandidate(
+      const DeferredPurgeCandidate &candidate);
 
   /**
    * @brief Physically erases the slot through the owning index's Purge.
@@ -111,7 +111,7 @@ class Reaper {
    * slot so an in-place reuse continues the slot's TID sequence instead of
    * restarting below the delete TID.
    */
-  bool PurgeDeferredPurgeCandidate(const DeferredPurgeCandidate& candidate,
+  bool PurgeDeferredPurgeCandidate(const DeferredPurgeCandidate &candidate,
                                    TransactionId retired_tid);
 
   /** Guards the queue: Enqueue runs on committers, Reap on the epoch

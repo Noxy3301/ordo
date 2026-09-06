@@ -9,7 +9,7 @@
 #include "gtest/gtest.h"
 
 namespace {
-constexpr const char* kTable = "users";
+constexpr const char *kTable = "users";
 }  // namespace
 
 class ScanDeleteVisibilityTest : public ::testing::Test {

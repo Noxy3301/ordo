@@ -27,7 +27,7 @@
 #include "stateless_helper.hpp"
 
 namespace {
-constexpr const char* kTable = "users";
+constexpr const char *kTable = "users";
 }  // namespace
 
 class DatabaseTest : public ::testing::Test {
@@ -110,7 +110,7 @@ TEST_F(DatabaseTest, ThreadSafetyInsertions) {
       EXPECT_TRUE(committed);
     });
   }
-  for (auto& thread : threads) thread.join();
+  for (auto &thread : threads) thread.join();
 
   for (size_t idx = 0; idx < kKeys; idx++) {
     const auto alice =

@@ -42,11 +42,11 @@ struct DataItem {
 
   // Direct byte access is invalid for PAX-resident rows (no contiguous
   // bytes); those callers must go through DataBuffer::GatherInto / copies.
-  std::byte* value() {
+  std::byte *value() {
     assert(!buffer.is_pax());
     return &buffer.value[0];
   }
-  const std::byte* value() const {
+  const std::byte *value() const {
     assert(!buffer.is_pax());
     return &buffer.value[0];
   }
@@ -72,19 +72,19 @@ struct DataItem {
     return keys;
   }
 
-  void SetPrimaryKeys(const std::vector<std::string>& primary_keys) {
+  void SetPrimaryKeys(const std::vector<std::string> &primary_keys) {
     assert(IsSortedDeduped(primary_keys));
     auto packed = PackedPrimaryKeys::FromSortedDeduped(primary_keys);
     std::atomic_store(&primary_keys_, std::move(packed));
   }
-  void SetPrimaryKeys(std::vector<std::string>&& primary_keys) {
+  void SetPrimaryKeys(std::vector<std::string> &&primary_keys) {
     assert(IsSortedDeduped(primary_keys));
     auto packed = PackedPrimaryKeys::FromSortedDeduped(primary_keys);
     std::atomic_store(&primary_keys_, std::move(packed));
   }
 
   DataItem() : transaction_id(0) {}
-  DataItem(const DataItem& rhs)
+  DataItem(const DataItem &rhs)
       : transaction_id(rhs.transaction_id.load()),
         primary_keys_(std::atomic_load(&rhs.primary_keys_)) {
     buffer.Reset(rhs.buffer);
@@ -94,7 +94,7 @@ struct DataItem {
     } */
   }
 
-  DataItem& operator=(const DataItem& rhs) {
+  DataItem &operator=(const DataItem &rhs) {
     transaction_id.store(rhs.transaction_id.load());
     buffer.Reset(rhs.buffer);
 
@@ -109,25 +109,25 @@ struct DataItem {
     return *this;
   }
 
-  DataItem(DataItem&& rhs) noexcept
+  DataItem(DataItem &&rhs) noexcept
       : transaction_id(rhs.transaction_id.load()),
         buffer(std::move(rhs.buffer)),
         primary_keys_(std::move(rhs.primary_keys_)) {}
 
-  DataItem& operator=(DataItem&& rhs) noexcept {
+  DataItem &operator=(DataItem &&rhs) noexcept {
     transaction_id.store(rhs.transaction_id.load());
     buffer = std::move(rhs.buffer);
     std::atomic_store(&primary_keys_, std::move(rhs.primary_keys_));
     return *this;
   }
 
-  void Reset(const std::byte* v, const size_t s, TransactionId tid = 0) {
+  void Reset(const std::byte *v, const size_t s, TransactionId tid = 0) {
     buffer.Reset(v, s);
     if (!tid.IsEmpty()) transaction_id.store(tid);
   }
 
-  void AddSecondaryIndexValue(const std::byte* v, size_t s) {
-    std::string_view new_key(reinterpret_cast<const char*>(v), s);
+  void AddSecondaryIndexValue(const std::byte *v, size_t s) {
+    std::string_view new_key(reinterpret_cast<const char *>(v), s);
     auto current = std::atomic_load(&primary_keys_);
     auto next = PackedPrimaryKeys::Insert(current, new_key);
     if (next != current) {
@@ -135,8 +135,8 @@ struct DataItem {
     }
   }
 
-  void RemoveSecondaryIndexValue(const std::byte* v, size_t s) {
-    std::string_view target(reinterpret_cast<const char*>(v), s);
+  void RemoveSecondaryIndexValue(const std::byte *v, size_t s) {
+    std::string_view target(reinterpret_cast<const char *>(v), s);
     auto current = std::atomic_load(&primary_keys_);
     auto next = PackedPrimaryKeys::Erase(current, target);
     if (next != current) {
@@ -145,12 +145,12 @@ struct DataItem {
   }
 
  private:
-  static bool IsSortedDeduped(const std::vector<std::string>& keys) {
-    return std::adjacent_find(keys.begin(), keys.end(),
-                              [](const std::string& lhs,
-                                 const std::string& rhs) {
-                                return !(lhs < rhs);
-                              }) == keys.end();
+  static bool IsSortedDeduped(const std::vector<std::string> &keys) {
+    return std::adjacent_find(
+               keys.begin(), keys.end(),
+               [](const std::string &lhs, const std::string &rhs) {
+                 return !(lhs < rhs);
+               }) == keys.end();
   }
 };
 

@@ -36,9 +36,9 @@ struct PackedPrimaryKeys {
    * @throws std::length_error if the count or payload byte length exceeds
    * `uint32_t`.
    */
-  static Ptr FromSortedDeduped(const std::vector<std::string>& keys) {
+  static Ptr FromSortedDeduped(const std::vector<std::string> &keys) {
     size_t payload_bytes = 0;
-    for (const auto& key : keys) {
+    for (const auto &key : keys) {
       payload_bytes += EncodedRecordSize(key);
       CheckFitsUint32(payload_bytes, "packed primary-key list bytes");
     }
@@ -46,8 +46,8 @@ struct PackedPrimaryKeys {
     auto packed = AllocateMutable(
         CheckFitsUint32(keys.size(), "packed primary-key list count"),
         static_cast<uint32_t>(payload_bytes));
-    char* out = packed->MutableRecords();
-    for (const auto& key : keys) {
+    char *out = packed->MutableRecords();
+    for (const auto &key : keys) {
       out = WriteRecord(out, key);
     }
     assert(out == packed->MutableRecords() + packed->bytes);
@@ -64,16 +64,16 @@ struct PackedPrimaryKeys {
    * @throws std::length_error if the updated count or payload byte length
    * exceeds `uint32_t`.
    */
-  static Ptr Insert(const Ptr& keys, std::string_view key) {
+  static Ptr Insert(const Ptr &keys, std::string_view key) {
     if (!keys) {
       return FromOne(key);
     }
 
-    const char* const src_begin = keys->Records();
-    const char* const src_end = src_begin + keys->bytes;
-    const char* insert_pos = src_end;
+    const char *const src_begin = keys->Records();
+    const char *const src_end = src_begin + keys->bytes;
+    const char *insert_pos = src_end;
 
-    for (const char* cursor = src_begin; cursor != src_end;) {
+    for (const char *cursor = src_begin; cursor != src_end;) {
       const Record record = DecodeRecord(cursor, src_end);
       const std::string_view value(record.value, record.length);
       if (value == key) return keys;
@@ -91,7 +91,7 @@ struct PackedPrimaryKeys {
                         "packed primary-key list count"),
         CheckFitsUint32(new_bytes, "packed primary-key list bytes"));
 
-    char* out = next->MutableRecords();
+    char *out = next->MutableRecords();
     const size_t prefix_bytes = static_cast<size_t>(insert_pos - src_begin);
     if (prefix_bytes != 0) {
       std::memcpy(out, src_begin, prefix_bytes);
@@ -115,13 +115,13 @@ struct PackedPrimaryKeys {
    * @return The same `shared_ptr` when `keys` is null, empty, or does not
    * contain `key`; otherwise a new immutable primary-key list without `key`.
    */
-  static Ptr Erase(const Ptr& keys, std::string_view key) {
+  static Ptr Erase(const Ptr &keys, std::string_view key) {
     if (!keys || keys->count == 0) return keys;
 
-    const char* const src_begin = keys->Records();
-    const char* const src_end = src_begin + keys->bytes;
+    const char *const src_begin = keys->Records();
+    const char *const src_end = src_begin + keys->bytes;
 
-    for (const char* cursor = src_begin; cursor != src_end;) {
+    for (const char *cursor = src_begin; cursor != src_end;) {
       const Record record = DecodeRecord(cursor, src_end);
       const std::string_view value(record.value, record.length);
       if (value == key) {
@@ -134,15 +134,14 @@ struct PackedPrimaryKeys {
                             "packed primary-key list count"),
             static_cast<uint32_t>(new_bytes));
 
-        char* out = next->MutableRecords();
+        char *out = next->MutableRecords();
         const size_t prefix_bytes =
             static_cast<size_t>(record.start - src_begin);
         if (prefix_bytes != 0) {
           std::memcpy(out, src_begin, prefix_bytes);
           out += prefix_bytes;
         }
-        const size_t suffix_bytes =
-            static_cast<size_t>(src_end - record.next);
+        const size_t suffix_bytes = static_cast<size_t>(src_end - record.next);
         if (suffix_bytes != 0) {
           std::memcpy(out, record.next, suffix_bytes);
           out += suffix_bytes;
@@ -161,24 +160,24 @@ struct PackedPrimaryKeys {
    * @brief Returns the encoded record payload after the fixed header.
    * @return Pointer to `bytes` length-prefixed primary-key records.
    */
-  const char* Records() const {
-    return reinterpret_cast<const char*>(this) + sizeof(PackedPrimaryKeys);
+  const char *Records() const {
+    return reinterpret_cast<const char *>(this) + sizeof(PackedPrimaryKeys);
   }
 
  private:
   friend class PackedPrimaryKeysView;
 
   struct Record {
-    const char* start;
-    const char* value;
-    const char* next;
+    const char *start;
+    const char *value;
+    const char *next;
     size_t length;
   };
 
   struct Deleter {
-    void operator()(PackedPrimaryKeys* keys) const noexcept {
+    void operator()(PackedPrimaryKeys *keys) const noexcept {
       keys->~PackedPrimaryKeys();
-      delete[] reinterpret_cast<std::byte*>(keys);
+      delete[] reinterpret_cast<std::byte *>(keys);
     }
   };
 
@@ -191,22 +190,21 @@ struct PackedPrimaryKeys {
                                     uint32_t payload_bytes) {
     const size_t allocation_size =
         sizeof(PackedPrimaryKeys) + static_cast<size_t>(payload_bytes);
-    std::byte* raw = new std::byte[allocation_size];
-    auto* packed = new (raw) PackedPrimaryKeys(record_count, payload_bytes);
+    std::byte *raw = new std::byte[allocation_size];
+    auto *packed = new (raw) PackedPrimaryKeys(record_count, payload_bytes);
     return MutablePtr(packed, Deleter{});
   }
 
   static Ptr FromOne(std::string_view key) {
     const size_t payload_bytes = EncodedRecordSize(key);
     auto packed = AllocateMutable(
-        1, CheckFitsUint32(payload_bytes,
-                           "packed primary-key list bytes"));
-    [[maybe_unused]] char* out = WriteRecord(packed->MutableRecords(), key);
+        1, CheckFitsUint32(payload_bytes, "packed primary-key list bytes"));
+    [[maybe_unused]] char *out = WriteRecord(packed->MutableRecords(), key);
     assert(out == packed->MutableRecords() + packed->bytes);
     return packed;
   }
 
-  static uint32_t CheckFitsUint32(size_t value, const char* field) {
+  static uint32_t CheckFitsUint32(size_t value, const char *field) {
     if (value > std::numeric_limits<uint32_t>::max()) {
       throw std::length_error(field);
     }
@@ -226,7 +224,7 @@ struct PackedPrimaryKeys {
     return VarintSize(key.size()) + key.size();
   }
 
-  static char* WriteVarint(char* out, size_t value) {
+  static char *WriteVarint(char *out, size_t value) {
     while (value >= 0x80) {
       *out++ = static_cast<char>((value & 0x7f) | 0x80);
       value >>= 7;
@@ -235,7 +233,7 @@ struct PackedPrimaryKeys {
     return out;
   }
 
-  static char* WriteRecord(char* out, std::string_view key) {
+  static char *WriteRecord(char *out, std::string_view key) {
     out = WriteVarint(out, key.size());
     if (!key.empty()) {
       std::memcpy(out, key.data(), key.size());
@@ -244,8 +242,8 @@ struct PackedPrimaryKeys {
     return out;
   }
 
-  static Record DecodeRecord(const char* start, const char* limit) {
-    const char* cursor = start;
+  static Record DecodeRecord(const char *start, const char *limit) {
+    const char *cursor = start;
     size_t length = 0;
     unsigned shift = 0;
     while (cursor != limit) {
@@ -262,8 +260,8 @@ struct PackedPrimaryKeys {
     return Record{start, limit, limit, 0};
   }
 
-  char* MutableRecords() {
-    return reinterpret_cast<char*>(this) + sizeof(PackedPrimaryKeys);
+  char *MutableRecords() {
+    return reinterpret_cast<char *>(this) + sizeof(PackedPrimaryKeys);
   }
 };
 
@@ -275,7 +273,8 @@ static_assert(std::is_standard_layout<PackedPrimaryKeys>::value,
 /** @brief Zero-copy view over a `PackedPrimaryKeys` primary-key list. */
 class PackedPrimaryKeysView {
  public:
-  /** @brief Forward iterator yielding `std::string_view` values into the list. */
+  /** @brief Forward iterator yielding `std::string_view` values into the list.
+   */
   class iterator {
    public:
     using iterator_category = std::forward_iterator_tag;
@@ -299,7 +298,7 @@ class PackedPrimaryKeysView {
      * @brief Advances to the next primary key.
      * @return Reference to this iterator.
      */
-    iterator& operator++() {
+    iterator &operator++() {
       assert(remaining_ != 0);
       const auto record = PackedPrimaryKeys::DecodeRecord(cursor_, limit_);
       cursor_ = record.next;
@@ -322,7 +321,7 @@ class PackedPrimaryKeysView {
      * @param rhs Iterator to compare with.
      * @return True when both iterators refer to the same position.
      */
-    bool operator==(const iterator& rhs) const {
+    bool operator==(const iterator &rhs) const {
       return cursor_ == rhs.cursor_ && remaining_ == rhs.remaining_;
     }
 
@@ -331,16 +330,16 @@ class PackedPrimaryKeysView {
      * @param rhs Iterator to compare with.
      * @return True when the iterators differ.
      */
-    bool operator!=(const iterator& rhs) const { return !(*this == rhs); }
+    bool operator!=(const iterator &rhs) const { return !(*this == rhs); }
 
    private:
     friend class PackedPrimaryKeysView;
 
-    iterator(const char* cursor, const char* limit, uint32_t remaining)
+    iterator(const char *cursor, const char *limit, uint32_t remaining)
         : cursor_(cursor), limit_(limit), remaining_(remaining) {}
 
-    const char* cursor_ = nullptr;
-    const char* limit_ = nullptr;
+    const char *cursor_ = nullptr;
+    const char *limit_ = nullptr;
     uint32_t remaining_ = 0;
   };
 
@@ -348,14 +347,14 @@ class PackedPrimaryKeysView {
    * @brief Constructs a view over a raw primary-key list pointer.
    * @param keys Primary-key list to view, or null for an empty view.
    */
-  explicit PackedPrimaryKeysView(const PackedPrimaryKeys* keys = nullptr)
+  explicit PackedPrimaryKeysView(const PackedPrimaryKeys *keys = nullptr)
       : keys_(keys) {}
 
   /**
    * @brief Constructs a view over a shared primary-key list.
    * @param keys Primary-key list to view, or null for an empty view.
    */
-  explicit PackedPrimaryKeysView(const PackedPrimaryKeys::Ptr& keys)
+  explicit PackedPrimaryKeysView(const PackedPrimaryKeys::Ptr &keys)
       : keys_(keys.get()) {}
 
   /**
@@ -380,7 +379,7 @@ class PackedPrimaryKeysView {
    */
   iterator begin() const {
     if (!keys_) return iterator();
-    const char* const start = keys_->Records();
+    const char *const start = keys_->Records();
     return iterator(start, start + keys_->bytes, keys_->count);
   }
 
@@ -390,7 +389,7 @@ class PackedPrimaryKeysView {
    */
   iterator end() const {
     if (!keys_) return iterator();
-    const char* const limit = keys_->Records() + keys_->bytes;
+    const char *const limit = keys_->Records() + keys_->bytes;
     return iterator(limit, limit, 0);
   }
 
@@ -432,7 +431,7 @@ class PackedPrimaryKeysView {
   }
 
  private:
-  const PackedPrimaryKeys* keys_;
+  const PackedPrimaryKeys *keys_;
 };
 
 }  // namespace LineairDB

@@ -1,5 +1,3 @@
-#include "lineairdb/database.h"
-
 #include <chrono>
 #include <filesystem>
 #include <string>
@@ -8,11 +6,12 @@
 
 #include "gtest/gtest.h"
 #include "lineairdb/config.h"
+#include "lineairdb/database.h"
 #include "lineairdb/stateless.h"
 
 namespace {
 
-constexpr const char* kTable = "purge_test";
+constexpr const char *kTable = "purge_test";
 
 LineairDB::Config MakeConfig(size_t epoch_duration_ms) {
   LineairDB::Config config;
@@ -24,51 +23,51 @@ LineairDB::Config MakeConfig(size_t epoch_duration_ms) {
   return config;
 }
 
-bool CommitWrite(LineairDB::Database& db, const std::string& key,
-                 const std::string& value, std::string* reason = nullptr) {
-  const bool committed = db.ValidateAndCommit(
-      {}, {{kTable, key, value, false}}, {}, {}, reason);
+bool CommitWrite(LineairDB::Database &db, const std::string &key,
+                 const std::string &value, std::string *reason = nullptr) {
+  const bool committed =
+      db.ValidateAndCommit({}, {{kTable, key, value, false}}, {}, {}, reason);
   db.ReleaseMasstreeThreadEpoch();
   return committed;
 }
 
-bool CommitInsert(LineairDB::Database& db, const std::string& key,
-                  const std::string& value) {
+bool CommitInsert(LineairDB::Database &db, const std::string &key,
+                  const std::string &value) {
   const bool committed =
       db.ValidateAndCommit({}, {{kTable, key, value, false, true}}, {});
   db.ReleaseMasstreeThreadEpoch();
   return committed;
 }
 
-bool CommitDelete(LineairDB::Database& db, const std::string& key,
-                  std::string* reason = nullptr) {
-  const bool committed = db.ValidateAndCommit(
-      {}, {{kTable, key, "", true}}, {}, {}, reason);
+bool CommitDelete(LineairDB::Database &db, const std::string &key,
+                  std::string *reason = nullptr) {
+  const bool committed =
+      db.ValidateAndCommit({}, {{kTable, key, "", true}}, {}, {}, reason);
   db.ReleaseMasstreeThreadEpoch();
   return committed;
 }
 
-LineairDB::StatelessReadResult Read(LineairDB::Database& db,
-                                    const std::string& key) {
+LineairDB::StatelessReadResult Read(LineairDB::Database &db,
+                                    const std::string &key) {
   auto result = db.StatelessRead(kTable, key);
   db.ReleaseMasstreeThreadEpoch();
   return result;
 }
 
-bool ValidateRead(LineairDB::Database& db,
-                  const LineairDB::StatelessReadResult& read,
-                  const std::string& key, std::string* reason) {
+bool ValidateRead(LineairDB::Database &db,
+                  const LineairDB::StatelessReadResult &read,
+                  const std::string &key, std::string *reason) {
   const bool committed = db.ValidateAndCommit(
       {{kTable, key, read.tid, read.found}}, {}, {}, {}, reason);
   db.ReleaseMasstreeThreadEpoch();
   return committed;
 }
 
-bool StartsWith(const std::string& value, const std::string& prefix) {
+bool StartsWith(const std::string &value, const std::string &prefix) {
   return value.rfind(prefix, 0) == 0;
 }
 
-void WaitForEpochReaper(LineairDB::Database& db,
+void WaitForEpochReaper(LineairDB::Database &db,
                         std::chrono::milliseconds duration) {
   std::this_thread::sleep_for(duration);
   db.ReleaseMasstreeThreadEpoch();

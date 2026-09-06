@@ -18,14 +18,15 @@
 #ifndef LINEAIRDB_BACKOFF_HPP
 #define LINEAIRDB_BACKOFF_HPP
 
-#include <chrono>
 #include <xmmintrin.h>
+
+#include <chrono>
 #include <functional>
 #include <thread>
 
 namespace LineairDB {
 namespace Util {
-static inline bool RetryWithExponentialBackoff(std::function<bool()>&& f,
+static inline bool RetryWithExponentialBackoff(std::function<bool()> &&f,
                                                size_t sleep_ns = 100,
                                                size_t yield_threshold = 100,
                                                size_t retire_threshold = 0) {

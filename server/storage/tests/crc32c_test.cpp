@@ -78,7 +78,7 @@ TEST(Crc32cTest, ChunkedUpdateMatchesOneShot) {
   std::mt19937 rng(12345);
   std::uniform_int_distribution<int> byte_dist(0, 255);
   std::vector<uint8_t> data(4096 * 3 + 17);
-  for (auto& b : data) b = static_cast<uint8_t>(byte_dist(rng));
+  for (auto &b : data) b = static_cast<uint8_t>(byte_dist(rng));
 
   Crc32c one_shot;
   one_shot.Update(data.data(), data.size());
@@ -116,7 +116,7 @@ TEST(Crc32cTest, TableAndHardwarePathsAgreeOnRandomBuffers) {
   }
   for (const size_t size : sizes) {
     std::vector<uint8_t> data(size);
-    for (auto& b : data) b = static_cast<uint8_t>(byte_dist(rng));
+    for (auto &b : data) b = static_cast<uint8_t>(byte_dist(rng));
 
     const uint32_t table_result =
         UpdateWithTableForTesting(kInitialState, data.data(), data.size());

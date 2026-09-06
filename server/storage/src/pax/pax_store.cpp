@@ -24,17 +24,17 @@ namespace {
 // ---------------------------------------------------------------------------
 
 // int64 from a full ASCII integer (from_chars, whole span consumed).
-inline bool ParseI64(const char* s, size_t len, int64_t* out) {
+inline bool ParseI64(const char *s, size_t len, int64_t *out) {
   if (len == 0) return false;
   const auto res = std::from_chars(s, s + len, *out);
   return res.ec == std::errc() && res.ptr == s + len;
 }
 
 // "YYYY-MM-DD" -> YYYYMMDD (fits int32; string order == int order).
-inline bool ParseDate(const char* s, size_t len, int64_t* out) {
+inline bool ParseDate(const char *s, size_t len, int64_t *out) {
   if (len != 10 || s[4] != '-' || s[7] != '-') return false;
   int64_t y = 0, m = 0, d = 0;
-  auto digs = [](const char* p, int n, int64_t* o) {
+  auto digs = [](const char *p, int n, int64_t *o) {
     for (int i = 0; i < n; i++) {
       if (p[i] < '0' || p[i] > '9') return false;
       *o = *o * 10 + (p[i] - '0');
@@ -50,7 +50,7 @@ inline bool ParseDate(const char* s, size_t len, int64_t* out) {
 // Exact DECIMAL(p,s) val_str -> scaled int64 (value * 10^scale). The input has
 // the column's declared scale of fractional digits (MySQL pads), so scaling is
 // exact -- no double, so no rounding trap here.
-inline bool ParseDecScaled(const char* s, size_t len, int scale, int64_t* out) {
+inline bool ParseDecScaled(const char *s, size_t len, int scale, int64_t *out) {
   if (len == 0) return false;
   size_t i = 0;
   bool neg = false;
@@ -91,9 +91,9 @@ inline bool ParseDecScaled(const char* s, size_t len, int scale, int64_t* out) {
 
 // Parse one field's ASCII into the low bytes of *out. Returns false on any
 // failure (caller -> heap fallback).
-inline bool ParseTyped(uint8_t kind, int scale, const std::byte* payload,
-                       uint32_t len, uint64_t* out) {
-  const char* s = reinterpret_cast<const char*>(payload);
+inline bool ParseTyped(uint8_t kind, int scale, const std::byte *payload,
+                       uint32_t len, uint64_t *out) {
+  const char *s = reinterpret_cast<const char *>(payload);
   switch (kind) {
     case FK_INT32: {
       int64_t v;
@@ -124,7 +124,7 @@ inline bool ParseTyped(uint8_t kind, int scale, const std::byte* payload,
   }
 }
 
-inline void AppendI64(std::string& out, int64_t v) {
+inline void AppendI64(std::string &out, int64_t v) {
   char buf[24];
   const auto res = std::to_chars(buf, buf + sizeof(buf), v);
   out.append(buf, res.ptr);
@@ -133,8 +133,8 @@ inline void AppendI64(std::string& out, int64_t v) {
 // Format a typed cell's `width` LE bytes back into the exact val_str ASCII.
 // `cell` points at the payload (>= width bytes readable -- the cell stride
 // reserves them, so this is memory-safe even under a torn read).
-void FormatTyped(uint8_t kind, int scale, const std::byte* cell, uint32_t width,
-                 std::string& out) {
+void FormatTyped(uint8_t kind, int scale, const std::byte *cell, uint32_t width,
+                 std::string &out) {
   (void)width;
   switch (kind) {
     case FK_INT32: {
@@ -155,10 +155,9 @@ void FormatTyped(uint8_t kind, int scale, const std::byte* cell, uint32_t width,
       const int64_t y = v / 10000, m = (v / 100) % 100, d = v % 100;
       char buf[16];
       // %04d-%02d-%02d, matching MySQL DATE val_str.
-      const int n = std::snprintf(buf, sizeof(buf), "%04lld-%02lld-%02lld",
-                                  static_cast<long long>(y),
-                                  static_cast<long long>(m),
-                                  static_cast<long long>(d));
+      const int n = std::snprintf(
+          buf, sizeof(buf), "%04lld-%02lld-%02lld", static_cast<long long>(y),
+          static_cast<long long>(m), static_cast<long long>(d));
       if (n > 0) out.append(buf, static_cast<size_t>(n));
       break;
     }
@@ -213,7 +212,7 @@ inline uint32_t LengthPrefixBytes(uint32_t len) {
 
 // Reference to one decoded field payload inside a proxy row.
 struct FieldRef {
-  const std::byte* payload;
+  const std::byte *payload;
   uint32_t len;
 };
 
@@ -227,7 +226,7 @@ struct FieldRef {
  * @return Number of decoded fields, or `SIZE_MAX` when the input is malformed
  * or contains more than `max_fields` fields.
  */
-size_t ParseRow(const std::byte* row, size_t size, FieldRef* out,
+size_t ParseRow(const std::byte *row, size_t size, FieldRef *out,
                 size_t max_fields) {
   size_t off = 0;
   size_t n = 0;
@@ -254,7 +253,7 @@ size_t ParseRow(const std::byte* row, size_t size, FieldRef* out,
 }
 }  // namespace
 
-PaxGroup::PaxGroup(const TableSchema& schema, PaxStore* store)
+PaxGroup::PaxGroup(const TableSchema &schema, PaxStore *store)
     : schema_(schema), store_(store) {
   const size_t fields = schema.field_count();
   stride_.resize(fields);
@@ -271,7 +270,7 @@ PaxGroup::PaxGroup(const TableSchema& schema, PaxStore* store)
   visible_.reset(new std::atomic<uint64_t>[kRows / 64]());
 }
 
-bool PaxGroup::ScatterRow(uint32_t slot, const std::byte* row, size_t size) {
+bool PaxGroup::ScatterRow(uint32_t slot, const std::byte *row, size_t size) {
   assert(slot < kRows);
   const size_t fields = schema_.field_count();
   // Stack refs keep typical rows allocation-free; unusually wide tables take
@@ -299,7 +298,7 @@ bool PaxGroup::ScatterRow(uint32_t slot, const std::byte* row, size_t size) {
     }
   }
   for (size_t f = 0; f < fields; f++) {
-    std::byte* cell = arena_.get() + strip_offset_[f] +
+    std::byte *cell = arena_.get() + strip_offset_[f] +
                       static_cast<size_t>(stride_[f]) * slot;
     const uint8_t k = has_kinds ? schema_.field_kind[f] : FK_UNTYPED;
     if (k != FK_UNTYPED && refs[f].len != 0) {
@@ -326,7 +325,7 @@ void PaxGroup::RetireSlot(uint32_t slot) {
                                 std::memory_order_release);
 }
 
-size_t PaxGroup::GatherRow(uint32_t slot, std::byte* dst,
+size_t PaxGroup::GatherRow(uint32_t slot, std::byte *dst,
                            size_t expected_size) const {
   assert(slot < kRows);
   const size_t fields = schema_.field_count();
@@ -334,7 +333,7 @@ size_t PaxGroup::GatherRow(uint32_t slot, std::byte* dst,
   std::string scratch;  // reused typed->ASCII buffer (no per-field alloc)
   size_t off = 0;
   for (size_t f = 0; f < fields; f++) {
-    const std::byte* cell = arena_.get() + strip_offset_[f] +
+    const std::byte *cell = arena_.get() + strip_offset_[f] +
                             static_cast<size_t>(stride_[f]) * slot;
     uint16_t len;
     std::memcpy(&len, cell, sizeof(len));
@@ -347,7 +346,7 @@ size_t PaxGroup::GatherRow(uint32_t slot, std::byte* dst,
       continue;
     }
     const uint8_t k = has_kinds ? schema_.field_kind[f] : FK_UNTYPED;
-    const char* src;
+    const char *src;
     uint32_t vlen;
     if (k != FK_UNTYPED) {
       scratch.clear();
@@ -356,7 +355,7 @@ size_t PaxGroup::GatherRow(uint32_t slot, std::byte* dst,
       src = scratch.data();
       vlen = static_cast<uint32_t>(scratch.size());
     } else {
-      src = reinterpret_cast<const char*>(cell + kCellLenBytes);
+      src = reinterpret_cast<const char *>(cell + kCellLenBytes);
       vlen = len;
     }
     const uint32_t prefix = LengthPrefixBytes(vlen);
@@ -373,7 +372,7 @@ size_t PaxGroup::GatherRow(uint32_t slot, std::byte* dst,
 
 namespace {
 
-void AppendField(std::string& out, std::string_view payload) {
+void AppendField(std::string &out, std::string_view payload) {
   if (payload.empty()) {
     out.push_back(static_cast<char>(0xFF));
     return;
@@ -390,14 +389,14 @@ void AppendField(std::string& out, std::string_view payload) {
 }  // namespace
 
 void PaxGroup::AppendCellField(uint32_t field, uint32_t slot,
-                               std::string& out) const {
+                               std::string &out) const {
   const std::string_view cv = cell(field, slot);
   const uint8_t k = schema_.kind_of(field);
   if (k == FK_UNTYPED || cv.empty()) {
     AppendField(out, cv);
     return;
   }
-  const std::byte* c = arena_.get() + strip_offset_[field] +
+  const std::byte *c = arena_.get() + strip_offset_[field] +
                        static_cast<size_t>(stride_[field]) * slot;
   std::string tmp;
   FormatTyped(k, schema_.scale_of(field), c + kCellLenBytes,
@@ -405,8 +404,8 @@ void PaxGroup::AppendCellField(uint32_t field, uint32_t slot,
   AppendField(out, tmp);
 }
 
-bool PaxGroup::GatherRowProjected(uint32_t slot, const uint32_t* columns,
-                                  size_t n_columns, std::string& out) const {
+bool PaxGroup::GatherRowProjected(uint32_t slot, const uint32_t *columns,
+                                  size_t n_columns, std::string &out) const {
   assert(slot < kRows);
   const size_t fields = schema_.field_count();
   AppendCellField(0, slot, out);  // null-flags field (always UNTYPED)
@@ -418,8 +417,8 @@ bool PaxGroup::GatherRowProjected(uint32_t slot, const uint32_t* columns,
   return true;
 }
 
-void PaxGroup::GatherRowMasked(uint32_t slot, const uint32_t* columns,
-                               size_t n_columns, std::string& out) const {
+void PaxGroup::GatherRowMasked(uint32_t slot, const uint32_t *columns,
+                               size_t n_columns, std::string &out) const {
   const size_t fields = schema_.field_count();
   AppendCellField(0, slot, out);  // null-flags field (always UNTYPED)
 
@@ -436,14 +435,14 @@ void PaxGroup::GatherRowMasked(uint32_t slot, const uint32_t* columns,
 }
 
 PaxStore::PaxStore(TableSchema schema) : schema_(std::move(schema)) {
-  dir_.reset(new std::atomic<PaxGroup*>[kMaxGroups]());
+  dir_.reset(new std::atomic<PaxGroup *>[kMaxGroups]());
 }
 
-std::pair<PaxGroup*, uint32_t> PaxStore::AllocateSlot() {
+std::pair<PaxGroup *, uint32_t> PaxStore::AllocateSlot() {
   const uint64_t idx = next_slot_.fetch_add(1, std::memory_order_relaxed);
   const uint64_t group_idx = idx / PaxGroup::kRows;
   if (group_idx >= kMaxGroups) return {nullptr, 0};
-  PaxGroup* grp = dir_[group_idx].load(std::memory_order_acquire);
+  PaxGroup *grp = dir_[group_idx].load(std::memory_order_acquire);
   if (grp == nullptr) {
     std::lock_guard<std::mutex> lk(grow_mutex_);
     grp = dir_[group_idx].load(std::memory_order_acquire);

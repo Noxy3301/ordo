@@ -30,26 +30,25 @@ namespace Recovery {
 
 namespace {
 
-void PutLe16(uint8_t* out, uint16_t value) {
+void PutLe16(uint8_t *out, uint16_t value) {
   out[0] = static_cast<uint8_t>(value & 0xffu);
   out[1] = static_cast<uint8_t>((value >> 8) & 0xffu);
 }
 
-void PutLe32(uint8_t* out, uint32_t value) {
+void PutLe32(uint8_t *out, uint32_t value) {
   out[0] = static_cast<uint8_t>(value & 0xffu);
   out[1] = static_cast<uint8_t>((value >> 8) & 0xffu);
   out[2] = static_cast<uint8_t>((value >> 16) & 0xffu);
   out[3] = static_cast<uint8_t>((value >> 24) & 0xffu);
 }
 
-uint16_t GetLe16(const uint8_t* in) {
+uint16_t GetLe16(const uint8_t *in) {
   return static_cast<uint16_t>(in[0]) |
          static_cast<uint16_t>(static_cast<uint16_t>(in[1]) << 8);
 }
 
-uint32_t GetLe32(const uint8_t* in) {
-  return static_cast<uint32_t>(in[0]) |
-         (static_cast<uint32_t>(in[1]) << 8) |
+uint32_t GetLe32(const uint8_t *in) {
+  return static_cast<uint32_t>(in[0]) | (static_cast<uint32_t>(in[1]) << 8) |
          (static_cast<uint32_t>(in[2]) << 16) |
          (static_cast<uint32_t>(in[3]) << 24);
 }
@@ -58,7 +57,7 @@ uint32_t GetLe32(const uint8_t* in) {
 // own frame: a prefix of the constant fields followed by zeroes. Anything
 // else was not produced by writing a frame. A write that stops after the
 // constants is left to the checksum to catch.
-bool HeaderIsTornPrefix(const uint8_t* header) {
+bool HeaderIsTornPrefix(const uint8_t *header) {
   uint8_t expected[8];
   PutLe32(expected, Wal::kMagic);
   PutLe16(expected + 4, Wal::kVersion);
@@ -85,7 +84,7 @@ int FsyncRetryingOnInterrupt(int fd) {
 
 // Persists a directory entry: a file's own fsync does not make its name
 // durable.
-bool FsyncDirectory(const std::string& directory, int* error) {
+bool FsyncDirectory(const std::string &directory, int *error) {
   const int dir_fd =
       ::open(directory.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
   if (dir_fd < 0) {
@@ -102,17 +101,17 @@ bool FsyncDirectory(const std::string& directory, int* error) {
 
 WalIo WalIo::Posix() {
   WalIo io;
-  io.pwrite = [](int fd, const void* data, size_t size, off_t offset) {
+  io.pwrite = [](int fd, const void *data, size_t size, off_t offset) {
     return ::pwrite(fd, data, size, offset);
   };
   io.initialise_pwrite = io.pwrite;
-  io.pread = [](int fd, void* data, size_t size, off_t offset) {
+  io.pread = [](int fd, void *data, size_t size, off_t offset) {
     return ::pread(fd, data, size, offset);
   };
 
   // Armed from the environment, like a debug sync point, so an out-of-process
   // test can arrange an EIO. Unset means the bare syscall.
-  const char* raw = std::getenv("LINEAIRDB_WAL_FDATASYNC_FAIL_AFTER");
+  const char *raw = std::getenv("LINEAIRDB_WAL_FDATASYNC_FAIL_AFTER");
   if (raw == nullptr) {
     io.fdatasync = [](int fd) { return ::fdatasync(fd); };
     return io;
@@ -120,7 +119,7 @@ WalIo WalIo::Posix() {
   // Digits only. A value that does not parse stops startup rather than
   // arming a count no run reaches.
   errno = 0;
-  char* end = nullptr;
+  char *end = nullptr;
   const long successes = std::strtol(raw, &end, 10);
   if (!std::isdigit(static_cast<unsigned char>(raw[0])) || *end != '\0' ||
       errno == ERANGE) {
@@ -148,7 +147,7 @@ WalIo WalIo::Posix() {
   return io;
 }
 
-Wal::Wal(const std::string& work_dir, WalIo io, uint64_t initial_capacity_bytes)
+Wal::Wal(const std::string &work_dir, WalIo io, uint64_t initial_capacity_bytes)
     : io_(std::move(io)), initial_capacity_bytes_(initial_capacity_bytes) {
   // Strip a trailing separator first; parent_path() below must name the
   // true parent, not the directory itself.
@@ -209,7 +208,7 @@ Wal::Wal(const std::string& work_dir, WalIo io, uint64_t initial_capacity_bytes)
     }
   }
 
-  struct stat file_stat{};
+  struct stat file_stat {};
   if (::fstat(fd_, &file_stat) < 0) {
     const int error = errno;
     ::close(fd_);
@@ -229,7 +228,7 @@ Wal::~Wal() {
   if (fd_ >= 0) ::close(fd_);
 }
 
-WalScanResult Wal::Corrupt(const std::string& detail) {
+WalScanResult Wal::Corrupt(const std::string &detail) {
   state_ = State::Failed;
   WalScanResult result;
   result.status = WalScanResult::Status::Corrupt;
@@ -237,7 +236,7 @@ WalScanResult Wal::Corrupt(const std::string& detail) {
   return result;
 }
 
-WalScanResult Wal::IoFailure(const std::string& operation, int error) {
+WalScanResult Wal::IoFailure(const std::string &operation, int error) {
   state_ = State::Failed;
   WalScanResult result;
   result.status = WalScanResult::Status::IoError;
@@ -246,8 +245,8 @@ WalScanResult Wal::IoFailure(const std::string& operation, int error) {
   return result;
 }
 
-bool Wal::WriteAllAt(const uint8_t* data, size_t size, off_t offset,
-                     int* error) {
+bool Wal::WriteAllAt(const uint8_t *data, size_t size, off_t offset,
+                     int *error) {
   while (size != 0) {
     const size_t chunk = std::min<size_t>(size, SSIZE_MAX);
     const ssize_t written = io_.pwrite(fd_, data, chunk, offset);
@@ -264,7 +263,7 @@ bool Wal::WriteAllAt(const uint8_t* data, size_t size, off_t offset,
   return true;
 }
 
-bool Wal::PreadAll(uint8_t* out, size_t size, off_t offset, int* error) const {
+bool Wal::PreadAll(uint8_t *out, size_t size, off_t offset, int *error) const {
   while (size != 0) {
     const ssize_t got = io_.pread(fd_, out, size, offset);
     if (got > 0) {
@@ -288,7 +287,7 @@ bool Wal::PreadAll(uint8_t* out, size_t size, off_t offset, int* error) const {
 // mark a region that holds no frame, which is what lets the scan find the
 // end of the log. Both capacity initialisation and tail repair are this
 // one operation.
-bool Wal::WriteZeroesAndSync(off_t from, off_t to, int* error) {
+bool Wal::WriteZeroesAndSync(off_t from, off_t to, int *error) {
   if (to <= from) return true;
 
   constexpr size_t kChunkSize = 1ull << 20;
@@ -297,7 +296,7 @@ bool Wal::WriteZeroesAndSync(off_t from, off_t to, int* error) {
     const size_t size =
         static_cast<size_t>(std::min<off_t>(kChunkSize, to - offset));
     size_t remaining = size;
-    const uint8_t* data = zeroes.data();
+    const uint8_t *data = zeroes.data();
     while (remaining != 0) {
       const ssize_t written =
           io_.initialise_pwrite(fd_, data, remaining, offset);
@@ -327,8 +326,8 @@ bool Wal::WriteZeroesAndSync(off_t from, off_t to, int* error) {
 // acknowledged. Empty payloads and zero epochs are excluded as forgeries
 // the write path never produces. Every byte read is charged against the
 // shared `io_budget`; a read that would exceed it is refused.
-Wal::Probe Wal::ProbeFrameAt(off_t offset, off_t file_size,
-                             uint64_t* io_budget, int* error) const {
+Wal::Probe Wal::ProbeFrameAt(off_t offset, off_t file_size, uint64_t *io_budget,
+                             int *error) const {
   if (file_size - offset < static_cast<off_t>(kHeaderSize)) {
     return Probe::NoFrame;
   }
@@ -376,7 +375,7 @@ Wal::Probe Wal::ProbeFrameAt(off_t offset, off_t file_size,
 // bounds where one may end. Reads stop at `kProbeBudget` bytes and report
 // Undecidable rather than continuing unboundedly.
 Wal::Probe Wal::SearchForFrameAfter(off_t offset, off_t search_end,
-                                    off_t file_size, int* error) const {
+                                    off_t file_size, int *error) const {
   constexpr size_t kChunkSize = 1ull << 20;
   constexpr size_t kOverlap = sizeof(uint32_t) - 1;
   std::vector<uint8_t> chunk(kChunkSize);
@@ -403,8 +402,8 @@ Wal::Probe Wal::SearchForFrameAfter(off_t offset, off_t search_end,
 
 // Reports the offset of the last byte in [from, to) that is not zero, or
 // from - 1 when every byte is.
-bool Wal::FindLastNonZero(off_t from, off_t to, off_t* last_non_zero,
-                          int* error) const {
+bool Wal::FindLastNonZero(off_t from, off_t to, off_t *last_non_zero,
+                          int *error) const {
   constexpr size_t kChunkSize = 1ull << 20;
   std::vector<uint8_t> chunk(kChunkSize);
   *last_non_zero = from - 1;
@@ -423,7 +422,7 @@ bool Wal::FindLastNonZero(off_t from, off_t to, off_t* last_non_zero,
   return true;
 }
 
-bool Wal::EnsureCapacityFor(off_t end_of_log, size_t group_size, int* error) {
+bool Wal::EnsureCapacityFor(off_t end_of_log, size_t group_size, int *error) {
   const uint64_t limit =
       static_cast<uint64_t>(std::numeric_limits<off_t>::max());
   if (static_cast<uint64_t>(group_size) >
@@ -466,7 +465,7 @@ bool Wal::EnsureCapacityFor(off_t end_of_log, size_t group_size, int* error) {
 
 // Publishes the end of the log and initialises the capacity beyond it: the
 // last step of a successful scan, after which groups may be written.
-WalScanResult Wal::FinishScan(WalScanResult&& result, off_t end_of_log) {
+WalScanResult Wal::FinishScan(WalScanResult &&result, off_t end_of_log) {
   int error = 0;
   if (!EnsureCapacityFor(end_of_log, 0, &error)) {
     return IoFailure("initialise the capacity of " + path_, error);
@@ -487,11 +486,11 @@ WalScanResult Wal::FinishScan(WalScanResult&& result, off_t end_of_log) {
  * caller can fall back to a full scan instead of guessing.
  */
 bool Wal::HopCoveredFrames(EpochNumber min_epoch, off_t file_size,
-                          off_t* offset, EpochNumber* frontier,
-                          bool* have_frame, size_t* frames_skipped,
-                          uint64_t* bytes_skipped, bool* guard_pending,
-                          off_t* guard_offset, uint32_t* guard_payload_size,
-                          uint8_t* guard_header, int* error) const {
+                           off_t *offset, EpochNumber *frontier,
+                           bool *have_frame, size_t *frames_skipped,
+                           uint64_t *bytes_skipped, bool *guard_pending,
+                           off_t *guard_offset, uint32_t *guard_payload_size,
+                           uint8_t *guard_header, int *error) const {
   off_t at = 0;
   EpochNumber local_frontier = 0;
   bool local_have_frame = false;
@@ -522,7 +521,8 @@ bool Wal::HopCoveredFrames(EpochNumber min_epoch, off_t file_size,
       if (HeaderIsTornPrefix(header)) break;
       return false;
     }
-    const uint64_t frame_end = static_cast<uint64_t>(at) + kHeaderSize + payload_size;
+    const uint64_t frame_end =
+        static_cast<uint64_t>(at) + kHeaderSize + payload_size;
     if (frame_end > static_cast<uint64_t>(file_size)) return false;
     if (local_have_frame && epoch < local_frontier) return false;
     if (epoch == 0) return false;
@@ -559,7 +559,7 @@ WalScanResult Wal::ScanAndRepair(EpochNumber min_epoch) {
     return IoFailure("scan " + path_ + " after a failure", EIO);
   }
 
-  struct stat file_stat{};
+  struct stat file_stat {};
   if (::fstat(fd_, &file_stat) < 0) {
     return IoFailure("fstat " + path_, errno);
   }
@@ -582,11 +582,10 @@ WalScanResult Wal::ScanAndRepair(EpochNumber min_epoch) {
     uint32_t guard_payload_size = 0;
     uint8_t guard_header[kHeaderSize];
     int error = 0;
-    const bool hopped =
-        HopCoveredFrames(min_epoch, file_size, &offset, &frontier,
-                        &have_frame, &frames_skipped, &bytes_skipped,
-                        &guard_pending, &guard_offset, &guard_payload_size,
-                        guard_header, &error);
+    const bool hopped = HopCoveredFrames(
+        min_epoch, file_size, &offset, &frontier, &have_frame, &frames_skipped,
+        &bytes_skipped, &guard_pending, &guard_offset, &guard_payload_size,
+        guard_header, &error);
     if (!hopped && error != 0) {
       return IoFailure("pread header of " + path_, error);
     }
@@ -653,7 +652,7 @@ WalScanResult Wal::ScanAndRepair(EpochNumber min_epoch) {
     const EpochNumber epoch = GetLe32(header + 12);
     const uint32_t stored_crc = GetLe32(header + 16);
 
-    const char* header_anomaly = nullptr;
+    const char *header_anomaly = nullptr;
     if (magic != kMagic) {
       header_anomaly = "frame magic mismatch";
     } else if (version != kVersion) {
@@ -669,8 +668,8 @@ WalScanResult Wal::ScanAndRepair(EpochNumber min_epoch) {
       break;
     }
 
-    const uint64_t frame_end = static_cast<uint64_t>(offset) + kHeaderSize +
-                               payload_size;
+    const uint64_t frame_end =
+        static_cast<uint64_t>(offset) + kHeaderSize + payload_size;
     if (frame_end > static_cast<uint64_t>(file_size)) {
       anomaly = "the file ends inside a frame payload";
       break;
@@ -678,8 +677,7 @@ WalScanResult Wal::ScanAndRepair(EpochNumber min_epoch) {
 
     payload.resize(payload_size);
     if (payload_size != 0 &&
-        !PreadAll(payload.data(), payload_size, offset + kHeaderSize,
-                  &error)) {
+        !PreadAll(payload.data(), payload_size, offset + kHeaderSize, &error)) {
       return IoFailure("pread payload of " + path_, error);
     }
 
@@ -712,21 +710,20 @@ WalScanResult Wal::ScanAndRepair(EpochNumber min_epoch) {
     LogRecords decoded;
     try {
       size_t consumed = 0;
-      auto handle = msgpack::unpack(
-          reinterpret_cast<const char*>(payload.data()), payload.size(),
-          consumed);
+      auto handle =
+          msgpack::unpack(reinterpret_cast<const char *>(payload.data()),
+                          payload.size(), consumed);
       handle.get().convert(decoded);
       if (consumed != payload.size()) {
         return Corrupt("frame payload has trailing bytes");
       }
-    } catch (const std::exception& e) {
-      return Corrupt(std::string("frame payload does not decode: ") +
-                     e.what());
+    } catch (const std::exception &e) {
+      return Corrupt(std::string("frame payload does not decode: ") + e.what());
     } catch (...) {
       return Corrupt("frame payload does not decode");
     }
     if (decoded.empty()) return Corrupt("frame carries no record");
-    for (const auto& record : decoded) {
+    for (const auto &record : decoded) {
       if (record.epoch != epoch) {
         return Corrupt("record epoch disagrees with its frame");
       }
@@ -766,8 +763,8 @@ WalScanResult Wal::ScanAndRepair(EpochNumber min_epoch) {
         return Corrupt(anomaly + " at offset " + std::to_string(offset) +
                        ", with data beyond the frame");
       }
-      switch (SearchForFrameAfter(offset, last_non_zero + 1, file_size,
-                                  &error)) {
+      switch (
+          SearchForFrameAfter(offset, last_non_zero + 1, file_size, &error)) {
         case Probe::Frame:
           return Corrupt(anomaly + " at offset " + std::to_string(offset) +
                          ", with a frame surviving beyond it");
@@ -799,7 +796,7 @@ WalScanResult Wal::ScanAndRepair(EpochNumber min_epoch) {
 }
 
 WalAppendResult Wal::AppendGroup(
-    const std::map<EpochNumber, LogRecords>& buckets, EpochNumber target) {
+    const std::map<EpochNumber, LogRecords> &buckets, EpochNumber target) {
   // Where the log ends is what a successful scan establishes, and an
   // instance that never reached Ready, or that an earlier failure poisoned,
   // has nothing trustworthy to append at.
@@ -811,20 +808,20 @@ WalAppendResult Wal::AppendGroup(
     std::abort();
   }
 
-  auto& trace                = FlushTrace::Instance();
-  const bool traced          = trace.Enabled();
+  auto &trace = FlushTrace::Instance();
+  const bool traced = trace.Enabled();
   const int64_t encode_begin = traced ? FlushTrace::Now() : 0;
-  uint32_t encoded_epochs    = 0;
+  uint32_t encoded_epochs = 0;
   std::vector<uint8_t> group;
   EpochNumber last_encoded = frontier_;
-  for (const auto& [epoch, records] : buckets) {
+  for (const auto &[epoch, records] : buckets) {
     if (epoch > target) break;
     ++encoded_epochs;
     // A bucket the scan would reject is refused before anything is
     // written, which leaves the log's end known and this instance usable.
     if (records.empty() || epoch == 0) return {false, EINVAL};
     if (epoch < frontier_) return {false, EINVAL};
-    for (const auto& record : records) {
+    for (const auto &record : records) {
       if (record.epoch != epoch) return {false, EINVAL};
     }
     last_encoded = epoch;
@@ -838,7 +835,7 @@ WalAppendResult Wal::AppendGroup(
 
     const size_t frame_offset = group.size();
     group.resize(frame_offset + kHeaderSize + payload.size());
-    uint8_t* frame = group.data() + frame_offset;
+    uint8_t *frame = group.data() + frame_offset;
     PutLe32(frame, kMagic);
     PutLe16(frame + 4, kVersion);
     PutLe16(frame + 6, kFlags);
@@ -868,7 +865,7 @@ WalAppendResult Wal::AppendGroup(
   if (initialised_size_ != initialised_before) {
     ++extension_count_;
     SPDLOG_INFO("Extended {0} to {1} bytes ({2} extensions so far)", path_,
-               static_cast<long long>(initialised_size_), extension_count_);
+                static_cast<long long>(initialised_size_), extension_count_);
   }
 
   const int64_t write_begin = traced ? FlushTrace::Now() : 0;

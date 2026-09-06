@@ -27,8 +27,7 @@ namespace LineairDB {
 Database::Database() : db_pimpl_(std::make_unique<Impl>()) {
   LineairDB::Util::SetUpSPDLog();
 }
-Database::Database(const Config& c)
-    : db_pimpl_(std::make_unique<Impl>(c)) {
+Database::Database(const Config &c) : db_pimpl_(std::make_unique<Impl>(c)) {
   LineairDB::Util::SetUpSPDLog();
 }
 
@@ -38,8 +37,8 @@ const Config Database::GetConfig() const noexcept {
   return db_pimpl_->GetConfig();
 }
 
-bool Database::SetCommitDurability(
-    Config::CommitDurability mode, std::chrono::milliseconds barrier_timeout) {
+bool Database::SetCommitDurability(Config::CommitDurability mode,
+                                   std::chrono::milliseconds barrier_timeout) {
   return db_pimpl_->SetCommitDurability(mode, barrier_timeout);
 }
 Config::CommitDurability Database::GetCommitDurability() const {
@@ -48,35 +47,32 @@ Config::CommitDurability Database::GetCommitDurability() const {
 void Database::ReleaseMasstreeThreadEpoch() {
   Index::MasstreeReleaseThreadEpoch();
 }
-void Database::FullyDrainMasstreeThread() {
-  Index::MasstreeFullyDrainThread();
-}
+void Database::FullyDrainMasstreeThread() { Index::MasstreeFullyDrainThread(); }
 bool Database::CreateTable(const std::string_view table_name) {
   return db_pimpl_->CreateTable(table_name);
 }
 
 bool Database::InstallPaxSchema(const std::string_view table_name,
-                                const std::vector<uint32_t>& field_max_bytes,
-                                const std::vector<uint8_t>& field_kind,
-                                const std::vector<int8_t>& field_scale) {
+                                const std::vector<uint32_t> &field_max_bytes,
+                                const std::vector<uint8_t> &field_kind,
+                                const std::vector<int8_t> &field_scale) {
   return db_pimpl_->InstallPaxSchema(table_name, field_max_bytes, field_kind,
                                      field_scale);
 }
 
-Pax::PaxStore* Database::GetPaxStore(const std::string_view table_name) {
+Pax::PaxStore *Database::GetPaxStore(const std::string_view table_name) {
   return db_pimpl_->GetPaxStore(table_name);
 }
 
-Database::PaxReadView Database::AcquirePaxReadView(
-    uint32_t fence_timeout_ms) {
+Database::PaxReadView Database::AcquirePaxReadView(uint32_t fence_timeout_ms) {
   return db_pimpl_->AcquirePaxReadView(fence_timeout_ms);
 }
 
-void Database::ReleasePaxReadView(const PaxReadView& view) {
+void Database::ReleasePaxReadView(const PaxReadView &view) {
   db_pimpl_->ReleasePaxReadView(view);
 }
 
-bool Database::PaxReadViewPoisoned(const PaxReadView& view) const {
+bool Database::PaxReadViewPoisoned(const PaxReadView &view) const {
   return db_pimpl_->PaxReadViewPoisoned(view);
 }
 
@@ -88,19 +84,19 @@ bool Database::CreateSecondaryIndex(const std::string_view table_name,
 
 StatelessReadResult Database::StatelessRead(
     const std::string_view table_name, const std::string_view key,
-    const std::vector<uint32_t>* selected_columns) {
+    const std::vector<uint32_t> *selected_columns) {
   return db_pimpl_->StatelessRead(table_name, key, selected_columns);
 }
 
 std::vector<StatelessReadResult> Database::StatelessBatchRead(
-    const std::vector<std::pair<std::string, std::string>>& keys) {
+    const std::vector<std::pair<std::string, std::string>> &keys) {
   return db_pimpl_->StatelessBatchRead(keys);
 }
 
 StatelessRangeScanResult Database::StatelessRangeScan(
     const std::string_view table_name, const std::string_view start_key,
     const std::string_view end_key, uint64_t row_limit, bool reverse_scan,
-    const std::vector<uint32_t>* selected_columns) {
+    const std::vector<uint32_t> *selected_columns) {
   return db_pimpl_->StatelessRangeScan(table_name, start_key, end_key,
                                        row_limit, reverse_scan,
                                        selected_columns);
@@ -110,24 +106,23 @@ StatelessPaxRowRefScanResult Database::StatelessPaxRowRefScan(
     const std::string_view table_name, const std::string_view start_key,
     const std::string_view end_key, uint64_t row_limit, bool reverse_scan) {
   return db_pimpl_->StatelessPaxRowRefScan(table_name, start_key, end_key,
-                                        row_limit, reverse_scan);
+                                           row_limit, reverse_scan);
 }
 
 StatelessSecondaryRangeScanResult Database::StatelessSecondaryRangeScan(
     const std::string_view table_name, const std::string_view index_name,
     const std::string_view start_key, const std::string_view end_key,
     uint64_t row_limit, bool reverse_scan,
-    const std::vector<uint32_t>* selected_columns) {
+    const std::vector<uint32_t> *selected_columns) {
   return db_pimpl_->StatelessSecondaryRangeScan(table_name, index_name,
                                                 start_key, end_key, row_limit,
-                                                reverse_scan,
-                                                selected_columns);
+                                                reverse_scan, selected_columns);
 }
 
 bool Database::ComputeIndexNdvInt(const std::string_view table_name,
                                   const std::string_view index_name,
                                   uint32_t num_parts,
-                                  std::vector<uint64_t>& out_ndv) {
+                                  std::vector<uint64_t> &out_ndv) {
   return db_pimpl_->ComputeIndexNdvInt(table_name, index_name, num_parts,
                                        out_ndv);
 }
@@ -135,23 +130,23 @@ bool Database::ComputeIndexNdvInt(const std::string_view table_name,
 bool Database::ComputeIndexHistogram(const std::string_view table_name,
                                      const std::string_view index_name,
                                      uint32_t buckets,
-                                     std::vector<std::string>& out_bounds,
-                                     std::vector<uint64_t>& out_cum) {
+                                     std::vector<std::string> &out_bounds,
+                                     std::vector<uint64_t> &out_cum) {
   return db_pimpl_->ComputeIndexHistogram(table_name, index_name, buckets,
                                           out_bounds, out_cum);
 }
 
 bool Database::ValidateAndCommit(
-    const std::vector<ExternalReadEntry>& reads,
-    const std::vector<ExternalWriteEntry>& writes,
-    const std::vector<ExternalSecondaryIndexEntry>& secondary_index_ops,
-    const std::vector<ExternalRangeReadEntry>& range_reads,
-    std::string* abort_reason) {
+    const std::vector<ExternalReadEntry> &reads,
+    const std::vector<ExternalWriteEntry> &writes,
+    const std::vector<ExternalSecondaryIndexEntry> &secondary_index_ops,
+    const std::vector<ExternalRangeReadEntry> &range_reads,
+    std::string *abort_reason) {
   return db_pimpl_->ValidateAndCommit(reads, writes, secondary_index_ops,
                                       range_reads, abort_reason);
 }
 
-bool Database::WriteCheckpointImage(uint64_t* out_version_retries) {
+bool Database::WriteCheckpointImage(uint64_t *out_version_retries) {
   return db_pimpl_->WriteCheckpointImage(out_version_retries);
 }
 

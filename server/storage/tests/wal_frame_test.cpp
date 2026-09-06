@@ -8,9 +8,8 @@
 #include <cstring>
 #include <filesystem>
 #include <map>
-#include <string>
-
 #include <msgpack.hpp>
+#include <string>
 
 #include "recovery/crc32c.h"
 #include "recovery/wal.h"
@@ -25,7 +24,7 @@ using LineairDB::Recovery::LogRecords;
 using LineairDB::Recovery::Wal;
 using LineairDB::Recovery::WalScanResult;
 
-LogRecords MakeRecords(EpochNumber epoch, const std::string& key) {
+LogRecords MakeRecords(EpochNumber epoch, const std::string &key) {
   LogRecord record;
   record.epoch = epoch;
   LogRecord::KeyValuePair kvp;
@@ -57,7 +56,7 @@ class WalFrameTest : public ::testing::Test {
   std::string wal_path() const { return work_dir_ + "/wal.log"; }
 
   off_t FileSize() const {
-    struct stat file_stat{};
+    struct stat file_stat {};
     EXPECT_EQ(::stat(wal_path().c_str(), &file_stat), 0);
     return file_stat.st_size;
   }
@@ -113,11 +112,10 @@ class WalFrameTest : public ::testing::Test {
   void SetPayloadLengthAt(off_t frame_offset, uint32_t length) {
     const int fd = ::open(wal_path().c_str(), O_WRONLY);
     ASSERT_GE(fd, 0);
-    const uint8_t bytes[4] = {
-        static_cast<uint8_t>(length & 0xffu),
-        static_cast<uint8_t>((length >> 8) & 0xffu),
-        static_cast<uint8_t>((length >> 16) & 0xffu),
-        static_cast<uint8_t>((length >> 24) & 0xffu)};
+    const uint8_t bytes[4] = {static_cast<uint8_t>(length & 0xffu),
+                              static_cast<uint8_t>((length >> 8) & 0xffu),
+                              static_cast<uint8_t>((length >> 16) & 0xffu),
+                              static_cast<uint8_t>((length >> 24) & 0xffu)};
     ASSERT_EQ(::pwrite(fd, bytes, sizeof(bytes), frame_offset + 8), 4);
     ASSERT_EQ(::close(fd), 0);
   }
@@ -138,7 +136,7 @@ class WalFrameTest : public ::testing::Test {
     return frame_offset + static_cast<off_t>(Wal::kHeaderSize) + length;
   }
 
-  void AppendEpochs(const std::vector<EpochNumber>& epochs) {
+  void AppendEpochs(const std::vector<EpochNumber> &epochs) {
     Wal wal(work_dir_, LineairDB::Recovery::WalIo::Posix(), kCapacity);
     ASSERT_EQ(wal.ScanAndRepair().status, WalScanResult::Status::Ok);
     std::map<EpochNumber, LogRecords> buckets;
@@ -154,22 +152,21 @@ class WalFrameTest : public ::testing::Test {
   // state a torn or corrupted group write leaves behind. A settled-size log
   // must be addressed by offset rather than by appending: the file's own end
   // is capacity, not the log's end.
-  void WriteRawBytesAt(off_t offset, const std::vector<uint8_t>& bytes) {
+  void WriteRawBytesAt(off_t offset, const std::vector<uint8_t> &bytes) {
     const int fd = ::open(wal_path().c_str(), O_WRONLY);
     ASSERT_GE(fd, 0);
-    const bool write_ok =
-        ::pwrite(fd, bytes.data(), bytes.size(), offset) ==
-        static_cast<ssize_t>(bytes.size());
+    const bool write_ok = ::pwrite(fd, bytes.data(), bytes.size(), offset) ==
+                          static_cast<ssize_t>(bytes.size());
     ::close(fd);
     ASSERT_TRUE(write_ok);
   }
 
-  static void PutLe16(std::vector<uint8_t>& out, uint16_t value) {
+  static void PutLe16(std::vector<uint8_t> &out, uint16_t value) {
     out.push_back(static_cast<uint8_t>(value & 0xffu));
     out.push_back(static_cast<uint8_t>((value >> 8) & 0xffu));
   }
 
-  static void PutLe32(std::vector<uint8_t>& out, uint32_t value) {
+  static void PutLe32(std::vector<uint8_t> &out, uint32_t value) {
     out.push_back(static_cast<uint8_t>(value & 0xffu));
     out.push_back(static_cast<uint8_t>((value >> 8) & 0xffu));
     out.push_back(static_cast<uint8_t>((value >> 16) & 0xffu));
@@ -196,7 +193,7 @@ class WalFrameTest : public ::testing::Test {
   // header fields default to valid values and can be overridden to build
   // frames the scan must reject on the field alone.
   std::vector<uint8_t> MakeFrame(EpochNumber epoch,
-                                 const std::vector<uint8_t>& payload,
+                                 const std::vector<uint8_t> &payload,
                                  uint32_t magic = Wal::kMagic,
                                  uint16_t version = Wal::kVersion,
                                  uint16_t flags = Wal::kFlags) {
@@ -214,10 +211,10 @@ class WalFrameTest : public ::testing::Test {
     return frame;
   }
 
-  static std::vector<uint8_t> PackRecords(const LogRecords& records) {
+  static std::vector<uint8_t> PackRecords(const LogRecords &records) {
     msgpack::sbuffer buffer;
     msgpack::pack(buffer, records);
-    const auto* data = reinterpret_cast<const uint8_t*>(buffer.data());
+    const auto *data = reinterpret_cast<const uint8_t *>(buffer.data());
     return std::vector<uint8_t>(data, data + buffer.size());
   }
 
@@ -260,7 +257,7 @@ TEST_F(WalFrameTest, AGroupIsOneWriteAndOneSync) {
   LineairDB::Recovery::WalIo io = LineairDB::Recovery::WalIo::Posix();
   int write_calls = 0;
   int sync_calls = 0;
-  io.pwrite = [&write_calls](int fd, const void* data, size_t size,
+  io.pwrite = [&write_calls](int fd, const void *data, size_t size,
                              off_t offset) {
     ++write_calls;
     return ::pwrite(fd, data, size, offset);
@@ -401,8 +398,8 @@ TEST_F(WalFrameTest, WholeHeaderWithUnknownFlagsAtTheLogEndFails) {
   AppendEpochs({1});
   const off_t log_end = EndOfLog();
 
-  const std::vector<uint8_t> header = {0x4c, 0x41, 0x57, 0x4c, 0x01, 0x00,
-                                       0x07, 0x00};
+  const std::vector<uint8_t> header = {0x4c, 0x41, 0x57, 0x4c,
+                                       0x01, 0x00, 0x07, 0x00};
   WriteRawBytesAt(log_end, header);
 
   Wal wal(work_dir_, LineairDB::Recovery::WalIo::Posix(), kCapacity);
@@ -514,8 +511,7 @@ TEST_F(WalFrameTest, AChecksumBrokenFrameFollowedByJunkFailsWithoutRepairing) {
   Wal wal(work_dir_, LineairDB::Recovery::WalIo::Posix(), kCapacity);
   const auto result = wal.ScanAndRepair();
   EXPECT_EQ(result.status, WalScanResult::Status::Corrupt);
-  EXPECT_NE(result.detail.find("with data beyond the frame"),
-           std::string::npos)
+  EXPECT_NE(result.detail.find("with data beyond the frame"), std::string::npos)
       << result.detail;
   EXPECT_EQ(FileSize(), full_size);
 
@@ -727,13 +723,12 @@ TEST_F(WalFrameTest, AHeaderFieldAnomalyFailsWithoutRepairing) {
       {Wal::kMagic, 2, Wal::kFlags},              // unsupported version
       {Wal::kMagic, Wal::kVersion, 1},            // unknown flags
   };
-  for (const auto& anomaly : cases) {
+  for (const auto &anomaly : cases) {
     TearDown();  // fresh directory per case; the fixture removes the last one
     SetUp();
     const off_t log_end = EndOfLog();
-    WriteRawBytesAt(
-        log_end,
-        MakeFrame(1, payload, anomaly.magic, anomaly.version, anomaly.flags));
+    WriteRawBytesAt(log_end, MakeFrame(1, payload, anomaly.magic,
+                                       anomaly.version, anomaly.flags));
     const off_t full_size = FileSize();
 
     Wal wal(work_dir_, LineairDB::Recovery::WalIo::Posix(), kCapacity);
@@ -807,7 +802,7 @@ TEST_F(WalFrameTest, AReadFailureWhileLookingForSurvivorsStopsTheScan) {
 
   LineairDB::Recovery::WalIo io = LineairDB::Recovery::WalIo::Posix();
   auto real_pread = io.pread;
-  io.pread = [real_pread, embedded_at](int fd, void* data, size_t size,
+  io.pread = [real_pread, embedded_at](int fd, void *data, size_t size,
                                        off_t offset) -> ssize_t {
     if (offset == embedded_at && size == Wal::kHeaderSize) {
       errno = EIO;
@@ -829,7 +824,7 @@ TEST_F(WalFrameTest, ShortWritesAreRetriedUntilTheGroupIsComplete) {
   {
     LineairDB::Recovery::WalIo io = LineairDB::Recovery::WalIo::Posix();
     int write_calls = 0;
-    io.pwrite = [&write_calls](int fd, const void* data, size_t,
+    io.pwrite = [&write_calls](int fd, const void *data, size_t,
                                off_t offset) -> ssize_t {
       ++write_calls;
       return ::pwrite(fd, data, 1, offset);  // one byte per call
@@ -858,7 +853,7 @@ TEST_F(WalFrameTest, ShortWritesAreRetriedUntilTheGroupIsComplete) {
 TEST_F(WalFrameTest, APartialWriteIsCarriedToCompletion) {
   LineairDB::Recovery::WalIo io = LineairDB::Recovery::WalIo::Posix();
   size_t calls = 0;
-  io.pwrite = [&calls](int fd, const void* data, size_t size, off_t offset) {
+  io.pwrite = [&calls](int fd, const void *data, size_t size, off_t offset) {
     ++calls;
     return ::pwrite(fd, data, std::min<size_t>(size, 7), offset);
   };
@@ -881,7 +876,7 @@ TEST_F(WalFrameTest, APartialWriteIsCarriedToCompletion) {
 TEST_F(WalFrameTest, WriteFailurePropagatesWithoutSyncing) {
   LineairDB::Recovery::WalIo io = LineairDB::Recovery::WalIo::Posix();
   bool synced = false;
-  io.pwrite = [](int, const void*, size_t, off_t) -> ssize_t {
+  io.pwrite = [](int, const void *, size_t, off_t) -> ssize_t {
     errno = EIO;
     return -1;
   };
@@ -1066,7 +1061,7 @@ TEST_F(WalFrameTest, AnInterruptedReservationIsCompletedOnTheNextStart) {
   {
     off_t allowed = static_cast<off_t>(kCapacity) / 4;
     LineairDB::Recovery::WalIo io = LineairDB::Recovery::WalIo::Posix();
-    io.initialise_pwrite = [&allowed](int fd, const void* data, size_t size,
+    io.initialise_pwrite = [&allowed](int fd, const void *data, size_t size,
                                       off_t offset) -> ssize_t {
       if (allowed <= 0) {
         errno = EIO;
@@ -1201,7 +1196,7 @@ TEST_F(WalFrameTest, WithoutPreallocationTheFileTracksTheLog) {
 // that hit one.
 TEST_F(WalFrameTest, AFailureToReserveCapacityIsReported) {
   LineairDB::Recovery::WalIo io = LineairDB::Recovery::WalIo::Posix();
-  io.initialise_pwrite = [](int, const void*, size_t, off_t) -> ssize_t {
+  io.initialise_pwrite = [](int, const void *, size_t, off_t) -> ssize_t {
     errno = ENOSPC;
     return -1;
   };
@@ -1228,7 +1223,7 @@ TEST_F(WalFrameTest, EmptyGroupNeitherWritesNorSyncs) {
   LineairDB::Recovery::WalIo io = LineairDB::Recovery::WalIo::Posix();
   bool wrote = false;
   bool synced = false;
-  io.pwrite = [&wrote](int fd, const void* data, size_t size, off_t offset) {
+  io.pwrite = [&wrote](int fd, const void *data, size_t size, off_t offset) {
     wrote = true;
     return ::pwrite(fd, data, size, offset);
   };
@@ -1263,7 +1258,7 @@ TEST_F(WalFrameTest, HopReadsOnlyTheGuardAndTailPayloads) {
   // capacity-sized are the unrelated end-of-log scan this test does not mean
   // to count.
   io.pread = [real_pread, header_reads, payload_reads](
-                 int fd, void* data, size_t size, off_t offset) -> ssize_t {
+                 int fd, void *data, size_t size, off_t offset) -> ssize_t {
     if (size == Wal::kHeaderSize) {
       ++*header_reads;
     } else if (size > Wal::kHeaderSize && size < 4096) {
@@ -1314,7 +1309,7 @@ TEST_F(WalFrameTest, HopOfTheWholeLogStillFinishesTheScan) {
   // The end-of-log check reads the whole capacity looking for a surviving
   // frame once it finds the all-zero header past the last one; that read is
   // far larger than any frame's payload here and is not what this counts.
-  io.pread = [real_pread, payload_reads](int fd, void* data, size_t size,
+  io.pread = [real_pread, payload_reads](int fd, void *data, size_t size,
                                          off_t offset) -> ssize_t {
     if (size > Wal::kHeaderSize && size < 4096) ++*payload_reads;
     return real_pread(fd, data, size, offset);
@@ -1335,7 +1330,8 @@ TEST_F(WalFrameTest, HopOfTheWholeLogStillFinishesTheScan) {
 // A corrupted length inside the covered region lands the hop's next header
 // read on bytes that don't parse; it can't tell that apart from a lie only
 // in the last covered frame, so it falls back to a full scan from offset 0.
-TEST_F(WalFrameTest, ACorruptedLengthInTheCoveredRegionFallsBackAndStaysCorrect) {
+TEST_F(WalFrameTest,
+       ACorruptedLengthInTheCoveredRegionFallsBackAndStaysCorrect) {
   AppendEpochs({1, 2, 3, 4, 5});
   // Frame 1's declared length, shrunk so the hop's blind trust in it lands
   // mid-frame-1's own real payload rather than on frame 2's header.
@@ -1389,16 +1385,16 @@ TEST_F(WalFrameTest, InjectedFdatasyncFailsAfterTheAllowedCalls) {
 }
 
 TEST_F(WalFrameTest, AnUnparsableInjectionCountStopsStartup) {
-  const char* const malformed[] = {
-      "",      // armed with nothing
-      "abc",   // not a number
-      "1junk",  // trailing garbage
-      "-1",    // sign
-      "+1",    // sign
-      " 1",    // leading whitespace
+  const char *const malformed[] = {
+      "",                      // armed with nothing
+      "abc",                   // not a number
+      "1junk",                 // trailing garbage
+      "-1",                    // sign
+      "+1",                    // sign
+      " 1",                    // leading whitespace
       "99999999999999999999",  // out of long range
   };
-  for (const char* value : malformed) {
+  for (const char *value : malformed) {
     ASSERT_EQ(::setenv("LINEAIRDB_WAL_FDATASYNC_FAIL_AFTER", value, 1), 0);
     EXPECT_EXIT(LineairDB::Recovery::WalIo::Posix(),
                 ::testing::ExitedWithCode(EXIT_FAILURE), "")

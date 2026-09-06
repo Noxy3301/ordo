@@ -111,14 +111,15 @@ class FlushTrace {
     int64_t close_exit;
   };
 
-  static FlushTrace& Instance() {
+  static FlushTrace &Instance() {
     static FlushTrace instance;
     return instance;
   }
 
   bool Enabled() const { return enabled_; }
 
-  /** @brief Nanoseconds on the steady clock. Only differences are meaningful. */
+  /** @brief Nanoseconds on the steady clock. Only differences are meaningful.
+   */
   static int64_t Now() {
     return std::chrono::duration_cast<std::chrono::nanoseconds>(
                std::chrono::steady_clock::now().time_since_epoch())
@@ -129,10 +130,10 @@ class FlushTrace {
 
   void GroupCollectBegin(EpochNumber durable_before) {
     if (!enabled_) return;
-    current_                = GroupRow{};
-    current_.seq            = next_seq_++;
+    current_ = GroupRow{};
+    current_.seq = next_seq_++;
     current_.durable_before = durable_before;
-    current_.collect_begin  = Now();
+    current_.collect_begin = Now();
   }
 
   void GroupCollectEnd() {
@@ -143,29 +144,29 @@ class FlushTrace {
   void GroupEncode(int64_t begin, int64_t end, uint64_t bytes,
                    uint32_t epochs) {
     if (!enabled_) return;
-    current_.encode_begin  = begin;
-    current_.encode_end    = end;
+    current_.encode_begin = begin;
+    current_.encode_end = end;
     current_.encoded_bytes = bytes;
-    current_.epoch_count   = epochs;
+    current_.epoch_count = epochs;
   }
 
   void GroupWrite(int64_t begin, int64_t end) {
     if (!enabled_) return;
     current_.write_begin = begin;
-    current_.write_end   = end;
+    current_.write_end = end;
   }
 
   void GroupSync(int64_t begin, int64_t end) {
     if (!enabled_) return;
     current_.sync_begin = begin;
-    current_.sync_end   = end;
+    current_.sync_end = end;
   }
 
   void GroupPublish(EpochNumber target, int64_t enter, int64_t exit) {
     if (!enabled_) return;
-    current_.target        = target;
+    current_.target = target;
     current_.publish_enter = enter;
-    current_.publish_exit  = exit;
+    current_.publish_exit = exit;
     // Storage is sized once and never grows, so a reader can take the count and
     // walk the rows below it while this thread writes above it.
     const uint64_t index = group_count_.load(std::memory_order_relaxed);
@@ -202,7 +203,7 @@ class FlushTrace {
    */
   bool SampleThisCommit() {
     if (!enabled_) return false;
-    uint64_t& state = ThreadState();
+    uint64_t &state = ThreadState();
     state ^= state << 13;
     state ^= state >> 7;
     state ^= state << 17;
@@ -219,12 +220,13 @@ class FlushTrace {
       unslotted_drops_.fetch_add(1, std::memory_order_relaxed);
       return;
     }
-    Slot& slot           = slots_[slot_index];
+    Slot &slot = slots_[slot_index];
     const uint64_t index = slot.count.load(std::memory_order_relaxed);
     if (index < kCommitCapacity) {
-      slot.rows[index] =
-          CommitRow{slot_index, slot.next_seq++, required_epoch, enter, exit,
-                    static_cast<uint8_t>(not_durable_at_enter ? 1 : 0)};
+      slot.rows[index] = CommitRow{
+          slot_index,     slot.next_seq++,
+          required_epoch, enter,
+          exit,           static_cast<uint8_t>(not_durable_at_enter ? 1 : 0)};
       slot.count.store(index + 1, std::memory_order_release);
     } else {
       slot.drops.fetch_add(1, std::memory_order_relaxed);
@@ -244,7 +246,8 @@ class FlushTrace {
    */
   void Dump();
 
-  /** @brief Ask for the census from a signal handler. Stores a flag and returns. */
+  /** @brief Ask for the census from a signal handler. Stores a flag and
+   * returns. */
   static void RequestDump() {
     dump_requested_.store(true, std::memory_order_relaxed);
   }
@@ -259,7 +262,7 @@ class FlushTrace {
   // Connection threads come and go across loading and the measured run, and a
   // thread that finds no slot free records nothing. Every buffer is reserved at
   // construction, which keeps the first sampled commit off an allocator.
-  static constexpr size_t kMaxSlots       = 1024;
+  static constexpr size_t kMaxSlots = 1024;
   static constexpr size_t kCommitCapacity = 2048;
   // A power of two, so the sampling test is a mask rather than a division.
   static constexpr uint64_t kSampleEvery = 16;
@@ -275,7 +278,7 @@ class FlushTrace {
   };
 
   FlushTrace() {
-    const char* prefix = std::getenv("LINEAIRDB_FLUSH_TRACE");
+    const char *prefix = std::getenv("LINEAIRDB_FLUSH_TRACE");
     enabled_ = prefix != nullptr && prefix[0] != '\0';
     if (!enabled_) return;
     prefix_ = prefix;
@@ -283,8 +286,8 @@ class FlushTrace {
     // The lock makes FirstFreeGeneration's scan-then-claim atomic against
     // another process; a prefix that cannot be locked leaves tracing
     // disabled, the only outcome that keeps the no-replace promise.
-    lock_fd_ = ::open((prefix_ + ".lock").c_str(),
-                      O_RDWR | O_CREAT | O_CLOEXEC, 0644);
+    lock_fd_ =
+        ::open((prefix_ + ".lock").c_str(), O_RDWR | O_CREAT | O_CLOEXEC, 0644);
     if (lock_fd_ < 0 || ::flock(lock_fd_, LOCK_EX | LOCK_NB) != 0) {
       if (lock_fd_ >= 0) ::close(lock_fd_);
       lock_fd_ = -1;
@@ -292,7 +295,7 @@ class FlushTrace {
       return;
     }
 
-    bool usable      = false;
+    bool usable = false;
     dump_generation_ = FirstFreeGeneration(prefix_, &usable);
     if (!usable) {
       // The lock must not outlive a producer that will never publish.
@@ -304,7 +307,8 @@ class FlushTrace {
     groups_.resize(kGroupCapacity);
     closes_.resize(kCloseCapacity);
     slots_.reset(new Slot[kMaxSlots]);
-    for (size_t i = 0; i < kMaxSlots; ++i) slots_[i].rows.resize(kCommitCapacity);
+    for (size_t i = 0; i < kMaxSlots; ++i)
+      slots_[i].rows.resize(kCommitCapacity);
     InstallDumpSignal();
     // The request arrives as a flag from a signal handler; a thread outside
     // every measured path is what turns it into files.
@@ -337,9 +341,9 @@ class FlushTrace {
    * which disables tracing: producing no census is the only outcome that keeps
    * the promise never to replace one.
    */
-  static uint64_t FirstFreeGeneration(const std::string& prefix, bool* usable);
+  static uint64_t FirstFreeGeneration(const std::string &prefix, bool *usable);
 
-  uint64_t& ThreadState() {
+  uint64_t &ThreadState() {
     // Zero marks "not yet seeded" and is a value xorshift cannot produce.
     // The seed comes from a process-wide counter, distinct for every thread
     // lifetime (a TLS address alone is reused after a thread exits), and the
@@ -354,7 +358,8 @@ class FlushTrace {
     return state;
   }
 
-  /** @brief This thread's buffer index, or kMaxSlots once they are exhausted. */
+  /** @brief This thread's buffer index, or kMaxSlots once they are exhausted.
+   */
   uint32_t ThreadSlotIndex() {
     // A 64-bit ticket cannot wrap in a process lifetime, so exhaustion
     // stays exhaustion.

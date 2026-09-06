@@ -29,11 +29,12 @@ namespace Pax {
  * (byte-identical round trip -- the row-format contract).
  */
 enum FieldKind : uint8_t {
-  FK_UNTYPED = 0,  // verbatim bytes (default; strings, floats, DECIMAL pre-DEC64)
-  FK_INT32 = 1,    // 4-byte LE signed int   (TINY/SHORT/INT24/LONG)
-  FK_INT64 = 2,    // 8-byte LE signed int   (LONG UNSIGNED, BIGINT)
-  FK_DATE = 3,     // 4-byte LE YYYYMMDD int (DATE)
-  FK_DEC64 = 4,    // 8-byte LE scaled int   (DECIMAL(p,s); scale=field_scale)
+  FK_UNTYPED =
+      0,         // verbatim bytes (default; strings, floats, DECIMAL pre-DEC64)
+  FK_INT32 = 1,  // 4-byte LE signed int   (TINY/SHORT/INT24/LONG)
+  FK_INT64 = 2,  // 8-byte LE signed int   (LONG UNSIGNED, BIGINT)
+  FK_DATE = 3,   // 4-byte LE YYYYMMDD int (DATE)
+  FK_DEC64 = 4,  // 8-byte LE scaled int   (DECIMAL(p,s); scale=field_scale)
 };
 
 /**
@@ -107,7 +108,7 @@ class PaxGroup {
    *
    * @param schema Table schema owned by `PaxStore`; must outlive this group.
    */
-  PaxGroup(const TableSchema& schema, PaxStore* store);
+  PaxGroup(const TableSchema &schema, PaxStore *store);
 
   /**
    * @brief Scatters one proxy row payload into this group's strip cells.
@@ -118,7 +119,7 @@ class PaxGroup {
    * @return false without writing any cell when the payload does not match the
    * schema shape or when any field exceeds its configured cell width.
    */
-  bool ScatterRow(uint32_t slot, const std::byte* row, size_t size);
+  bool ScatterRow(uint32_t slot, const std::byte *row, size_t size);
 
   /**
    * @brief Marks one slot as invisible to strip-direct readers.
@@ -136,7 +137,7 @@ class PaxGroup {
    * @return Number of bytes written, equal to `expected_size` when the slot is
    * quiet and the stored row is intact.
    */
-  size_t GatherRow(uint32_t slot, std::byte* dst, size_t expected_size) const;
+  size_t GatherRow(uint32_t slot, std::byte *dst, size_t expected_size) const;
 
   /**
    * @brief Gathers the null-flags field and selected columns into `out`.
@@ -147,8 +148,8 @@ class PaxGroup {
    * @param out Destination string; gathered bytes are appended.
    * @return false when a column index is outside this group's schema.
    */
-  bool GatherRowProjected(uint32_t slot, const uint32_t* columns,
-                          size_t n_columns, std::string& out) const;
+  bool GatherRowProjected(uint32_t slot, const uint32_t *columns,
+                          size_t n_columns, std::string &out) const;
 
   /**
    * @brief Gathers a row-shaped payload with unselected columns masked out.
@@ -164,8 +165,8 @@ class PaxGroup {
    * @param n_columns Number of entries in `columns`.
    * @param out Destination string; gathered bytes are appended.
    */
-  void GatherRowMasked(uint32_t slot, const uint32_t* columns,
-                       size_t n_columns, std::string& out) const;
+  void GatherRowMasked(uint32_t slot, const uint32_t *columns, size_t n_columns,
+                       std::string &out) const;
 
   /**
    * @brief Returns whether strip-direct readers should consider `slot` live.
@@ -187,13 +188,13 @@ class PaxGroup {
    * @param slot Slot inside this group.
    */
   std::string_view cell(size_t field, uint32_t slot) const {
-    const std::byte* cell = arena_.get() + strip_offset_[field] +
+    const std::byte *cell = arena_.get() + strip_offset_[field] +
                             static_cast<size_t>(stride_[field]) * slot;
     uint16_t len;
     std::memcpy(&len, cell, sizeof(len));
     if (len > schema_.field_max_bytes[field]) len = 0;
-    return std::string_view(reinterpret_cast<const char*>(cell) + kCellLenBytes,
-                            len);
+    return std::string_view(
+        reinterpret_cast<const char *>(cell) + kCellLenBytes, len);
   }
 
   /**
@@ -208,14 +209,14 @@ class PaxGroup {
    * @param slot Slot inside this group.
    * @param out Destination string; the encoded field is appended.
    */
-  void AppendCellField(uint32_t field, uint32_t slot, std::string& out) const;
+  void AppendCellField(uint32_t field, uint32_t slot, std::string &out) const;
 
   /**
    * @brief Returns the first cell byte for `field` in this group.
    *
    * @param field Field index, starting with the null-flags field.
    */
-  const std::byte* strip(size_t field) const {
+  const std::byte *strip(size_t field) const {
     return arena_.get() + strip_offset_[field];
   }
 
@@ -229,16 +230,16 @@ class PaxGroup {
   /**
    * @brief Returns the schema that defines this group's strip widths.
    */
-  const TableSchema& schema() const { return schema_; }
+  const TableSchema &schema() const { return schema_; }
 
   /**
    * @brief Returns the table store that owns this group.
    */
-  PaxStore* store() const { return store_; }
+  PaxStore *store() const { return store_; }
 
  private:
-  const TableSchema& schema_;  // Owned by PaxStore; outlives all groups.
-  PaxStore* store_;
+  const TableSchema &schema_;  // Owned by PaxStore; outlives all groups.
+  PaxStore *store_;
   std::vector<uint32_t> stride_;
   std::vector<size_t> strip_offset_;
   std::unique_ptr<std::byte[]> arena_;
@@ -274,19 +275,19 @@ class PaxStore {
    * @return `{nullptr, 0}` when the table has exhausted the fixed directory, so
    * the caller can fall back to heap row storage without losing correctness.
    */
-  std::pair<PaxGroup*, uint32_t> AllocateSlot();
+  std::pair<PaxGroup *, uint32_t> AllocateSlot();
 
   /**
    * @brief Returns the schema used to size every group in this store.
    */
-  const TableSchema& schema() const { return schema_; }
+  const TableSchema &schema() const { return schema_; }
 
   /**
    * @brief Returns group `idx`, or nullptr if it has not been allocated yet.
    *
    * @param idx Group index in the append-only directory.
    */
-  PaxGroup* group(size_t idx) const {
+  PaxGroup *group(size_t idx) const {
     return dir_[idx].load(std::memory_order_acquire);
   }
 
@@ -302,8 +303,7 @@ class PaxStore {
    */
   size_t group_count() const {
     const uint64_t slots = slots_allocated();
-    return static_cast<size_t>((slots + PaxGroup::kRows - 1) /
-                               PaxGroup::kRows);
+    return static_cast<size_t>((slots + PaxGroup::kRows - 1) / PaxGroup::kRows);
   }
 
   /**
@@ -322,7 +322,7 @@ class PaxStore {
 
  private:
   TableSchema schema_;
-  std::unique_ptr<std::atomic<PaxGroup*>[]> dir_;
+  std::unique_ptr<std::atomic<PaxGroup *>[]> dir_;
   std::atomic<uint64_t> next_slot_{0};
   std::atomic<uint64_t> overflow_count_{0};
   std::mutex grow_mutex_;
@@ -358,9 +358,7 @@ struct UndoEntry {
  * so both operands lie in one wrap-free window. A modular comparison would
  * misread old entries as post-cut once a read view outlives half the range.
  */
-inline bool EpochAfterCut(uint32_t epoch, uint32_t cut) {
-  return epoch > cut;
-}
+inline bool EpochAfterCut(uint32_t epoch, uint32_t cut) { return epoch > cut; }
 
 /**
  * @brief Returns the monotonic capture counter of `group`'s undo map.
@@ -370,7 +368,7 @@ inline bool EpochAfterCut(uint32_t epoch, uint32_t cut) {
  * first strip mutation; an unchanged value across an in-place read means
  * no concurrent capture.
  */
-uint64_t UndoGroupCaptureCount(const PaxGroup* group);
+uint64_t UndoGroupCaptureCount(const PaxGroup *group);
 
 /**
  * @brief Copies every undo entry recorded for `group`, keyed by slot.
@@ -379,13 +377,12 @@ uint64_t UndoGroupCaptureCount(const PaxGroup* group);
  * order is epoch-non-decreasing. The copy is immune to concurrent capture.
  */
 std::unordered_map<uint32_t, std::vector<UndoEntry>> UndoGroupEntries(
-    const PaxGroup* group);
+    const PaxGroup *group);
 
 /**
  * @brief Copies the undo entries recorded for one (group, slot).
  */
-std::vector<UndoEntry> UndoSlotEntries(const PaxGroup* group,
-                                       uint32_t slot);
+std::vector<UndoEntry> UndoSlotEntries(const PaxGroup *group, uint32_t slot);
 
 }  // namespace Pax
 }  // namespace LineairDB

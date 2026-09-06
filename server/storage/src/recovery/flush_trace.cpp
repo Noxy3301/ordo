@@ -24,17 +24,17 @@ void OnDumpSignal(int) { FlushTrace::RequestDump(); }
  * reach that name. Every step is checked: a formatting error, a full
  * filesystem, or a failure inside fclose all leave the final name absent.
  */
-bool WriteFile(const std::string& path,
-               const std::function<bool(FILE*)>& emit) {
+bool WriteFile(const std::string &path,
+               const std::function<bool(FILE *)> &emit) {
   const std::string temporary = path + ".partial";
-  FILE* file = std::fopen(temporary.c_str(), "w");
+  FILE *file = std::fopen(temporary.c_str(), "w");
   if (file == nullptr) {
     std::fprintf(stderr, "flush trace: cannot write %s\n", temporary.c_str());
     return false;
   }
   const bool emitted = emit(file);
   const bool flushed = std::fflush(file) == 0;
-  const bool closed  = std::fclose(file) == 0;
+  const bool closed = std::fclose(file) == 0;
   if (!emitted || !flushed || !closed) {
     std::fprintf(stderr, "flush trace: %s is incomplete and was discarded\n",
                  path.c_str());
@@ -53,7 +53,7 @@ bool WriteFile(const std::string& path,
 
 void FlushTrace::InstallDumpSignal() {
   struct sigaction action = {};
-  action.sa_handler       = OnDumpSignal;
+  action.sa_handler = OnDumpSignal;
   sigemptyset(&action.sa_mask);
   action.sa_flags = SA_RESTART;
   // The process gains a SIGUSR1 handler for as long as tracing is enabled, and
@@ -65,8 +65,8 @@ void FlushTrace::InstallDumpSignal() {
   }
 }
 
-uint64_t FlushTrace::FirstFreeGeneration(const std::string& prefix,
-                                         bool* usable) {
+uint64_t FlushTrace::FirstFreeGeneration(const std::string &prefix,
+                                         bool *usable) {
   // The groups file is written for every generation, so its absence marks the
   // first free one. Only a name that is absent counts as free: a name that
   // cannot be examined might already hold a published census, and replacing it
@@ -101,17 +101,16 @@ void FlushTrace::Dump() {
   std::lock_guard<std::mutex> serialise(dump_mutex_);
 
   // Each dump owns its generation, so it never replaces a file another dump
-  // published and the manifest keeps describing the previous one until this dump
-  // succeeds.
+  // published and the manifest keeps describing the previous one until this
+  // dump succeeds.
   const uint64_t generation = dump_generation_;
-  const std::string stem =
-      prefix_ + "_g" + std::to_string(generation);
+  const std::string stem = prefix_ + "_g" + std::to_string(generation);
 
   // Every count is taken before any file is opened. That makes each file an
-  // immutable prefix of its stream; it does not make the four files one instant,
-  // because the counts are read one after another.  Storage never grows, so rows
-  // below a count are settled even while the threads that own them keep writing
-  // above it.
+  // immutable prefix of its stream; it does not make the four files one
+  // instant, because the counts are read one after another.  Storage never
+  // grows, so rows below a count are settled even while the threads that own
+  // them keep writing above it.
   const uint64_t groups = group_count_.load(std::memory_order_acquire);
   const uint64_t closes = close_count_.load(std::memory_order_acquire);
   std::vector<uint64_t> commit_counts(kMaxSlots);
@@ -126,15 +125,15 @@ void FlushTrace::Dump() {
   }
   const uint64_t group_drops = group_drops_.load(std::memory_order_relaxed);
   const uint64_t close_drops = close_drops_.load(std::memory_order_relaxed);
-  const uint64_t unslotted   = unslotted_drops_.load(std::memory_order_relaxed);
-  const uint64_t claimed     = next_slot_.load(std::memory_order_relaxed);
-  const uint32_t slots_used =
-      claimed < kMaxSlots ? static_cast<uint32_t>(claimed)
-                          : static_cast<uint32_t>(kMaxSlots);
+  const uint64_t unslotted = unslotted_drops_.load(std::memory_order_relaxed);
+  const uint64_t claimed = next_slot_.load(std::memory_order_relaxed);
+  const uint32_t slots_used = claimed < kMaxSlots
+                                  ? static_cast<uint32_t>(claimed)
+                                  : static_cast<uint32_t>(kMaxSlots);
 
   bool complete = true;
 
-  complete &= WriteFile(stem + "_groups.csv", [&](FILE* file) {
+  complete &= WriteFile(stem + "_groups.csv", [&](FILE *file) {
     if (std::fprintf(file,
                      "seq,durable_before,target,encoded_bytes,epoch_count,"
                      "collect_begin,collect_end,encode_begin,encode_end,"
@@ -143,7 +142,7 @@ void FlushTrace::Dump() {
       return false;
     }
     for (uint64_t i = 0; i < groups; ++i) {
-      const GroupRow& row = groups_[i];
+      const GroupRow &row = groups_[i];
       if (std::fprintf(file,
                        "%" PRIu64 ",%u,%u,%" PRIu64 ",%u,%" PRId64 ",%" PRId64
                        ",%" PRId64 ",%" PRId64 ",%" PRId64 ",%" PRId64
@@ -159,10 +158,10 @@ void FlushTrace::Dump() {
     return true;
   });
 
-  complete &= WriteFile(stem + "_closes.csv", [&](FILE* file) {
+  complete &= WriteFile(stem + "_closes.csv", [&](FILE *file) {
     if (std::fprintf(file, "closed,close_enter,close_exit\n") < 0) return false;
     for (uint64_t i = 0; i < closes; ++i) {
-      const CloseRow& row = closes_[i];
+      const CloseRow &row = closes_[i];
       if (std::fprintf(file, "%u,%" PRId64 ",%" PRId64 "\n", row.closed,
                        row.close_enter, row.close_exit) < 0) {
         return false;
@@ -171,16 +170,16 @@ void FlushTrace::Dump() {
     return true;
   });
 
-  complete &= WriteFile(stem + "_commits.csv", [&](FILE* file) {
+  complete &= WriteFile(stem + "_commits.csv", [&](FILE *file) {
     if (std::fprintf(file,
                      "slot,local_seq,required_epoch,wait_enter,wait_return,"
                      "not_durable_at_enter\n") < 0) {
       return false;
     }
     for (size_t slot_index = 0; slot_index < kMaxSlots; ++slot_index) {
-      const Slot& slot = slots_[slot_index];
+      const Slot &slot = slots_[slot_index];
       for (uint64_t i = 0; i < commit_counts[slot_index]; ++i) {
-        const CommitRow& row = slot.rows[i];
+        const CommitRow &row = slot.rows[i];
         if (std::fprintf(file, "%u,%" PRIu64 ",%u,%" PRId64 ",%" PRId64 ",%u\n",
                          row.slot, row.local_seq, row.required_epoch,
                          row.wait_enter, row.wait_return,
@@ -193,8 +192,8 @@ void FlushTrace::Dump() {
   });
 
   if (!complete) {
-    // The manifest is what a reader follows; leaving it pointing at the previous
-    // generation is how an incomplete census reports itself.
+    // The manifest is what a reader follows; leaving it pointing at the
+    // previous generation is how an incomplete census reports itself.
     std::fprintf(stderr,
                  "flush trace: generation %" PRIu64
                  " is incomplete and the manifest was left alone\n",
@@ -204,7 +203,7 @@ void FlushTrace::Dump() {
 
   // A dropped row is a truncated census, not a missing sample: any analysis
   // that reads these files has to see the count rather than infer completeness.
-  const bool published = WriteFile(prefix_ + "_meta.csv", [&](FILE* file) {
+  const bool published = WriteFile(prefix_ + "_meta.csv", [&](FILE *file) {
     if (std::fprintf(file,
                      "generation,groups,group_drops,closes,close_drops,commits,"
                      "commit_drops,unslotted_drops,slots_used,sample_every\n") <

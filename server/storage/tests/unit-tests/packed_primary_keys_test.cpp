@@ -13,24 +13,24 @@ namespace {
 using LineairDB::PackedPrimaryKeys;
 using LineairDB::PackedPrimaryKeysView;
 
-auto LowerBound(std::vector<std::string>& keys, std::string_view key) {
-  auto cmp = [](const std::string& a, std::string_view b) { return a < b; };
+auto LowerBound(std::vector<std::string> &keys, std::string_view key) {
+  auto cmp = [](const std::string &a, std::string_view b) { return a < b; };
   return std::lower_bound(keys.begin(), keys.end(), key, cmp);
 }
 
-auto LowerBound(const std::vector<std::string>& keys, std::string_view key) {
-  auto cmp = [](const std::string& a, std::string_view b) { return a < b; };
+auto LowerBound(const std::vector<std::string> &keys, std::string_view key) {
+  auto cmp = [](const std::string &a, std::string_view b) { return a < b; };
   return std::lower_bound(keys.begin(), keys.end(), key, cmp);
 }
 
-bool OracleInsert(std::vector<std::string>& keys, std::string_view key) {
+bool OracleInsert(std::vector<std::string> &keys, std::string_view key) {
   auto it = LowerBound(keys, key);
   if (it != keys.end() && std::string_view(*it) == key) return false;
   keys.emplace(it, key);
   return true;
 }
 
-bool OracleErase(std::vector<std::string>& keys, std::string_view key) {
+bool OracleErase(std::vector<std::string> &keys, std::string_view key) {
   auto it = LowerBound(keys, key);
   if (it == keys.end() || std::string_view(*it) != key) return false;
   keys.erase(it);
@@ -45,9 +45,9 @@ std::vector<std::string> ToVector(PackedPrimaryKeysView view) {
   return values;
 }
 
-void ExpectMatchesOracle(const PackedPrimaryKeys::Ptr& primary_keys,
-                         const std::vector<std::string>& oracle,
-                         const std::vector<std::string>& probes) {
+void ExpectMatchesOracle(const PackedPrimaryKeys::Ptr &primary_keys,
+                         const std::vector<std::string> &oracle,
+                         const std::vector<std::string> &probes) {
   const PackedPrimaryKeysView view(primary_keys);
   ASSERT_EQ(view.size(), oracle.size());
   ASSERT_EQ(view.empty(), oracle.empty());
@@ -60,7 +60,7 @@ void ExpectMatchesOracle(const PackedPrimaryKeys::Ptr& primary_keys,
   }
   EXPECT_EQ(index, oracle.size());
 
-  for (const auto& key : probes) {
+  for (const auto &key : probes) {
     const auto oracle_it = LowerBound(oracle, key);
     const bool oracle_contains =
         oracle_it != oracle.end() && std::string_view(*oracle_it) == key;
@@ -76,8 +76,8 @@ void ExpectMatchesOracle(const PackedPrimaryKeys::Ptr& primary_keys,
   }
 }
 
-std::vector<std::string> ProbeKeys(const std::vector<std::string>& oracle,
-                                   const std::vector<std::string>& universe) {
+std::vector<std::string> ProbeKeys(const std::vector<std::string> &oracle,
+                                   const std::vector<std::string> &universe) {
   std::vector<std::string> probes = {
       "",
       "a",
@@ -88,8 +88,8 @@ std::vector<std::string> ProbeKeys(const std::vector<std::string>& oracle,
       std::string(128, 'm'),
       std::string(255, 'z'),
   };
-  for (const auto& key : oracle) probes.push_back(key);
-  for (const auto& key : universe) probes.push_back(key);
+  for (const auto &key : oracle) probes.push_back(key);
+  for (const auto &key : universe) probes.push_back(key);
   return probes;
 }
 
@@ -134,31 +134,25 @@ TEST(PackedPrimaryKeysTest, DedupInsertAndEraseMissingReturnSameInstance) {
 
   const auto duplicate = PackedPrimaryKeys::Insert(primary_keys, "b");
   EXPECT_EQ(duplicate.get(), primary_keys.get());
-  EXPECT_TRUE(PackedPrimaryKeysView(duplicate)
-                  .equals(PackedPrimaryKeysView(primary_keys)));
+  EXPECT_TRUE(PackedPrimaryKeysView(duplicate).equals(
+      PackedPrimaryKeysView(primary_keys)));
 
   const auto missing = PackedPrimaryKeys::Erase(primary_keys, "missing");
   EXPECT_EQ(missing.get(), primary_keys.get());
-  EXPECT_TRUE(PackedPrimaryKeysView(missing)
-                  .equals(PackedPrimaryKeysView(primary_keys)));
+  EXPECT_TRUE(PackedPrimaryKeysView(missing).equals(
+      PackedPrimaryKeysView(primary_keys)));
 }
 
 TEST(PackedPrimaryKeysTest, SortedFactoryEqualsIncrementalInsertions) {
   std::vector<std::string> sorted = {
-      "",
-      "a",
-      "ab",
-      "b",
-      "zz",
-      std::string(128, 'x'),
-      std::string(300, 'y'),
+      "", "a", "ab", "b", "zz", std::string(128, 'x'), std::string(300, 'y'),
   };
   std::sort(sorted.begin(), sorted.end());
   sorted.erase(std::unique(sorted.begin(), sorted.end()), sorted.end());
 
   auto from_factory = PackedPrimaryKeys::FromSortedDeduped(sorted);
   auto incremental = PackedPrimaryKeys::FromSortedDeduped({});
-  for (const auto& key : sorted) {
+  for (const auto &key : sorted) {
     incremental = PackedPrimaryKeys::Insert(incremental, key);
   }
 
@@ -176,7 +170,7 @@ TEST(PackedPrimaryKeysTest, RandomizedOperationsLockstepWithVectorOracle) {
   std::bernoulli_distribution insert_dist(0.55);
 
   for (size_t step = 0; step != 5000; ++step) {
-    const std::string& key = universe[key_dist(rng)];
+    const std::string &key = universe[key_dist(rng)];
     if (insert_dist(rng)) {
       const bool changed = OracleInsert(oracle, key);
       const auto previous = primary_keys;

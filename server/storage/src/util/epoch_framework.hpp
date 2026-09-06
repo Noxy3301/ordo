@@ -57,7 +57,7 @@ class EpochFramework {
         global_epoch_(1),
         epoch_writer_([=]() { EpochWriterJob(epoch_duration_ms); }) {}
   EpochFramework(size_t epoch_duration_ms,
-                 std::function<void(EpochNumber)>&& pt)
+                 std::function<void(EpochNumber)> &&pt)
       : start_(false),
         stop_(false),
         global_epoch_(1),
@@ -76,7 +76,7 @@ class EpochFramework {
    * sequentially consistent order with #GetSmallestEpoch's scan.
    */
   EpochNumber GetMyThreadLocalEpoch() {
-    std::atomic<EpochNumber>* my_epoch =
+    std::atomic<EpochNumber> *my_epoch =
         tls_.Get<EpochNumber>([]() { return THREAD_OFFLINE; });
     return my_epoch->load(std::memory_order_seq_cst);
   }
@@ -88,7 +88,7 @@ class EpochFramework {
   void SetMyThreadLocalEpochForRecovery(const EpochNumber epoch) {
     assert(!start_.load(std::memory_order_seq_cst));
     assert(epoch != THREAD_OFFLINE);
-    std::atomic<EpochNumber>* my_epoch =
+    std::atomic<EpochNumber> *my_epoch =
         tls_.Get<EpochNumber>([]() { return THREAD_OFFLINE; });
     assert(my_epoch->load(std::memory_order_seq_cst) != THREAD_OFFLINE);
     my_epoch->store(epoch, std::memory_order_seq_cst);
@@ -108,7 +108,7 @@ class EpochFramework {
    * contract above exists.
    */
   EpochNumber MakeMeOnline() {
-    std::atomic<EpochNumber>* my_epoch =
+    std::atomic<EpochNumber> *my_epoch =
         tls_.Get<EpochNumber>([]() { return THREAD_OFFLINE; });
     assert(my_epoch->load(std::memory_order_seq_cst) == THREAD_OFFLINE);
 
@@ -127,7 +127,7 @@ class EpochFramework {
   }
 
   void MakeMeOffline() {
-    std::atomic<EpochNumber>* my_epoch =
+    std::atomic<EpochNumber> *my_epoch =
         tls_.Get<EpochNumber>([]() { return THREAD_OFFLINE; });
     assert(my_epoch->load(std::memory_order_seq_cst) != THREAD_OFFLINE);
     my_epoch->store(THREAD_OFFLINE, std::memory_order_seq_cst);
@@ -228,7 +228,7 @@ class EpochFramework {
  public:
   uint32_t GetSmallestEpoch() {
     uint32_t min_epoch = THREAD_OFFLINE;
-    tls_.ForEach([&](const std::atomic<EpochNumber>* local_epoch) {
+    tls_.ForEach([&](const std::atomic<EpochNumber> *local_epoch) {
       const EpochNumber e = local_epoch->load(std::memory_order_seq_cst);
       if (0 < e && e < min_epoch) {
         min_epoch = e;
@@ -256,9 +256,8 @@ class EpochFramework {
         // below still gates
         std::unique_lock<std::mutex> lk(epoch_mtx_);
         forced_wake = worker_cv_.wait_for(
-            lk, std::chrono::nanoseconds(epoch_duration), [&] {
-              return advance_requested_.load() || stop_.load();
-            });
+            lk, std::chrono::nanoseconds(epoch_duration),
+            [&] { return advance_requested_.load() || stop_.load(); });
         advance_requested_.store(false);
       }
       EpochNumber min_epoch = GetSmallestEpoch();

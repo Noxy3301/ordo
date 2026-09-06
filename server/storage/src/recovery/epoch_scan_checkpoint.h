@@ -74,12 +74,12 @@ class EpochScanCheckpoint {
     std::string detail;
   };
 
-  EpochScanCheckpoint(const Config& config, TableDictionary& tables,
-                      EpochFramework& epoch_framework, Logger& logger);
+  EpochScanCheckpoint(const Config &config, TableDictionary &tables,
+                      EpochFramework &epoch_framework, Logger &logger);
   ~EpochScanCheckpoint();
 
-  EpochScanCheckpoint(const EpochScanCheckpoint&) = delete;
-  EpochScanCheckpoint& operator=(const EpochScanCheckpoint&) = delete;
+  EpochScanCheckpoint(const EpochScanCheckpoint &) = delete;
+  EpochScanCheckpoint &operator=(const EpochScanCheckpoint &) = delete;
 
   /**
    * @brief Starts the thread that captures on the configured interval.
@@ -100,7 +100,7 @@ class EpochScanCheckpoint {
    * @param[out] out_stats What the capture did, when non-null.
    * @return Whether it published durably.
    */
-  bool RunOnce(Stats* out_stats = nullptr);
+  bool RunOnce(Stats *out_stats = nullptr);
 
   /**
    * @brief Reads the published image of `work_dir`, if there is a usable one.
@@ -108,12 +108,12 @@ class EpochScanCheckpoint {
    * @return The image with its status; Absent and Unusable are both answered
    * with a full replay of the log.
    */
-  static Image Load(const std::string& work_dir);
+  static Image Load(const std::string &work_dir);
 
   /** @brief Name of the published image inside the working directory. */
-  static const char* ImageFileName();
+  static const char *ImageFileName();
   /** @brief Name of the file a capture writes before it publishes. */
-  static const char* WorkingFileName();
+  static const char *WorkingFileName();
 
   static constexpr uint32_t kMagic = 0x504b434c;  // "LCKP"
   // v2 adds wal_frontier_at_publish; a v1 image lacks it and is refused
@@ -129,26 +129,23 @@ class EpochScanCheckpoint {
   /** @brief Whether this configuration can produce a usable image. */
   bool Supported() const;
 
-  static Capture CapturePrimaryRow(const std::string& table_name,
-                                   std::string_view key, const DataItem& item,
-                                   LogRecord::KeyValuePair* out,
-                                   uint64_t* retries);
-  static Capture CaptureSecondaryEntry(const std::string& table_name,
-                                       const std::string& index_name,
-                                       uint32_t index_type,
-                                       std::string_view key,
-                                       const DataItem& item,
-                                       LogRecord::KeyValuePair* out,
-                                       uint64_t* retries);
-  bool CaptureTable(Table& table, LogRecord* record, Stats* stats);
-  bool Publish(const LogRecords& records, Stats* stats);
+  static Capture CapturePrimaryRow(const std::string &table_name,
+                                   std::string_view key, const DataItem &item,
+                                   LogRecord::KeyValuePair *out,
+                                   uint64_t *retries);
+  static Capture CaptureSecondaryEntry(
+      const std::string &table_name, const std::string &index_name,
+      uint32_t index_type, std::string_view key, const DataItem &item,
+      LogRecord::KeyValuePair *out, uint64_t *retries);
+  bool CaptureTable(Table &table, LogRecord *record, Stats *stats);
+  bool Publish(const LogRecords &records, Stats *stats);
   void Loop();
   bool WaitFor(uint64_t milliseconds);
 
-  const Config& config_;
-  TableDictionary& tables_;
-  EpochFramework& epoch_framework_;
-  Logger& logger_;
+  const Config &config_;
+  TableDictionary &tables_;
+  EpochFramework &epoch_framework_;
+  Logger &logger_;
   const std::string image_path_;
   const std::string working_path_;
 

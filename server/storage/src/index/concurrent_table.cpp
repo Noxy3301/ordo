@@ -26,23 +26,23 @@
 namespace LineairDB {
 namespace Index {
 
-ConcurrentTable::ConcurrentTable(EpochFramework& epoch_framework, Config config,
+ConcurrentTable::ConcurrentTable(EpochFramework &epoch_framework, Config config,
                                  WriteSetType recovery_set)
     : index_(std::make_unique<MasstreeIndex>(config, epoch_framework)),
       epoch_manager_ref_(epoch_framework) {
   if (recovery_set.empty()) return;
-  for (auto& entry : recovery_set) {
+  for (auto &entry : recovery_set) {
     index_->Put(entry.key, DataItem(*entry.index_cache));
   }
 }
 
-DataItem* ConcurrentTable::Get(const std::string_view key) {
+DataItem *ConcurrentTable::Get(const std::string_view key) {
   return index_->Get(key);
 }
 
-DataItem* ConcurrentTable::GetOrInsert(const std::string_view key,
-                                        NodeVersionUpdate* out_update) {
-  auto* item = index_->Get(key);
+DataItem *ConcurrentTable::GetOrInsert(const std::string_view key,
+                                       NodeVersionUpdate *out_update) {
+  auto *item = index_->Get(key);
   if (item == nullptr) {
     index_->ForcePutBlankEntry(key, out_update);
     item = index_->Get(key);
@@ -52,51 +52,51 @@ DataItem* ConcurrentTable::GetOrInsert(const std::string_view key,
 }
 
 bool ConcurrentTable::Insert(const std::string_view key,
-                              NodeVersionUpdate* out_update) {
+                             NodeVersionUpdate *out_update) {
   return index_->Insert(key, out_update);
 }
 
 void ConcurrentTable::ForcePutBlankEntry(const std::string_view key,
-                                         NodeVersionUpdate* out_update) {
+                                         NodeVersionUpdate *out_update) {
   index_->ForcePutBlankEntry(key, out_update);
 }
 
 // return false if a corresponding entry already exists
-bool ConcurrentTable::Put(const std::string_view key, DataItem&& rhs,
-                          NodeVersionUpdate* out_update) {
+bool ConcurrentTable::Put(const std::string_view key, DataItem &&rhs,
+                          NodeVersionUpdate *out_update) {
   return index_->Put(key, std::forward<decltype(rhs)>(rhs), out_update);
 }
 
 void ConcurrentTable::ForEach(
-    std::function<bool(std::string_view, DataItem&)> f) {
+    std::function<bool(std::string_view, DataItem &)> f) {
   index_->ForEach(f);
 };
 
-size_t ConcurrentTable::Scan(
-    const std::string_view begin, const std::optional<std::string_view> end,
-    std::function<bool(std::string_view)> operation,
-    std::vector<NodeVersionEntry>* out_versions) {
+size_t ConcurrentTable::Scan(const std::string_view begin,
+                             const std::optional<std::string_view> end,
+                             std::function<bool(std::string_view)> operation,
+                             std::vector<NodeVersionEntry> *out_versions) {
   return index_->Scan(begin, end, operation, out_versions);
 };
 
 size_t ConcurrentTable::Scan(
     const std::string_view begin, const std::string_view end,
-    std::function<bool(std::string_view, DataItem&)> operation,
-    std::vector<NodeVersionEntry>* out_versions) {
+    std::function<bool(std::string_view, DataItem &)> operation,
+    std::vector<NodeVersionEntry> *out_versions) {
   return index_->Scan(begin, end, operation, out_versions);
 };
 
 size_t ConcurrentTable::ScanReverse(
     const std::string_view begin, const std::optional<std::string_view> end,
     std::function<bool(std::string_view)> operation,
-    std::vector<NodeVersionEntry>* out_versions) {
+    std::vector<NodeVersionEntry> *out_versions) {
   return index_->ScanReverse(begin, end, operation, out_versions);
 };
 
 size_t ConcurrentTable::ScanReverse(
     const std::string_view begin, const std::string_view end,
-    std::function<bool(std::string_view, DataItem&)> operation,
-    std::vector<NodeVersionEntry>* out_versions) {
+    std::function<bool(std::string_view, DataItem &)> operation,
+    std::vector<NodeVersionEntry> *out_versions) {
   return index_->ScanReverse(begin, end, operation, out_versions);
 };
 
@@ -109,7 +109,7 @@ void ConcurrentTable::WaitForIndexIsLinearizable() {
 }
 
 bool ConcurrentTable::ValidatePhantoms(
-    const std::vector<NodeVersionEntry>& entries) {
+    const std::vector<NodeVersionEntry> &entries) {
   return index_->ValidatePhantoms(entries);
 }
 }  // namespace Index

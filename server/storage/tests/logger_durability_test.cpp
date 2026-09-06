@@ -43,7 +43,6 @@ class LoggerDurabilityTest : public ::testing::Test {
     root_ = buffer.data();
     config_.work_dir = root_ + "/logs";
     config_.commit_durability = LineairDB::Config::CommitDurability::Async;
-    config_.enable_checkpointing = false;
     // Every fixture writes out its capacity before its first group; these
     // logs hold a handful of frames.
     config_.wal_initial_capacity_bytes = 1ull << 20;

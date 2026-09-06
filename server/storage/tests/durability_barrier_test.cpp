@@ -110,7 +110,6 @@ LineairDB::Config BarrierConfig() {
   config.index_structure = LineairDB::Config::IndexStructure::Masstree;
   config.commit_durability = LineairDB::Config::CommitDurability::Async;
   config.enable_recovery = false;
-  config.enable_checkpointing = false;
   return config;
 }
 

@@ -36,7 +36,6 @@ class DatabaseTest : public ::testing::Test {
   virtual void SetUp() {
     std::filesystem::remove_all(config_.work_dir);
     config_.max_thread = 4;
-    config_.checkpoint_period = 1;
     config_.epoch_duration_ms = 100;
     db_ = std::make_unique<LineairDB::Database>(config_);
   }
@@ -47,7 +46,6 @@ TEST_F(DatabaseTest, Instantiate) {}
 TEST_F(DatabaseTest, InstantiateWithConfig) {
   db_.reset(nullptr);
   LineairDB::Config conf;
-  conf.checkpoint_period = 1;
   ASSERT_NO_THROW(db_ = std::make_unique<LineairDB::Database>(conf));
 }
 TEST_F(DatabaseTest, ExecuteTransaction) {
@@ -82,9 +80,7 @@ TEST_F(DatabaseTest, ExecuteTransactionWithTemplates) {
 TEST_F(DatabaseTest, LargeSizeBuffer) {
   constexpr size_t Size = 2048;
   LineairDB::Config conf;
-  conf.checkpoint_period = 1;
   conf.max_thread = 1;
-  conf.enable_checkpointing = false;
 
   std::array<std::byte, Size> alice;
 
@@ -222,7 +218,6 @@ TEST_F(DatabaseTest, ThreadSafetyInsertions) {
 }
 
 TEST_F(DatabaseTest, NoConfigTransaction) {
-  // NOTE: this test will take default 5 seconds for checkpointing
   db_.reset(nullptr);
   db_ = std::make_unique<LineairDB::Database>();
   int value_of_alice = 1;

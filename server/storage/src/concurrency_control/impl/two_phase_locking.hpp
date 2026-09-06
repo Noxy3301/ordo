@@ -143,7 +143,7 @@ class TwoPhaseLockingImpl final : public ConcurrencyControlBase {
       PostProcessing(TxStatus::Aborted);
     }
   };
-  bool Precommit(bool need_to_checkpoint) final override {
+  bool Precommit() final override {
     // 2PL relies on per-key locks for conflict detection; it does not take
     // range locks, so Masstree-backed txs still need deferred phantom
     // validation to catch concurrent structural changes in scanned ranges.
@@ -154,12 +154,6 @@ class TwoPhaseLockingImpl final : public ConcurrencyControlBase {
     if (pre_commit_validator_ && !pre_commit_validator_()) {
       Undo();
       return false;
-    }
-
-    if (need_to_checkpoint) {
-      for (auto& snapshot : tx_ref_.write_set_ref_) {
-        snapshot.index_cache->CopyLiveVersionToStableVersion();
-      }
     }
 
     return true;

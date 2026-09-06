@@ -1,5 +1,7 @@
 #include "stateless/commit.h"
 
+#include <xmmintrin.h>
+
 #include <algorithm>
 #include <mutex>
 #include <string>

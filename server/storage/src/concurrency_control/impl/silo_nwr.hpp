@@ -198,7 +198,7 @@ class SiloNWRTyped final : public ConcurrencyControlBase {
   void Write(const std::string_view, const std::byte* const, const size_t,
              DataItem*) final override{};
   void Abort() final override{};
-  bool Precommit(bool need_to_checkpoint) final override {
+  bool Precommit() final override {
     /** Sorting write set to prevent deadlock **/
     std::sort(tx_ref_.write_set_ref_.begin(), tx_ref_.write_set_ref_.end(),
               Snapshot::Compare);
@@ -285,12 +285,6 @@ class SiloNWRTyped final : public ConcurrencyControlBase {
         }
       }
     }
-    if (need_to_checkpoint) {
-      for (auto& snapshot : tx_ref_.write_set_ref_) {
-        snapshot.index_cache->CopyLiveVersionToStableVersion();
-      }
-    }
-
     /** Update Metadata for NWR **/
     if constexpr (EnableNWR) {
       UpdatePivotObjects();

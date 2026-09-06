@@ -20,7 +20,6 @@ LineairDB::Config MakeConfig() {
   config.index_structure = LineairDB::Config::IndexStructure::Masstree;
   config.enable_recovery = false;
   config.commit_durability = LineairDB::Config::CommitDurability::Volatile;
-  config.enable_checkpointing = false;
   config.work_dir = "./lineairdb_stateless_range_validation_test_logs";
   std::filesystem::remove_all(config.work_dir);
   return config;

@@ -190,14 +190,6 @@ class Database {
 
   /**
    * @brief
-   * Checkpointing is not implemented for the epoch-frame write-ahead log:
-   * enabling it stops startup, so this method returns immediately and
-   * durability comes from the commit durability policy in force alone.
-   */
-  void WaitForCheckpoint() const noexcept;
-
-  /**
-   * @brief
    * Requests executions of callback functions of already completed (committed
    * or (aborted) transactions. Note that LineairDB's callback queues may be
    * overloading in some combination of configurations (e.g., too long epoch

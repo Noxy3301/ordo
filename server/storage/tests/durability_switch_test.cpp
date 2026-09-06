@@ -37,7 +37,6 @@ class DurabilitySwitchTest : public ::testing::Test {
     config_.index_structure = LineairDB::Config::IndexStructure::Masstree;
     config_.commit_durability = LineairDB::Config::CommitDurability::Async;
     config_.enable_recovery = true;
-    config_.enable_checkpointing = false;
   }
 
   void TearDown() override {

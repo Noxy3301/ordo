@@ -28,7 +28,6 @@
 #include <memory>
 #include <set>
 #include <string>
-#include <thread>
 #include <vector>
 
 #include "gtest/gtest.h"
@@ -99,20 +98,6 @@ SecondaryLogStats GetSecondaryIndexLogStatsForLatestEpoch(
   return stats;
 }
 
-bool WaitForCheckpointFile(const LineairDB::Config& conf,
-                           std::chrono::seconds timeout) {
-  namespace fs = std::filesystem;
-  const auto checkpoint_path = fs::path(conf.work_dir) / "checkpoint.log";
-  const auto deadline = std::chrono::steady_clock::now() + timeout;
-  while (std::chrono::steady_clock::now() < deadline) {
-    if (fs::exists(checkpoint_path) && fs::file_size(checkpoint_path) > 0) {
-      return true;
-    }
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
-  }
-  return false;
-}
-
 std::string MakeFixedPrimaryKey(size_t index) {
   char buffer[17];
   std::snprintf(buffer, sizeof(buffer), "pk%014zu", index);
@@ -141,9 +126,6 @@ class SecondaryIndexLoggingTest : public ::testing::Test {
     config_.max_thread = 4;
     config_.commit_durability = LineairDB::Config::CommitDurability::Async;
     config_.enable_recovery = true;
-    // The epoch-frame write-ahead log has no checkpoint path; the test that
-    // exercised checkpointing is disabled below.
-    config_.enable_checkpointing = false;
     db_ = std::make_unique<LineairDB::Database>(config_);
     db_->CreateTable("users");
     spdlog::set_level(spdlog::level::info);
@@ -153,7 +135,6 @@ class SecondaryIndexLoggingTest : public ::testing::Test {
 TEST_F(SecondaryIndexLoggingTest,
        SecondaryIndexDeltaLoggingAvoidsFullPrimaryKeyList) {
   LineairDB::Config config = db_->GetConfig();
-  config.enable_checkpointing = false;
   config.commit_durability = LineairDB::Config::CommitDurability::Async;
   config.enable_recovery = false;
 
@@ -231,7 +212,6 @@ TEST_F(SecondaryIndexLoggingTest,
 
 TEST_F(SecondaryIndexLoggingTest, RecoveryWithSecondaryIndexWithoutCheckpoint) {
   LineairDB::Config config = db_->GetConfig();
-  config.enable_checkpointing = false;
   config.commit_durability = LineairDB::Config::CommitDurability::Async;
   config.enable_recovery = true;
 
@@ -285,72 +265,9 @@ TEST_F(SecondaryIndexLoggingTest, RecoveryWithSecondaryIndexWithoutCheckpoint) {
       }});
 }
 
-// DISABLED: checkpointing is not implemented for the epoch-frame write-ahead
-// log, so this test's premise no longer holds.
-TEST_F(SecondaryIndexLoggingTest,
-       DISABLED_RecoveryWithSecondaryIndexWithCheckpointSameEpoch) {
-  LineairDB::Config config = db_->GetConfig();
-  config.enable_checkpointing = true;
-  config.checkpoint_period = 1;
-  config.commit_durability = LineairDB::Config::CommitDurability::Async;
-  config.enable_recovery = true;
-  config.max_thread = 4;
-
-  db_.reset(nullptr);
-  std::filesystem::remove_all(config.work_dir);
-  db_ = std::make_unique<LineairDB::Database>(config);
-
-  const std::string table_name = "users";
-  const std::string index_name = "age_index";
-  const std::string index_key = "age:30";
-  const size_t primary_key_count = 300;
-  const auto primary_keys_before = MakePrimaryKeys(primary_key_count);
-
-  db_->CreateTable(table_name);
-  ASSERT_TRUE(db_->CreateSecondaryIndex(table_name, index_name, 0));
-
-  {
-    auto& tx = db_->BeginTransaction();
-    ASSERT_TRUE(tx.SetTable(table_name));
-    for (const auto& primary_key : primary_keys_before) {
-      const std::string value = "value_" + primary_key;
-      tx.Write(primary_key, reinterpret_cast<const std::byte*>(value.data()),
-               value.size());
-      tx.WriteSecondaryIndex(
-          index_name, index_key,
-          reinterpret_cast<const std::byte*>(primary_key.data()),
-          primary_key.size());
-    }
-    const bool committed = db_->EndTransaction(tx, [](auto) {});
-    ASSERT_TRUE(committed);
-  }
-  db_->Fence();
-  ASSERT_TRUE(WaitForCheckpointFile(
-      config, std::chrono::seconds(config.checkpoint_period * 5)));
-
-  db_.reset(nullptr);
-  db_ = std::make_unique<LineairDB::Database>(config);
-
-  TestHelper::DoTransactions(
-      db_.get(), {[&](LineairDB::Transaction& tx) {
-        ASSERT_TRUE(tx.SetTable(table_name));
-        auto results = tx.ReadSecondaryIndex(index_name, index_key);
-        std::set<std::string> recovered;
-        for (const auto& entry : results) {
-          recovered.emplace(reinterpret_cast<const char*>(entry.first),
-                            entry.second);
-        }
-        ASSERT_EQ(recovered.size(), primary_keys_before.size());
-        for (const auto& expected : primary_keys_before) {
-          ASSERT_TRUE(recovered.count(expected));
-        }
-      }});
-}
-
 TEST_F(SecondaryIndexLoggingTest, SecondaryIndexAddTimingRecorded) {
   LineairDB::Config config = db_->GetConfig();
   config.commit_durability = LineairDB::Config::CommitDurability::Async;
-  config.enable_checkpointing = false;
   config.enable_recovery = false;
   config.max_thread = 1;
   // What this test reports per transaction is how many bytes of log one

@@ -24,7 +24,6 @@
 #include <cstddef>
 #include <cstdlib>
 #include <cstring>
-#include <xmmintrin.h>
 #include <memory>
 #include <msgpack.hpp>
 #include <string>
@@ -45,12 +44,6 @@ struct DataItem {
   DataBuffer buffer;
   std::shared_ptr<const PackedPrimaryKeys> primary_keys_;
 
-#ifdef LINEAIRDB_WITH_2PL_CHECKPOINT_METADATA
-  std::vector<std::string> checkpoint_primary_keys;
-  bool checkpoint_primary_keys_captured = false;
-  /* std::unique_ptr<std::vector<DataBuffer>> sec_idx_buffers; */
-  DataBuffer checkpoint_buffer;                     // a.k.a. stable version
-#endif
 #ifdef LINEAIRDB_WITH_NWR
   std::atomic<NWRPivotObject> pivot_object;         // for NWR
 #else
@@ -61,11 +54,8 @@ struct DataItem {
 #ifdef LINEAIRDB_WITH_2PL_CHECKPOINT_METADATA
   Lock::ReadersWritersLockBO readers_writers_lock;  // for 2PL
 #else
-  // Slim layout for plain Silo with checkpointing disabled.
-  // Startup rejects configs that would use these process-wide dummies.
-  static inline std::vector<std::string> checkpoint_primary_keys{};
-  static inline bool checkpoint_primary_keys_captured = false;
-  static inline DataBuffer checkpoint_buffer{};
+  // Slim layout for plain Silo.
+  // Startup rejects configs that would use this process-wide dummy.
   static inline Lock::ReadersWritersLockBO readers_writers_lock{};
 #endif
 
@@ -170,13 +160,7 @@ struct DataItem {
         ,
         pivot_object(rhs.pivot_object.load())
 #endif
-  {
-#ifdef LINEAIRDB_WITH_2PL_CHECKPOINT_METADATA
-    checkpoint_primary_keys = std::move(rhs.checkpoint_primary_keys);
-    checkpoint_primary_keys_captured = rhs.checkpoint_primary_keys_captured;
-    checkpoint_buffer = std::move(rhs.checkpoint_buffer);
-#endif
-  }
+  {}
 
   DataItem& operator=(DataItem&& rhs) noexcept {
     transaction_id.store(rhs.transaction_id.load());
@@ -184,11 +168,6 @@ struct DataItem {
     std::atomic_store(&primary_keys_, std::move(rhs.primary_keys_));
 #ifdef LINEAIRDB_WITH_NWR
     pivot_object.store(rhs.pivot_object.load());
-#endif
-#ifdef LINEAIRDB_WITH_2PL_CHECKPOINT_METADATA
-    checkpoint_primary_keys = std::move(rhs.checkpoint_primary_keys);
-    checkpoint_primary_keys_captured = rhs.checkpoint_primary_keys_captured;
-    checkpoint_buffer = std::move(rhs.checkpoint_buffer);
 #endif
     return *this;
   }
@@ -216,47 +195,6 @@ struct DataItem {
     }
   }
 
-  void CopyLiveVersionToStableVersion() {
-#ifndef LINEAIRDB_WITH_2PL_CHECKPOINT_METADATA
-    AbortFullDataItemLayoutRequired("Checkpoint stable version");
-#else
-    // There is an assumption that this thread can `exclusively` access this
-    // data item.
-    if (checkpoint_buffer.IsEmpty()) {
-      checkpoint_buffer.Reset(buffer);
-    }
-    if (!checkpoint_primary_keys_captured) {
-      checkpoint_primary_keys = primary_keys_vector();
-      checkpoint_primary_keys_captured = true;
-    }
-#endif
-  }
-
-  bool HasCheckpointPrimaryKeys() const {
-#ifndef LINEAIRDB_WITH_2PL_CHECKPOINT_METADATA
-    AbortFullDataItemLayoutRequired("Checkpoint primary-key metadata");
-#else
-    return checkpoint_primary_keys_captured;
-#endif
-  }
-
-  const std::vector<std::string>& GetCheckpointPrimaryKeys() const {
-#ifndef LINEAIRDB_WITH_2PL_CHECKPOINT_METADATA
-    AbortFullDataItemLayoutRequired("Checkpoint primary-key metadata");
-#else
-    return checkpoint_primary_keys;
-#endif
-  }
-
-  void ClearCheckpointPrimaryKeys() {
-#ifndef LINEAIRDB_WITH_2PL_CHECKPOINT_METADATA
-    AbortFullDataItemLayoutRequired("Checkpoint primary-key metadata");
-#else
-    checkpoint_primary_keys.clear();
-    checkpoint_primary_keys_captured = false;
-#endif
-  }
-
  private:
   static bool IsSortedDeduped(const std::vector<std::string>& keys) {
     return std::adjacent_find(keys.begin(), keys.end(),
@@ -267,46 +205,6 @@ struct DataItem {
   }
 
  public:
-
-  void ExclusiveLock() {
-#ifndef LINEAIRDB_WITH_2PL_CHECKPOINT_METADATA
-    AbortFullDataItemLayoutRequired("Checkpoint/2PL exclusive lock");
-#endif
-    // Acquire exclusive locking for all protocols:
-
-    {
-      // for Silo, Silo+NWR. they uses transaction_id as the lock
-      for (;;) {
-        auto tid = transaction_id.load();
-        if (tid.tid & 1llu) {
-          _mm_pause();
-          continue;
-        }
-        auto new_tid = tid;
-        new_tid.tid += 1llu;
-        if (transaction_id.compare_exchange_weak(tid, new_tid)) break;
-      }
-    }
-
-    // for TwoPhaseLocking. it uses rw_lock.
-    { GetRWLockRef().Lock(); }
-  }
-
-  void ExclusiveUnlock() {
-#ifndef LINEAIRDB_WITH_2PL_CHECKPOINT_METADATA
-    AbortFullDataItemLayoutRequired("Checkpoint/2PL exclusive lock");
-#endif
-    // Release exclusive locking for all protocols:
-
-    // for Silo, Silo+NWR. they uses transaction_id as the lock
-    {
-      auto tid = transaction_id.load();
-      tid.tid -= 1llu;
-      transaction_id.store(tid);
-    }
-    // for TwoPhaseLocking. it uses rw_lock.
-    { GetRWLockRef().UnLock(); }
-  }
 
   decltype(readers_writers_lock)& GetRWLockRef() {
 #ifndef LINEAIRDB_WITH_2PL_CHECKPOINT_METADATA

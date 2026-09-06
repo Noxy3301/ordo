@@ -42,7 +42,6 @@
 
 #include "callback/callback_manager.h"
 #include "pax/version_store.hpp"
-#include "recovery/checkpoint_manager.hpp"
 #include "recovery/epoch_scan_checkpoint.h"
 #include "recovery/flush_trace.h"
 #include "concurrency_control/stable_read.hpp"
@@ -57,7 +56,6 @@
 #include "transaction_impl.h"
 #include "types/snapshot.hpp"
 #include "types/transaction_id.hpp"
-#include "util/backoff.hpp"
 #include "util/debug_sync.hpp"
 #include "util/epoch_framework.hpp"
 #include "util/logger.hpp"
@@ -105,23 +103,8 @@ class Database::Impl {
     config.enable_logging =
         config.commit_durability != Config::CommitDurability::Volatile;
 
-    // The epoch-frame write-ahead log has no truncation path, so a checkpoint
-    // would grow the log instead of bounding it. Refuse the combination rather
-    // than accept it and silently do nothing.
-    if (config.enable_checkpointing) {
-      SPDLOG_ERROR(
-          "Unsupported configuration: checkpointing is not implemented for the "
-          "epoch-frame write-ahead log.");
-      exit(EXIT_FAILURE);
-    }
 #ifndef LINEAIRDB_WITH_2PL_CHECKPOINT_METADATA
-    // The slim DataItem layout keeps only shared dummy storage for these paths.
-    if (config.enable_checkpointing) {
-      SPDLOG_ERROR(
-          "Unsupported configuration: checkpointing requires the full DataItem "
-          "layout. Rebuild with -DLINEAIRDB_WITH_2PL_CHECKPOINT_METADATA.");
-      exit(EXIT_FAILURE);
-    }
+    // The slim DataItem layout keeps only shared dummy storage for this path.
     if (config.concurrency_control_protocol ==
         Config::ConcurrencyControl::TwoPhaseLocking) {
       SPDLOG_ERROR(
@@ -150,7 +133,6 @@ class Database::Impl {
         logger_(config_),
         callback_manager_(config_),
         epoch_framework_(config_.epoch_duration_ms, EventsOnEpochIsUpdated()),
-        checkpoint_manager_(config_, table_dictionary_, epoch_framework_),
         scan_checkpoint_(config_, table_dictionary_, epoch_framework_,
                          logger_) {
     // 2PL x Masstree unsupported (see 2PL ReadDirect FIXME).
@@ -216,7 +198,6 @@ class Database::Impl {
     // Before the epoch writer stops, since a capture in progress waits for the
     // epoch to advance.
     scan_checkpoint_.Stop();
-    checkpoint_manager_.Stop();
     epoch_framework_.Stop();
     // After the epoch writer has joined no further closed epoch arrives, so the
     // flusher can drain what it already owns and be joined before the log is
@@ -483,26 +464,6 @@ class Database::Impl {
       reaper_.Reap(updated_epoch);
       Index::MasstreeAdvanceEpoch();
     };
-  }
-
-  void WaitForCheckpoint() {
-    // Nothing will ever complete a checkpoint under the epoch-frame log, and the
-    // retry helper below never gives up, so waiting would hang rather than fail.
-    if (!config_.enable_checkpointing) {
-      SPDLOG_WARN(
-          "WaitForCheckpoint returns immediately: checkpointing is not "
-          "implemented for the epoch-frame write-ahead log");
-      return;
-    }
-    const auto start = checkpoint_manager_.GetCheckpointCompletedEpoch();
-    Util::RetryWithExponentialBackoff([&]() {
-      const auto current = checkpoint_manager_.GetCheckpointCompletedEpoch();
-      return start != current;
-    });
-  }
-
-  bool IsNeedToCheckpointing(const EpochNumber epoch) {
-    return checkpoint_manager_.IsNeedToCheckpointing(epoch);
   }
 
   bool CreateTable(const std::string_view table_name) {
@@ -1074,7 +1035,6 @@ class Database::Impl {
   std::mutex fence_mtx_;
   std::condition_variable fence_cv_;
   std::timed_mutex durability_switch_mtx_;
-  Recovery::CPRManager checkpoint_manager_;
   Recovery::EpochScanCheckpoint scan_checkpoint_;
   mutable std::shared_mutex schema_mutex_;
   Index::Reaper reaper_;

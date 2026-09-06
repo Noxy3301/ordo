@@ -191,28 +191,6 @@ struct Config {
 
   /**
    * @brief
-   * Checkpointing (CPR-consistency [1]) is not implemented for the
-   * epoch-frame write-ahead log: setting this to true is a startup error
-   * rather than a silent no-op, and the log grows without truncation.
-   *
-   * Default: false
-   * @ref [1]:
-   * https://www.microsoft.com/en-us/research/uploads/prod/2019/01/cpr-sigmod19.pdf
-   */
-  bool enable_checkpointing = false;
-
-  /**
-   * @brief
-   * It uses as the interval time (seconds) for checkpointing.
-   * The longer is the better for the performance but the larger interval time
-   * causes the increasing of log file size.
-   *
-   * Default: 30
-   */
-  size_t checkpoint_period = 30;
-
-  /**
-   * @brief
    * How often (milliseconds) an image of the live rows is written, or zero to
    * write none.
    *

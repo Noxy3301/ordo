@@ -47,7 +47,6 @@ class StatelessRecoveryTest : public ::testing::Test {
         LineairDB::Config::ConcurrencyControl::Silo;
     config.index_structure = LineairDB::Config::IndexStructure::Masstree;
     config.commit_durability = LineairDB::Config::CommitDurability::Sync;
-    config.enable_checkpointing = false;
     config.enable_recovery = enable_recovery;
     config.work_dir = work_dir_;
     config.wal_initial_capacity_bytes = 1ull << 20;

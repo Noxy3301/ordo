@@ -31,7 +31,6 @@ class IndexTest : public ::testing::Test {
   virtual void SetUp() {
     config_.enable_recovery = false;
     config_.commit_durability = LineairDB::Config::CommitDurability::Volatile;
-    config_.enable_checkpointing = false;
     db_.reset(nullptr);
     db_ = std::make_unique<LineairDB::Database>(config_);
     db_->CreateTable("users");

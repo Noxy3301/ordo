@@ -1476,11 +1476,7 @@ bool Transaction::Impl::Precommit() {
   concurrency_control_->SetPreCommitValidator(
       [this]() { return PhantomsStillValid(); });
 
-  const bool need_to_checkpoint =
-      (db_pimpl_->GetConfig().enable_checkpointing &&
-       db_pimpl_->IsNeedToCheckpointing(
-           db_pimpl_->epoch_framework_.GetMyThreadLocalEpoch()));
-  bool committed = concurrency_control_->Precommit(need_to_checkpoint);
+  bool committed = concurrency_control_->Precommit();
   if (!committed && concurrency_control_->AbortedByDuplicateKey()) {
     aborted_by_duplicate_key_ = true;
   }

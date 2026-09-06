@@ -44,7 +44,6 @@ class UniqueSecondaryIndexTest : public ::testing::Test {
     std::filesystem::remove_all("lineairdb_logs");
     config_.max_thread = 4;
     config_.epoch_duration_ms = 100;
-    config_.checkpoint_period = 1;
   }
 
   void TearDown() override { std::filesystem::remove_all("lineairdb_logs"); }
@@ -53,7 +52,6 @@ class UniqueSecondaryIndexTest : public ::testing::Test {
 TEST_F(UniqueSecondaryIndexTest, DictUniqueFlagRejectsDuplicateSecondaryKey) {
   config_.commit_durability = LineairDB::Config::CommitDurability::Volatile;
   config_.enable_recovery = false;
-  config_.enable_checkpointing = false;
 
   LineairDB::Database db(config_);
   ASSERT_TRUE(db.CreateTable("users"));
@@ -72,7 +70,6 @@ TEST_F(UniqueSecondaryIndexTest,
        RecoveryRestoresUniqueSecondaryIndexTypeFromLogs) {
   config_.commit_durability = LineairDB::Config::CommitDurability::Async;
   config_.enable_recovery = true;
-  config_.enable_checkpointing = false;
 
   {
     LineairDB::Database db(config_);

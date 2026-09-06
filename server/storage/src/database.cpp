@@ -64,9 +64,6 @@ bool Database::SetCommitDurability(
 Config::CommitDurability Database::GetCommitDurability() const {
   return db_pimpl_->GetCommitDurability();
 }
-void Database::WaitForCheckpoint() const noexcept {
-  db_pimpl_->WaitForCheckpoint();
-}
 void Database::RequestCallbacks() { db_pimpl_->RequestCallbacks(); }
 void Database::ReleaseMasstreeThreadEpoch() {
   Index::MasstreeReleaseThreadEpoch();

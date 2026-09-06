@@ -1,0 +1,97 @@
+/*
+ *   Copyright (C) 2020 Nippon Telegraph and Telephone Corporation.
+
+ *   Licensed under the Apache License, Version 2.0 (the "License");
+ *   you may not use this file except in compliance with the License.
+ *   You may obtain a copy of the License at
+
+ *   http://www.apache.org/licenses/LICENSE-2.0
+
+ *   Unless required by applicable law or agreed to in writing, software
+ *   distributed under the License is distributed on an "AS IS" BASIS,
+ *   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *   See the License for the specific language governing permissions and
+ *   limitations under the License.
+ */
+
+#ifndef LINEAIRDB_CONCURRENT_TABLE_H
+#define LINEAIRDB_CONCURRENT_TABLE_H
+
+#include <lineairdb/config.h>
+
+#include <functional>
+#include <memory>
+#include <string>
+#include <string_view>
+
+#include "index/index_base.h"
+#include "types/data_item.hpp"
+#include "types/definitions.h"
+#include "types/snapshot.hpp"
+#include "util/epoch_framework.hpp"
+
+namespace LineairDB {
+namespace Index {
+
+class ConcurrentTable {
+ public:
+  ConcurrentTable(EpochFramework& epoch_framework, Config config = Config(),
+                  WriteSetType recovery_set = WriteSetType());
+
+  /**
+   * @brief Routes future primary-row placeholders through `store`.
+   */
+  void SetPaxStore(Pax::PaxStore* store) { index_->SetPaxStore(store); }
+
+  DataItem* Get(const std::string_view key);
+  // GetOrInsert reports a non-null `out_update->valid=true` only when the
+  // missing-key path actually structurally inserted a placeholder leaf.
+  DataItem* GetOrInsert(const std::string_view key,
+                         NodeVersionUpdate* out_update = nullptr);
+  bool Put(const std::string_view key, DataItem&& value,
+           NodeVersionUpdate* out_update = nullptr);
+  void ForEach(std::function<bool(std::string_view, DataItem&)>);
+  std::optional<size_t> Scan(
+      const std::string_view begin, const std::optional<std::string_view> end,
+      std::function<bool(std::string_view)> operation,
+      std::vector<NodeVersionEntry>* out_versions = nullptr);
+  std::optional<size_t> Scan(
+      const std::string_view begin, const std::string_view end,
+      std::function<bool(std::string_view, DataItem&)> operation,
+      std::vector<NodeVersionEntry>* out_versions = nullptr);
+  std::optional<size_t> ScanReverse(
+      const std::string_view begin, const std::optional<std::string_view> end,
+      std::function<bool(std::string_view)> operation,
+      std::vector<NodeVersionEntry>* out_versions = nullptr);
+  std::optional<size_t> ScanReverse(
+      const std::string_view begin, const std::string_view end,
+      std::function<bool(std::string_view, DataItem&)> operation,
+      std::vector<NodeVersionEntry>* out_versions = nullptr);
+  bool Insert(const std::string_view key,
+              NodeVersionUpdate* out_update = nullptr);
+
+  // Make an existing key observable through the range index again, for a
+  // backend that removes it on Delete. No-op on a single-tree index.
+  bool EnsureVisibleForSecondaryWrite(const std::string_view key,
+                                      NodeVersionUpdate* out_update = nullptr);
+
+  bool Delete(const std::string_view key);
+
+  bool Purge(std::string_view key, DataItem* expected,
+             TransactionId retired_tid = {}) {
+    return index_->Purge(key, expected, retired_tid);
+  }
+
+  void WaitForIndexIsLinearizable();
+
+  // Re-check deferred phantom snapshots (Masstree backend) for this index.
+  bool ValidatePhantoms(const std::vector<NodeVersionEntry>& entries);
+
+ private:
+  std::unique_ptr<IndexBase> index_;
+  LineairDB::EpochFramework& epoch_manager_ref_;
+};
+}  // namespace Index
+}  // namespace LineairDB
+
+#endif /* LINEAIRDB_CONCURRENT_TABLE_H */

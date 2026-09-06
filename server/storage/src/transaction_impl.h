@@ -1,0 +1,208 @@
+/*
+ *   Copyright (C) 2020 Nippon Telegraph and Telephone Corporation.
+
+ *   Licensed under the Apache License, Version 2.0 (the "License");
+ *   you may not use this file except in compliance with the License.
+ *   You may obtain a copy of the License at
+
+ *   http://www.apache.org/licenses/LICENSE-2.0
+
+ *   Unless required by applicable law or agreed to in writing, software
+ *   distributed under the License is distributed on an "AS IS" BASIS,
+ *   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *   See the License for the specific language governing permissions and
+ *   limitations under the License.
+ */
+
+#ifndef LINEAIRDB_TRANSACTION_IMPL_H
+#define LINEAIRDB_TRANSACTION_IMPL_H
+
+#include <lineairdb/config.h>
+#include <lineairdb/database.h>
+#include <lineairdb/transaction.h>
+#include <lineairdb/tx_status.h>
+
+#include <memory>
+#include <optional>
+#include <string_view>
+#include <unordered_map>
+#include <unordered_set>
+#include <vector>
+
+#include "concurrency_control/concurrency_control_base.h"
+#include "table/table.h"
+#include "types/definitions.h"
+
+namespace LineairDB {
+
+/**
+ * @brief
+ * Transaction::Impl controls users' requests of the four operation of the page
+ * model, and delegate these requests to concurrency control protocols.
+ * Note that all concurrency control protocols assumes the followings:
+ *   - A transaction cannot issue the same type of operation (read or write) to
+ *     the same data item.
+ *   - write-after-read into the same data item is valid.
+ *     but read-after-write is invalid.
+ * It is the important parts of the definition of "schedule" in the theory of
+ * transaction proocessing. This class do not handle any correctness such as
+ * serializability, but handle the operations to satisfy these two assumptions.
+ * To do this end, we implement the followings:
+ *   - "read-your-own-writes" (read the version written by the callee
+ *      transaction itself)
+ *   - "repeatable read" (read the version which has been already read by the
+ *      callee transaction itself)
+ */
+class Transaction::Impl {
+  friend class Database::Impl;
+
+ public:
+  Impl(Database::Impl*) noexcept;
+  ~Impl() noexcept;
+
+  TxStatus GetCurrentStatus();
+  /*     const std::pair<const std::byte* const, const size_t> Read(
+          const std::string_view key);  */
+  const std::pair<const std::byte* const, const size_t> Read(
+      const std::string_view key);
+
+  std::vector<std::pair<const std::byte* const, const size_t>>
+  ReadSecondaryIndex(const std::string_view index_name,
+                     const std::string_view key);
+
+  /*   void Write(const std::string_view key, const std::byte value[],
+               const size_t size); */
+  // `is_insert` marks a write that claimed a key holding no row; commit
+  // refuses it if the claimed entry holds one by then.
+  void Write(const std::string_view key, const std::byte value[],
+             const size_t size, bool is_insert = false);
+  void WriteSecondaryIndex(const std::string_view index_name,
+                           const std::string_view key,
+                           const std::byte primary_key_buffer[],
+                           const size_t primary_key_size);
+  void Insert(const std::string_view key, const std::byte value[],
+              const size_t size);
+  void Update(const std::string_view key, const std::byte value[],
+              const size_t size);
+  void Delete(const std::string_view key);
+  const std::optional<size_t> Scan(
+      const std::string_view begin, const std::optional<std::string_view> end,
+      std::function<bool(std::string_view,
+                         const std::pair<const void*, const size_t>)>
+          operation);
+  const std::optional<size_t> ScanReverse(
+      const std::string_view begin, const std::optional<std::string_view> end,
+      std::function<bool(std::string_view,
+                         const std::pair<const void*, const size_t>)>
+          operation);
+
+  const std::optional<size_t> ScanSecondaryIndex(
+      const std::string_view index_name, const std::string_view begin,
+      const std::optional<std::string_view> end,
+      std::function<bool(std::string_view, const std::vector<std::string>&)>
+          operation);
+  const std::optional<size_t> ScanSecondaryIndexReverse(
+      const std::string_view index_name, const std::string_view begin,
+      const std::optional<std::string_view> end,
+      std::function<bool(std::string_view, const std::vector<std::string>&)>
+          operation);
+
+  void DeleteSecondaryIndex(const std::string_view index_name,
+                            const std::string_view secondary_key,
+                            const std::byte primary_key_buffer[],
+                            const size_t primary_key_size);
+
+  void UpdateSecondaryIndex(const std::string_view index_name,
+                            const std::string_view old_secondary_key,
+                            const std::string_view new_secondary_key,
+                            const std::byte primary_key_buffer[],
+                            const size_t primary_key_size);
+
+  bool ValidateSKNotNull();
+
+  void Abort();
+  bool Precommit();
+
+  /**
+   * We assume that #PostProcessing will be invoked after #Precommit().
+   */
+  void PostProcessing(TxStatus);
+  void Reset(Database::Impl* db_pimpl);
+
+  bool SetTable(const std::string_view table_name);
+
+  bool AbortedByDuplicateKey() const { return aborted_by_duplicate_key_; }
+
+  // True while every row and range this transaction observed, through reads
+  // and scans, still carries the version it observed.
+  bool ReadSetIsStillValid();
+
+ private:
+  void EnsureCurrentTable();
+  // True while every recorded range's node versions are unchanged.
+  bool PhantomsStillValid();
+  bool IsAborted() { return current_status_ == TxStatus::Aborted; };
+
+  // Apply the Silo §4.6 own-write rule to node_version_set_: when this tx
+  // structurally bumped a leaf via Insert/Put/ForcePutBlankEntry, look up any
+  // matching node-set entry. If found with the leaf's pre-insert version,
+  // advance it to the post-insert version (so commit-time ValidatePhantoms
+  // does not abort us on our own bump). If found with a different version,
+  // a concurrent writer raced between our scan and our insert -> Abort().
+  // No-op when `update.valid` is false or the leaf is not in node_version_set_.
+  void ReconcileOwnInsertWithNodeVersionSet(
+      const Index::NodeVersionUpdate& update);
+  // Position index over read_set_ / write_set_, keyed by a hash of
+  // (table_name, index_name, key). Both sets are append-only until Precommit,
+  // so cached positions stay valid and refreshing means indexing the tail.
+  struct SetIndex {
+    using PositionMap = std::unordered_multimap<uint64_t, size_t>;
+    std::unique_ptr<PositionMap> positions;
+    size_t indexed = 0;
+  };
+  // First entry of `set` matching (table_name, index_name, key), or nullptr.
+  // The result is invalidated by any later append to `set`.
+  Snapshot* FindInSet(std::vector<Snapshot>& set, SetIndex& index,
+                      std::string_view table_name, std::string_view index_name,
+                      std::string_view key);
+  // Scan the primary index so the callback can stop the tree walk early.
+  const std::optional<size_t> ScanPrimaryIndexWithEarlyStop(
+      const std::string_view begin, const std::string_view end,
+      std::function<bool(std::string_view,const std::pair<const void*, const size_t>)> operation,
+      bool reverse);
+
+ private:
+  TxStatus current_status_;
+  // Set when Insert refused a key that already holds a live row, so the
+  // caller can tell a duplicate from a contention abort.
+  bool aborted_by_duplicate_key_ = false;
+  Database::Impl* db_pimpl_;
+  const Config* config_ptr_;
+  std::unique_ptr<ConcurrencyControlBase> concurrency_control_;
+
+  ReadSetType read_set_;
+  WriteSetType write_set_;
+  // Materialized only once the corresponding set outgrows the linear-scan
+  // threshold, so a small transaction allocates nothing here.
+  SetIndex read_index_;
+  SetIndex write_index_;
+  // Deferred phantom-detection snapshots collected from Masstree-backed
+  // scans during this transaction. Re-checked at Precommit; empty for PL.
+  std::vector<Index::NodeVersionEntry> node_version_set_;
+  struct NotNullProgress {
+    size_t remainingWrites;
+    std::unordered_set<std::string> satisfiedIndexNames;
+  };
+  // Tracks, per table and per primary key, how many NOT NULL secondary-key
+  // writes are still required before commit can succeed.
+  std::unordered_map<std::string,
+                     std::unordered_map<std::string, NotNullProgress>>
+      remainingNotNullSkWrites_;
+
+  Table* current_table_;
+};
+
+void* GetCurrentTransactionContext();
+
+}  // namespace LineairDB
+#endif /* LINEAIRDB_TRANSACTION_IMPL_H */

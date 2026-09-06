@@ -1,0 +1,70 @@
+name: C/C++ CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    strategy:
+      fail-fast: true
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        compiler: [g++, clang++]
+        build: [Debug, Release]
+
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+
+    steps:
+      - uses: actions/checkout@v4
+      # install dependencies
+      - name: install dependencies (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        run: sudo apt update && sudo apt install -yq libnuma-dev
+      - name: checkout submodules
+        shell: bash
+        run: |
+          auth_header="$(git config --local --get http.https://github.com/.extraheader)"
+          git submodule sync --recursive
+          git -c "http.extraheader=$auth_header" -c protocol.version=2 submodule update --init --force --recursive --depth=1
+
+      - name: ${{ matrix.build }} build
+        env:
+          CXX: ${{ matrix.compiler }}
+          BUILDTYPE: ${{ matrix.build }}
+        run: |
+          mkdir -p build; cd $_
+          cmake .. -DCMAKE_BUILD_TYPE=$(echo $BUILDTYPE)
+          make
+          sudo make install
+
+      - name: Set core dump
+        if: matrix.os != 'macos-latest'
+        run: |
+          sudo mkdir -p /cores
+          ulimit -c unlimited
+          echo '/cores/core.%h.%e.%t' | sudo tee -a /proc/sys/kernel/core_pattern
+
+      - name: ${{ matrix.build }} test
+        run: |
+          cd build
+          ctest -V
+
+      - name: ${{ matrix.build }} build example/example.cpp
+        env:
+          CXX: ${{ matrix.compiler }}
+          BUILDTYPE: ${{ matrix.build }}
+        run: |
+          mkdir -p example/build; cd $_
+          cmake .. -DCMAKE_BUILD_TYPE=$(echo $BUILDTYPE)
+          make
+          ./lineairdb-example
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: core
+          path: /cores

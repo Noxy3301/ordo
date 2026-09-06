@@ -1,0 +1,519 @@
+/*
+ *   Copyright (C) 2020 Nippon Telegraph and Telephone Corporation.
+
+ *   Licensed under the Apache License, Version 2.0 (the "License");
+ *   you may not use this file except in compliance with the License.
+ *   You may obtain a copy of the License at
+
+ *   http://www.apache.org/licenses/LICENSE-2.0
+
+ *   Unless required by applicable law or agreed to in writing, software
+ *   distributed under the License is distributed on an "AS IS" BASIS,
+ *   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *   See the License for the specific language governing permissions and
+ *   limitations under the License.
+ */
+
+#ifndef LINEAIRDB_DATABASE_H
+#define LINEAIRDB_DATABASE_H
+
+#include <lineairdb/config.h>
+#include <lineairdb/stateless.h>
+#include <lineairdb/transaction.h>
+
+#include <chrono>
+#include <functional>
+#include <memory>
+#include <optional>
+#include <string>
+#include <utility>
+#include <vector>
+
+#include "config.h"
+#include "tx_status.h"
+
+namespace LineairDB {
+
+namespace Pax {
+class PaxStore;
+}
+
+class Database {
+ public:
+  /**
+   * @brief Construct a new Database object. Thread-safe.
+   * Note that a default-constructed Config object will be passed.
+   */
+  Database() noexcept;
+
+  /**
+   * @brief Construct a new Database object. Thread-safe.
+   * @param config See Config for more details of configuration.
+   */
+  Database(const Config& config) noexcept;
+
+  ~Database() noexcept;
+  Database(const Database&) = delete;
+  Database& operator=(const Database&) = delete;
+  Database(Database&&) = delete;
+  Database& operator=(Database&&) = delete;
+
+  /**
+   * @brief Return the Config object set by constructor.
+   * @return Config object. Note that it is not an lvalue reference
+   * and you cannot change the configuration with it.
+   * Thread-safe.
+   */
+  const Config GetConfig() const noexcept;
+
+  using ProcedureType = std::function<void(Transaction&)>;
+  using CallbackType = std::function<void(const TxStatus)>;
+  /**
+   * @brief
+   * Processes a transaction given by a transaction procedure proc,
+   * and afterwards process callback function with the resulting TxStatus.
+   * It enqueues these two functions into LineairDB's thread pool.
+   * Thread-safe.
+   * @param[in] proc A transaction procedure processed by LineairDB.
+   * @param[out] commit_clbk A callback function accepts a result (Committed or
+   * Aborted) of this transaction.
+   * @param[out] precommit_clbk A callback function accepts a result
+   * (Precommitted or Aborted) of this transaction.
+   * Note that pre-committed transactions have not been committed. Since the
+   * recovery log has not been persisted, this transaction may be aborted. The
+   * callback is good for describing  transaction dependencies. If a transaction
+   * is aborted, it is guaranteed that the other  transactions, that are
+   executed
+   * after checking the pre-commit of the transaction, will abort.
+   * @note CommitDurability::Sync's durable-acknowledgement contract covers
+   * EndTransaction() and ValidateAndCommit() only. This interface does not wait
+   * for the log to become durable, and neither of its callbacks is a Sync
+   * acknowledgement.
+   */
+  void ExecuteTransaction(
+      ProcedureType proc, CallbackType commit_clbk,
+      std::optional<CallbackType> precommit_clbk = std::nullopt);
+
+  /**
+   * @brief
+   * Creates a new transaction.
+   * Via this interface, the callee thread of this method can manipulate
+   * LineairDB's key-value storage directly. Note that the behavior and
+   * performance characteristics will affect from the selected callback manager
+   * and log manager; For example, if you have set Config::CallbackManager to
+   * ThreadLocal, the callee thread of this method may have to call
+   * Database::RequestCommit more frequently, in order to resolve the congestion
+   * of the thread-local commit callback queue.
+   *
+   * @return Transaction
+   */
+  Transaction& BeginTransaction();
+
+  /**
+   * @brief
+   * Terminates the transaction.
+   * If Transaction::Abort has not been called, LineairDB tries to commit `tx`.
+   * @pre To achieve user abort, Transaction::Abort must be called before this
+   * method.
+   * @post The first argument `tx` might have been deleted.
+   * @param[in] tx A transaction wants to terminate.
+   * @param[out] clbk A callback function accepts a result (Committed or
+   * Aborted).
+   * @return true if the LineairDB's concurrency control protocol **decides** to
+   * commit the given `tx`. What that decision is worth depends on the policy
+   * this commit captured, which is GetCommitDurability() and not
+   * GetConfig().commit_durability: the latter keeps the construction value
+   * even after SetCommitDurability has changed the policy in force.
+   * - Sync
+   *   - This method returns, and clbk is released, only after the
+   *     transaction's log is on the device, so a true return is an
+   *     acknowledgement that survives a crash.
+   * - Async
+   *   - The decision is final for concurrency control, but the log is
+   *     written behind the caller, so a crash can lose a transaction that
+   *     returned true, and clbk says nothing about durability either.
+   * - Volatile
+   *   - Nothing is written and nothing survives a restart.
+   * @return false if the LineairDB's concurrency control protocol decides to
+   * abort the given `tx`. In contrast with the true case, this result will not
+   * be overturned.
+   */
+  bool EndTransaction(Transaction& tx, CallbackType clbk);
+
+  /**
+   * @brief
+   * Fence() waits termination of transactions which is currently in progress.
+   * You can execute transactions in the order you want by interleaving Fence()
+   * between ExecuteTransaction functions. Note that no Fence() call may result
+   * in a execution sequence which is not same as the program (invoking) order
+   * of the ExecuteTransaction functions. If you know some dependency of
+   * transactions (e.g., database population), use this method to order
+   * them. Thread-safe.
+   */
+  void Fence() const noexcept;
+
+  /**
+   * @brief Switches the commit acknowledgement policy of a running database
+   * between CommitDurability::Async and CommitDurability::Sync. Thread-safe.
+   *
+   * A switch to Sync returns only once every transaction that was already
+   * acknowledged under Async is on the device, so from this call's return the
+   * database is indistinguishable from one that ran Sync from the start, and
+   * no earlier acknowledgement can be lost by a later crash. A switch to
+   * Async publishes the new policy and returns; commits that capture it
+   * afterwards stop waiting.
+   *
+   * @param mode CommitDurability::Async or CommitDurability::Sync.
+   * CommitDurability::Volatile is structural, decided at construction, and is
+   * rejected here in both directions.
+   * @param barrier_timeout Bound on the whole call: waiting out a concurrent
+   * switch, the durable barrier itself, and the store come out of it together.
+   * It is checked last immediately before the store, so only a preemption
+   * between that check and the store itself falls outside it.
+   * @return false with nothing changed for a database constructed Volatile,
+   * for a Volatile `mode`, for a calling thread that still has a transaction
+   * in progress, and when the timeout expires while another switch is running.
+   * @return false from a switch to Sync that did publish the policy means the
+   * barrier was not confirmed inside `barrier_timeout`: the policy is Sync from
+   * then on, which is the stricter of the two, but transactions acknowledged
+   * before the call are not known to be durable. Calling again is well defined
+   * and is how a caller confirms them.
+   * @note The policy in force after a false return is whatever was published
+   * last, which GetCommitDurability() reports. It does not say which call
+   * published it: a concurrent call for the same mode may have gone first.
+   */
+  bool SetCommitDurability(Config::CommitDurability mode,
+                           std::chrono::milliseconds barrier_timeout);
+
+  /** @brief The policy commits are currently acknowledged under. */
+  Config::CommitDurability GetCommitDurability() const;
+
+  /**
+   * @brief
+   * Checkpointing is not implemented for the epoch-frame write-ahead log:
+   * enabling it stops startup, so this method returns immediately and
+   * durability comes from the commit durability policy in force alone.
+   */
+  void WaitForCheckpoint() const noexcept;
+
+  /**
+   * @brief
+   * Requests executions of callback functions of already completed (committed
+   * or (aborted) transactions. Note that LineairDB's callback queues may be
+   * overloading in some combination of configurations (e.g., too long epoch
+   * size, too small thread-pool size, or weird implementation of the selected
+   * CallbackManager).
+   */
+  void RequestCallbacks();
+
+  /**
+   * @brief End the calling thread's masstree RCU critical section, drain
+   * the now-eligible entries from its limbo list, and drop it from the
+   * `min_active_epoch()` participant set.
+   *
+   * The caller MUST guarantee that no raw DataItem* (or masstree leaf
+   * pointer) obtained inside the section is still in use past this call —
+   * a section-end is a release operation in the RCU sense, after which
+   * other threads' physical deletes can free those objects.
+   *
+   * The first masstree op on the thread (after construction or after a
+   * release) implicitly re-opens a section at the then-current
+   * globalepoch; there is no separate "begin" call.
+   */
+  void ReleaseMasstreeThreadEpoch();
+
+  /**
+   * @brief Like ReleaseMasstreeThreadEpoch but pessimistically advances
+   * the global masstree epoch so the calling thread's RCU limbo is fully
+   * drained before it returns. Intended for the connection-close path
+   * only; substantially heavier than a regular release at high
+   * concurrency.
+   */
+  void FullyDrainMasstreeThread();
+
+  bool CreateSecondaryIndex(const std::string_view table_name,
+                            const std::string_view index_name,
+                            const uint index_type);
+
+  /**
+   * @brief
+   * Creates a new table.
+   * @param[in] table_name The name of the table to create.
+   * @return true when a new table is created (the name was not previously
+   * used).
+   * @return false when no table is created because the table name already
+   * exists.
+   */
+  bool CreateTable(const std::string_view table_name);
+
+  /**
+   * @brief Enables PAX storage for rows created after the call.
+   *
+   * @details Installs the per-field maximum cell widths: index 0 is the row
+   * format's null-flags field, followed by one entry per column in field order.
+   * Rows written after installation are stored in per-column strips when they
+   * fit the configured cell widths; oversize rows fall back to heap storage.
+   * Call once after CreateTable and before loading rows.
+   *
+   * @param[in] table_name The table that should use PAX storage.
+   * @param[in] field_max_bytes Maximum encoded bytes for each row field.
+   * @return true when the schema is installed for the table.
+   * @return false when the table is missing, the schema is empty, unsupported
+   * by the configured index backend, or already installed.
+   */
+  bool InstallPaxSchema(const std::string_view table_name,
+                        const std::vector<uint32_t>& field_max_bytes,
+                        const std::vector<uint8_t>& field_kind = {},
+                        const std::vector<int8_t>& field_scale = {});
+
+  /**
+   * @brief Returns the PAX store installed for `table_name`.
+   *
+   * @param table_name Target table.
+   * @return Store pointer, or nullptr when the table is missing or has no PAX
+   * schema.
+   */
+  Pax::PaxStore* GetPaxStore(const std::string_view table_name);
+
+  /**
+   * @brief Handle for one columnar read view.
+   *
+   * @details `cut_epoch` is the read view's serialization point: commits
+   * with epoch <= cut are visible, later ones resolve to before-images.
+   * `token` must be passed back to ReleasePaxReadView exactly once.
+   */
+  struct PaxReadView {
+    bool valid = false;
+    uint32_t cut_epoch = 0;
+    uint64_t token = 0;
+    std::string error;  // rejection reason when !valid
+  };
+
+  /**
+   * @brief Arms before-image capture and fences the epoch so `cut_epoch`
+   * is a sound serialization point.
+   *
+   * @details On return every commit with epoch <= cut_epoch has finished
+   * installing, and every later commit captures the rows it overwrites or
+   * poisons the read view. The calling thread must not hold an epoch (it
+   * must be outside any transaction). Fails instead of falling back on
+   * fence timeout, near the epoch high-water mark, or when the generation
+   * is poisoned during acquisition.
+   *
+   * @param fence_timeout_ms Upper bound on the fence wait.
+   * @return A valid handle, or an invalid one carrying the reason.
+   */
+  PaxReadView AcquirePaxReadView(uint32_t fence_timeout_ms);
+
+  /**
+   * @brief Releases a read view; the last active release clears the undo
+   * maps. Safe to call with an invalid handle (no-op).
+   */
+  void ReleasePaxReadView(const PaxReadView& view);
+
+  /**
+   * @brief Returns whether this read view's results must be discarded.
+   *
+   * @details True when the capture generation was poisoned or the read view
+   * outlived its epoch-lifetime bound. Callers gate every result on this
+   * before accepting it.
+   */
+  bool PaxReadViewPoisoned(const PaxReadView& view) const;
+
+  // ----------------------------------------------------------------------
+  // Stateless read / validate-and-commit API.
+  //
+  // The methods below do not allocate a server-side Transaction. Each call
+  // returns the snapshot the caller needs (value, packed TID, observed
+  // Masstree node versions) so that the caller can keep its own read set
+  // across independent RPCs. The collected snapshot is replayed through
+  // ValidateAndCommit when the logical transaction is ready to commit.
+  // See @ref stateless.h for the supporting types.
+  // ----------------------------------------------------------------------
+
+  /**
+   * @brief Read one row without opening a server-side transaction.
+   *
+   * Looks the key up in the primary index of `table_name` and returns the
+   * current value together with the packed TID observed at read time. The
+   * caller should later pass the same TID back inside an ExternalReadEntry
+   * so that ValidateAndCommit can confirm the row was not modified
+   * concurrently.
+   *
+   * @param table_name Target table.
+   * @param key Primary key to look up.
+   * @param selected_columns Optional zero-based MySQL columns to materialize
+   * for PAX-resident rows. Unselected PAX columns are returned as empty fields.
+   * @return Result with `found` set when the key exists and was non-empty.
+   *         When the table does not exist, `found` is false and `tid` is 0.
+   */
+  StatelessReadResult StatelessRead(
+      const std::string_view table_name, const std::string_view key,
+      const std::vector<uint32_t>* selected_columns = nullptr);
+
+  /**
+   * @brief Read several rows in one call.
+   *
+   * Each `keys[i] = {table_name, key}` is resolved with the same protocol as
+   * StatelessRead. Reads do not share state, so this is purely a transport
+   * optimization on top of repeated StatelessRead calls.
+   *
+   * @param keys (table_name, key) pairs to look up.
+   * @return One StatelessReadResult per input, in the same order.
+   */
+  std::vector<StatelessReadResult> StatelessBatchRead(
+      const std::vector<std::pair<std::string, std::string>>& keys);
+
+  /**
+   * @brief Range-scan the primary index and return the rows observed in
+   *        the range.
+   *
+   * Each returned row carries its own TID. To revalidate the range at
+   * commit, assemble an ExternalRangeReadEntry from this call's arguments
+   * and the returned keys, and register every consumed row as an
+   * ExternalReadEntry.
+   *
+   * @param table_name Target table.
+   * @param start_key Inclusive start of the range.
+   * @param end_key   Exclusive end of the range. Must be non-empty.
+   * @param row_limit Maximum rows to return. 0 means no cap.
+   * @param reverse_scan When true, iterate from `end_key` toward `start_key`.
+   * @param selected_columns Optional zero-based MySQL columns to materialize
+   * for PAX-resident rows. Unselected PAX columns are returned as empty fields.
+   * @return Result with `ok == false` if the scan retried out or the table
+   *         is missing. Callers should treat `!ok` as an abort signal.
+   */
+  StatelessRangeScanResult StatelessRangeScan(
+      const std::string_view table_name, const std::string_view start_key,
+      const std::string_view end_key, uint64_t row_limit, bool reverse_scan,
+      const std::vector<uint32_t>* selected_columns = nullptr);
+
+  /**
+   * @brief Range-scans the primary index and returns PAX cell references.
+   *
+   * @details The returned rows are not materialized. `ok == false` means the
+   * caller must fall back to StatelessRangeScan.
+   *
+   * @param table_name Target table.
+   * @param start_key Inclusive start of the range.
+   * @param end_key Exclusive end of the range. Must be non-empty.
+   * @param row_limit Maximum live rows to return. 0 means no cap.
+   * @param reverse_scan When true, iterate in reverse key order.
+   */
+  StatelessPaxRowRefScanResult StatelessPaxRowRefScan(
+      const std::string_view table_name, const std::string_view start_key,
+      const std::string_view end_key, uint64_t row_limit, bool reverse_scan);
+
+  /**
+   * @brief Range-scan a secondary index and resolve each hit to its base row.
+   *
+   * For every secondary key in `[start_key, end_key)`, this resolves each of
+   * its primary keys, reads the base row, and reports
+   * `{secondary_key, primary_key, value, tid, found}` per result. To
+   * revalidate the range at commit, assemble an ExternalRangeReadEntry from
+   * this call's arguments and both returned key lists; each base row carries
+   * its TID for revalidation as a point read.
+   *
+   * @param table_name Base table.
+   * @param index_name Secondary index name.
+   * @param start_key Inclusive start of the secondary range.
+   * @param end_key Exclusive end of the secondary range. Must be non-empty.
+   * @param row_limit Maximum rows to return. 0 means no cap.
+   * @param reverse_scan When true, iterate in reverse secondary-key order.
+   * @param selected_columns Optional zero-based MySQL columns to materialize
+   * for PAX-resident base rows. Unselected PAX columns are returned as empty
+   * fields.
+   * @return Result with `ok == false` if the scan retried out or the
+   *         table/index is missing.
+   */
+  StatelessSecondaryRangeScanResult StatelessSecondaryRangeScan(
+      const std::string_view table_name, const std::string_view index_name,
+      const std::string_view start_key, const std::string_view end_key,
+      uint64_t row_limit, bool reverse_scan,
+      const std::vector<uint32_t>* selected_columns = nullptr);
+
+  /**
+   * @brief Compute per-key-part-prefix NDV for an integer encoded index.
+   *
+   * `out_ndv[d]` is the number of distinct prefixes covering key parts
+   * `0..d` among live entries. `index_name == ""` selects the primary index.
+   * Returns false when the table/index is missing or any scanned key part is
+   * not in the Helios integer key encoding, leaving the caller to use its
+   * existing heuristic.
+   */
+  bool ComputeIndexNdvInt(const std::string_view table_name,
+                          const std::string_view index_name,
+                          uint32_t num_parts, std::vector<uint64_t>& out_ndv);
+
+  /**
+   * @brief Build an equi-depth histogram for one index's leading key part.
+   *
+   * @details `out_bounds[i]` is the raw encoded leading-key prefix for a
+   * bucket boundary, in ascending order. `out_cum[i]` is the cumulative row
+   * count up to that boundary and is monotone; the last value is the total
+   * counted rows. `index_name == ""` selects the primary index. Returns false
+   * when the table/index is missing, the index is empty, or a leading key part
+   * cannot be decoded safely.
+   */
+  bool ComputeIndexHistogram(const std::string_view table_name,
+                             const std::string_view index_name, uint32_t buckets,
+                             std::vector<std::string>& out_bounds,
+                             std::vector<uint64_t>& out_cum);
+
+  /**
+   * @brief Validate caller-supplied read and write sets and install the
+   *        writes atomically.
+   *
+   * Runs the Silo commit protocol against external inputs: resolve each
+   * key to its record, lock the write set, validate the reads (point
+   * TIDs, range replays, UNIQUE rechecks), then install the writes,
+   * append the log set, and unlock with a new TID. The full contract
+   * lives with Stateless::Commit.
+   *
+   * Aborts return false. The optional `abort_reason` is set to a short
+   * machine-readable label such as `exact_read_tid_moved`,
+   * `primary_range_result_changed`, or `unique_si_exists_after_lock`.
+   *
+   * @param reads Point reads to revalidate before commit.
+   * @param writes Row writes (`is_delete == true` to remove the row).
+   * @param secondary_index_ops Secondary-index adds/removes to install.
+   * @param range_reads Range reads assembled by the caller from earlier
+   *                    scans.
+   * @param abort_reason Optional out parameter. Set only when the function
+   *                    returns false.
+   * @return true on commit; false on validation failure or schema mismatch.
+   */
+  bool ValidateAndCommit(
+      const std::vector<ExternalReadEntry>& reads,
+      const std::vector<ExternalWriteEntry>& writes,
+      const std::vector<ExternalSecondaryIndexEntry>& secondary_index_ops,
+      const std::vector<ExternalRangeReadEntry>& range_reads = {},
+      std::string* abort_reason = nullptr);
+
+  /**
+   * @brief Writes one image of the live rows, on the calling thread.
+   *
+   * Does what the configured checkpoint interval does, at a moment the caller
+   * chooses. The caller must not be inside a transaction: the scan waits for
+   * the epoch to advance past every transaction in flight, and its own would
+   * hold that open.
+   *
+   * @param out_version_retries Optional out parameter, set to how many times a
+   *        row had to be read again because a writer held it or changed it
+   *        during the copy.
+   * @return true when an image was published.
+   * @return false when no image was published, or when the final directory
+   *         sync failed after the atomic rename, in which case the new image
+   *         is in place but its publication is not yet durable.
+   */
+  bool WriteCheckpointImage(uint64_t* out_version_retries = nullptr);
+
+  class Impl;
+
+ private:
+  const std::unique_ptr<Impl> db_pimpl_;
+  friend class Transaction;
+};
+};  // namespace LineairDB
+
+#endif

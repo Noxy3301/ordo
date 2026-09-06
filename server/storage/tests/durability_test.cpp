@@ -1,0 +1,488 @@
+/*
+ *   Copyright (C) 2020 Nippon Telegraph and Telephone Corporation.
+
+ *   Licensed under the Apache License, Version 2.0 (the "License");
+ *   you may not use this file except in compliance with the License.
+ *   You may obtain a copy of the License at
+
+ *   http://www.apache.org/licenses/LICENSE-2.0
+
+ *   Unless required by applicable law or agreed to in writing, software
+ *   distributed under the License is distributed on an "AS IS" BASIS,
+ *   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *   See the License for the specific language governing permissions and
+ *   limitations under the License.
+ */
+
+#include <lineairdb/config.h>
+#include <lineairdb/database.h>
+#include <lineairdb/transaction.h>
+#include <lineairdb/tx_status.h>
+
+#include <atomic>
+#include <chrono>
+#include <filesystem>
+#include <memory>
+#include <string>
+#include <thread>
+#include <vector>
+
+#include "gtest/gtest.h"
+#include "test_helper.hpp"
+#include "util/logger.hpp"
+
+class DurabilityTest : public ::testing::Test {
+ protected:
+  LineairDB::Config config_;
+  std::unique_ptr<LineairDB::Database> db_;
+  virtual void SetUp() {
+    std::filesystem::remove_all("lineairdb_logs");
+    config_.max_thread = 4;
+    config_.commit_durability = LineairDB::Config::CommitDurability::Async;
+    config_.enable_recovery = true;
+    // The epoch-frame write-ahead log has no checkpoint path; the tests that
+    // exercised checkpointing are disabled below.
+    config_.enable_checkpointing = false;
+    db_ = std::make_unique<LineairDB::Database>(config_);
+    db_->CreateTable("users");
+  }
+};
+
+TEST_F(DurabilityTest, Recovery) {
+  // We expect LineairDB enables recovery logging by default.
+  const LineairDB::Config config = db_->GetConfig();
+  ASSERT_TRUE(config.enable_logging);
+
+  int initial_value = 1;
+  TestHelper::DoTransactions(db_.get(), {[&](LineairDB::Transaction& tx) {
+                                           tx.Write<int>("alice",
+                                                         initial_value);
+                                         },
+                                         [&](LineairDB::Transaction& tx) {
+                                           tx.Write<int>("bob", initial_value);
+                                         }});
+  db_->Fence();
+
+  // Expect that recovery procedure has idempotence
+  for (size_t i = 0; i < 3; i++) {
+    db_.reset(nullptr);
+    db_ = std::make_unique<LineairDB::Database>(config);
+
+    TestHelper::DoTransactions(db_.get(), {[&](LineairDB::Transaction& tx) {
+                                 auto alice = tx.Read<int>("alice");
+                                 ASSERT_TRUE(alice.has_value());
+                                 auto current_value = alice.value();
+                                 ASSERT_EQ(initial_value, current_value);
+                                 auto bob = tx.Read<int>("bob");
+                                 ASSERT_TRUE(bob.has_value());
+                                 current_value = bob.value();
+                                 ASSERT_EQ(initial_value, current_value);
+                               }});
+  }
+}
+
+TEST_F(DurabilityTest, RecoveryKeepsDeletedKeysAbsent) {
+  // We expect LineairDB enables recovery logging by default.
+  const LineairDB::Config config = db_->GetConfig();
+  ASSERT_TRUE(config.enable_logging);
+
+  int initial_value = 1;
+  TestHelper::DoTransactions(db_.get(), {[&](LineairDB::Transaction& tx) {
+                               tx.Write<int>("alice", initial_value);
+                             }});
+  db_->Fence();
+
+  TestHelper::DoTransactions(
+      db_.get(), {[&](LineairDB::Transaction& tx) { tx.Delete("alice"); }});
+  db_->Fence();
+
+  // Expect that recovery procedure has idempotence
+  for (size_t i = 0; i < 3; i++) {
+    db_.reset(nullptr);
+    db_ = std::make_unique<LineairDB::Database>(config);
+
+    TestHelper::DoTransactions(db_.get(), {[&](LineairDB::Transaction& tx) {
+                                 auto alice = tx.Read<int>("alice");
+                                 ASSERT_FALSE(alice.has_value());
+                               }});
+  }
+}
+
+// DISABLED: checkpointing and log truncation are not implemented for the
+// epoch-frame write-ahead log, so this test's premise no longer holds.
+TEST_F(DurabilityTest, DISABLED_RecoveryKeepsDeletedKeysAbsentEvenWithCheckpoint) {
+  // We expect LineairDB enables recovery logging by default.
+  const LineairDB::Config config = db_->GetConfig();
+  ASSERT_TRUE(config.enable_logging);
+
+  int initial_value = 1;
+  TestHelper::DoTransactions(
+      db_.get(), {{[&](LineairDB::Transaction& tx) {
+                    tx.Write<int>("alice", initial_value);
+                  }},
+                  {[&](LineairDB::Transaction& tx) { tx.Delete("alice"); }}});
+
+  // Wait for checkpoint to be created.
+  // The checkpoint algorithm should ignore deleted keys to be recovered.
+  std::this_thread::sleep_for(
+      std::chrono::seconds(config.checkpoint_period + 5));
+
+  // Expect that recovery procedure has idempotence
+  for (size_t i = 0; i < 3; i++) {
+    db_.reset(nullptr);
+    db_ = std::make_unique<LineairDB::Database>(config);
+
+    TestHelper::DoTransactions(db_.get(), {[&](LineairDB::Transaction& tx) {
+                                 auto alice = tx.Read<int>("alice");
+                                 ASSERT_FALSE(alice.has_value());
+                               }});
+  }
+}
+
+TEST_F(DurabilityTest, RecoveryLargeObject) {
+  std::string initial_value(4096, 'a');
+  TestHelper::DoTransactions(
+      db_.get(), {[&](LineairDB::Transaction& tx) {
+        tx.Write("alice", reinterpret_cast<std::byte*>(initial_value.data()),
+                 initial_value.size());
+      }});
+  db_->Fence();
+
+  for (size_t i = 0; i < 3; i++) {
+    TestHelper::DoTransactions(db_.get(), {[&](LineairDB::Transaction& tx) {
+                                 auto alice = tx.Read("alice");
+                                 ASSERT_TRUE(alice.first != nullptr);
+                                 std::string current_value(
+                                     reinterpret_cast<const char*>(alice.first),
+                                     alice.second);
+                                 ASSERT_EQ(initial_value, current_value);
+                               }});
+  }
+}
+
+TEST_F(DurabilityTest, RecoveryInContendedWorkload) {
+  // We expect LineairDB enables recovery logging by default.
+  const LineairDB::Config config = db_->GetConfig();
+  ASSERT_TRUE(config.enable_logging);
+
+  TransactionProcedure Update([](LineairDB::Transaction& tx) {
+    int value = 0xBEEF;
+    tx.Write<int>("alice", value);
+  });
+
+  ASSERT_NO_THROW({
+    TestHelper::DoTransactionsOnMultiThreads(db_.get(),
+                                             {Update, Update, Update});
+  });
+  db_->Fence();
+
+  db_.reset(nullptr);
+  db_ = std::make_unique<LineairDB::Database>(config);
+
+  TestHelper::DoTransactions(db_.get(), {[&](LineairDB::Transaction& tx) {
+                               auto alice = tx.Read<int>("alice");
+                               ASSERT_TRUE(alice.has_value());
+                               auto current_value = alice.value();
+                               ASSERT_EQ(0xBEEF, current_value);
+                             }});
+}
+
+TEST_F(DurabilityTest, RecoveryWithHandlerInterface) {
+  const LineairDB::Config config = db_->GetConfig();
+  ASSERT_TRUE(config.enable_logging);
+
+  TransactionProcedure Update([](LineairDB::Transaction& tx) {
+    int value = 0xBEEF;
+    tx.Write<int>("alice", value);
+  });
+
+  ASSERT_NO_THROW({
+    TestHelper::DoHandlerTransactionsOnMultiThreads(db_.get(),
+                                                    {Update, Update, Update});
+  });
+  db_->Fence();
+
+  db_.reset(nullptr);
+  db_ = std::make_unique<LineairDB::Database>(config);
+
+  TestHelper::DoTransactions(db_.get(), {[&](LineairDB::Transaction& tx) {
+                               auto alice = tx.Read<int>("alice");
+                               ASSERT_TRUE(alice.has_value());
+                               auto current_value = alice.value();
+                               ASSERT_EQ(0xBEEF, current_value);
+                             }});
+}
+
+size_t getLogDirectorySize(const LineairDB::Config& conf) {
+  namespace fs = std::filesystem;
+  size_t size = 0;
+  for (const auto& entry : fs::directory_iterator(conf.work_dir)) {
+    if (entry.path().filename().generic_string().find("working") !=
+        std::string::npos)
+      continue;
+    size += fs::file_size(entry.path());
+  }
+  return size;
+}
+
+// DISABLED: checkpointing and log truncation are not implemented for the
+// epoch-frame write-ahead log, so this test's premise no longer holds.
+TEST_F(DurabilityTest, DISABLED_LogFileSizeIsBounded) {  // a.k.a., checkpointing
+  const LineairDB::Config config = db_->GetConfig();
+  ASSERT_TRUE(config.enable_logging);
+  ASSERT_TRUE(config.enable_checkpointing);
+
+  TransactionProcedure Update([](LineairDB::Transaction& tx) {
+    int value = 0xBEEF;
+    tx.Write<int>("alice", value);
+  });
+
+  size_t filesize = 0;
+  ASSERT_EQ(filesize, getLogDirectorySize(config));
+  bool filesize_is_monotonically_increasing = true;
+
+  auto begin = std::chrono::high_resolution_clock::now();
+
+  for (;;) {
+    const size_t current_file_size = getLogDirectorySize(config);
+    if (filesize <= current_file_size) {
+      filesize = current_file_size;
+    } else {
+      filesize_is_monotonically_increasing = false;
+      break;
+    }
+    ASSERT_NO_THROW({
+      TestHelper::DoTransactions(db_.get(), {Update, Update, Update});
+    });
+
+    auto now = std::chrono::high_resolution_clock::now();
+    assert(begin < now);
+    size_t elapsed =
+        std::chrono::duration_cast<std::chrono::seconds>(now - begin).count();
+    if (config.checkpoint_period * 10 < elapsed) break;
+  }
+  ASSERT_FALSE(filesize_is_monotonically_increasing);
+}
+
+// DISABLED: checkpointing and log truncation are not implemented for the
+// epoch-frame write-ahead log, so this test's premise no longer holds.
+TEST_F(DurabilityTest,
+       DISABLED_LogFileSizeIsBoundedOnHandlerInterface) {  // a.k.a., checkpointing
+  const LineairDB::Config config = db_->GetConfig();
+  ASSERT_TRUE(config.enable_logging);
+  ASSERT_TRUE(config.enable_checkpointing);
+
+  TransactionProcedure Update([](LineairDB::Transaction& tx) {
+    int value = 0xBEEF;
+    tx.Write<int>("alice", value);
+  });
+
+  size_t filesize = 0;
+  ASSERT_EQ(filesize, getLogDirectorySize(config));
+  bool filesize_is_monotonically_increasing = true;
+
+  auto begin = std::chrono::high_resolution_clock::now();
+
+  std::atomic<bool> stop(false);
+  std::thread worker_thread([&]() {
+    for (;;) {
+      auto& tx = db_->BeginTransaction();
+      [[maybe_unused]] auto alice = tx.Read<int>("alice");
+      int value = 0xBEEF;
+      tx.Write<int>("alice", value);
+      db_->EndTransaction(tx, [](auto) {});
+      if (stop.load()) return;
+      std::this_thread::yield();
+    }
+  });
+
+  for (;;) {
+    const size_t current_file_size = getLogDirectorySize(config);
+    if (filesize <= current_file_size) {
+      filesize = current_file_size;
+    } else {
+      filesize_is_monotonically_increasing = false;
+      break;
+    }
+
+    auto now = std::chrono::high_resolution_clock::now();
+    assert(begin < now);
+    size_t elapsed =
+        std::chrono::duration_cast<std::chrono::seconds>(now - begin).count();
+    if (config.checkpoint_period * 10 < elapsed) break;
+  }
+  stop.store(true);
+  worker_thread.join();
+  ASSERT_FALSE(filesize_is_monotonically_increasing);
+}
+
+// DISABLED: checkpointing and log truncation are not implemented for the
+// epoch-frame write-ahead log, so this test's premise no longer holds.
+TEST_F(DurabilityTest, DISABLED_CPRConsistency) {  // a.k.a., checkpointing
+  /**
+   * CPR Consistency:
+   * > Definition 1 (CPR Consistency). A database state is CPR consistent if and
+   * > only if, for every client $C$ , the state contains all its transactions
+   * > committed before a unique client-local time-point $tC$ , and none after.
+   * Ref:
+   * https://www.microsoft.com/en-us/research/uploads/prod/2019/01/cpr-sigmod19.pdf
+   *
+   * i.e., There exists the guarantee of consistent snapshot at some time point.
+   */
+
+  LineairDB::Config config = db_->GetConfig();
+  config.commit_durability = LineairDB::Config::CommitDurability::Volatile;
+  config.checkpoint_period = 5;  // 5sec
+  ASSERT_TRUE(config.enable_checkpointing);
+  db_.reset(nullptr);
+  db_ = std::make_unique<LineairDB::Database>(config);
+
+  TransactionProcedure Update([](LineairDB::Transaction& tx) {
+    int value = 0;
+    tx.Write<int>("alice", value);
+  });
+
+  TestHelper::DoTransactions(db_.get(), {Update});
+  db_.reset(nullptr);
+  db_ = std::make_unique<LineairDB::Database>(config);
+
+  // We assume that DB has been destructed within 5 seconds and there are no
+  // consisntent snapshot
+  TestHelper::DoTransactions(db_.get(), {[&](LineairDB::Transaction& tx) {
+                               auto alice = tx.Read<int>("alice");
+                               ASSERT_FALSE(alice.has_value());
+                             }});
+
+  TestHelper::DoTransactions(db_.get(), {Update});
+  std::this_thread::sleep_for(
+      std::chrono::seconds(config.checkpoint_period * 2));
+
+  db_.reset(nullptr);
+  db_ = std::make_unique<LineairDB::Database>(config);
+  TestHelper::DoTransactions(db_.get(), {[&](LineairDB::Transaction& tx) {
+                               auto alice = tx.Read<int>("alice");
+                               ASSERT_TRUE(alice.has_value());
+                             }});
+}
+
+// DISABLED: checkpointing and log truncation are not implemented for the
+// epoch-frame write-ahead log, so this test's premise no longer holds.
+TEST_F(DurabilityTest,
+       DISABLED_CPRConsistencyOnHandlerInterface) {  // a.k.a., checkpointing
+  LineairDB::Config config = db_->GetConfig();
+  config.commit_durability = LineairDB::Config::CommitDurability::Volatile;
+  config.checkpoint_period = 5;  // 5sec
+  ASSERT_TRUE(config.enable_checkpointing);
+  db_.reset(nullptr);
+  db_ = std::make_unique<LineairDB::Database>(config);
+
+  TransactionProcedure Update([](LineairDB::Transaction& tx) {
+    int value = 0;
+    tx.Write<int>("alice", value);
+  });
+
+  TestHelper::DoHandlerTransactionsOnMultiThreads(db_.get(), {Update});
+  db_.reset(nullptr);
+  db_ = std::make_unique<LineairDB::Database>(config);
+
+  // We assume that DB has been destructed within 5 seconds and there are no
+  // consisntent snapshot
+  TestHelper::DoHandlerTransactionsOnMultiThreads(
+      db_.get(), {[&](LineairDB::Transaction& tx) {
+        auto alice = tx.Read<int>("alice");
+        ASSERT_FALSE(alice.has_value());
+      }});
+
+  TestHelper::DoHandlerTransactionsOnMultiThreads(db_.get(), {Update});
+  std::this_thread::sleep_for(
+      std::chrono::seconds(config.checkpoint_period * 2));
+
+  db_.reset(nullptr);
+  db_ = std::make_unique<LineairDB::Database>(config);
+  TestHelper::DoHandlerTransactionsOnMultiThreads(
+      db_.get(), {[&](LineairDB::Transaction& tx) {
+        auto alice = tx.Read<int>("alice");
+        ASSERT_TRUE(alice.has_value());
+      }});
+}
+
+TEST_F(DurabilityTest, RecoveryWithNamedTable) {
+  const LineairDB::Config config = db_->GetConfig();
+  const std::string table_name = "users";
+  const std::string key = "user1";
+  const int value = 12345;
+
+  // 1. Create a table and write to it
+  db_->CreateTable(table_name);
+  TestHelper::DoTransactions(db_.get(), {[&](LineairDB::Transaction& tx) {
+                               bool success = tx.SetTable(table_name);
+                               ASSERT_TRUE(success);
+                               tx.Write<int>(key, value);
+                             }});
+  db_->Fence();
+
+  // 2. Restart DB to trigger recovery
+  db_.reset(nullptr);
+  db_ = std::make_unique<LineairDB::Database>(config);
+
+  // 3. Verify data is recovered in the correct table
+  TestHelper::DoTransactions(db_.get(), {[&](LineairDB::Transaction& tx) {
+                               bool success = tx.SetTable(table_name);
+                               ASSERT_TRUE(success);
+                               auto data = tx.Read<int>(key);
+                               ASSERT_TRUE(data.has_value());
+                               ASSERT_EQ(data.value(), value);
+                             }});
+
+  // 4. Verify data is NOT in the anonymous table
+  TestHelper::DoTransactions(db_.get(), {[&](LineairDB::Transaction& tx) {
+                               // Note: Not calling SetTable, so this reads from
+                               // the anonymous table
+                               auto data = tx.Read<int>(key);
+                               ASSERT_FALSE(data.has_value());
+                             }});
+}
+
+/* TEST_F(DurabilityTest, RecoveryWithSecondaryIndex) {
+  const LineairDB::Config config = db_->GetConfig();
+  const std::string table_name = "users";
+  const std::string index_name = "age_index";
+  const std::string index_key = "age:30";
+  const std::string primary_key = "user1";
+  const std::string value = "Alice";
+
+  ASSERT_TRUE(db_->CreateSecondaryIndex(table_name, index_name, 0));
+
+  TestHelper::DoTransactions(
+      db_.get(), {[&](LineairDB::Transaction& tx) {
+        ASSERT_TRUE(tx.SetTable(table_name));
+        tx.Write(primary_key, reinterpret_cast<const std::byte*>(value.data()),
+                 value.size());
+        tx.WriteSecondaryIndex(
+            index_name, index_key,
+            reinterpret_cast<const std::byte*>(primary_key.data()),
+            primary_key.size());
+      }});
+  db_->Fence();
+
+  db_.reset(nullptr);
+  db_ = std::make_unique<LineairDB::Database>(config);
+
+  TestHelper::DoTransactions(
+      db_.get(), {[&](LineairDB::Transaction& tx) {
+        ASSERT_TRUE(tx.SetTable(table_name));
+
+        auto primary_keys = tx.ReadSecondaryIndex(index_name, index_key);
+        ASSERT_EQ(primary_keys.size(), 1);
+        const auto& [pk_ptr, pk_size] = primary_keys[0];
+        std::string recovered_pk(reinterpret_cast<const char*>(pk_ptr),
+                                 pk_size);
+        ASSERT_EQ(recovered_pk, primary_key);
+
+        auto [value_ptr, value_size] = tx.Read(primary_key);
+        ASSERT_TRUE(value_ptr != nullptr);
+        std::string recovered_value(reinterpret_cast<const char*>(value_ptr),
+                                    value_size);
+        ASSERT_EQ(recovered_value, value);
+      }});
+} */

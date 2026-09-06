@@ -34,7 +34,7 @@ const char* const kWalPoint = "LINEAIRDB_DEBUG_SYNC_WAL_BEFORE_FDATASYNC";
 const char* const kBarrierPoint =
     "LINEAIRDB_DEBUG_SYNC_DATABASE_BEFORE_DURABILITY_BARRIER";
 const char* const kCommitPoint =
-    "LINEAIRDB_DEBUG_SYNC_STATELESS_COMMIT_BEFORE_OFFLINE";
+    "LINEAIRDB_DEBUG_SYNC_SILO_COMMIT_BEFORE_OFFLINE";
 
 /**
  * @brief Stops whoever reaches a named debug sync point, so the test decides

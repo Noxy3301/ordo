@@ -73,22 +73,22 @@ class IndexBase {
   virtual void ForcePutBlankEntry(std::string_view key,
                                    NodeVersionUpdate* out_update = nullptr) = 0;
 
-  // Range operations. Returning std::nullopt signals a phantom anomaly
-  // detected synchronously (PL). Backends that defer phantom checks append
-  // per-scan snapshots into `out_versions` for later ValidatePhantoms.
-  virtual std::optional<size_t> Scan(
+  // Range operations. Returns the number of keys the walk emitted; backends
+  // that defer phantom checks append per-scan snapshots into `out_versions`
+  // for later ValidatePhantoms.
+  virtual size_t Scan(
       std::string_view begin, std::optional<std::string_view> end,
       std::function<bool(std::string_view)> operation,
       std::vector<NodeVersionEntry>* out_versions = nullptr) = 0;
-  virtual std::optional<size_t> Scan(
+  virtual size_t Scan(
       std::string_view begin, std::string_view end,
       std::function<bool(std::string_view, DataItem&)> operation,
       std::vector<NodeVersionEntry>* out_versions = nullptr) = 0;
-  virtual std::optional<size_t> ScanReverse(
+  virtual size_t ScanReverse(
       std::string_view begin, std::optional<std::string_view> end,
       std::function<bool(std::string_view)> operation,
       std::vector<NodeVersionEntry>* out_versions = nullptr) = 0;
-  virtual std::optional<size_t> ScanReverse(
+  virtual size_t ScanReverse(
       std::string_view begin, std::string_view end,
       std::function<bool(std::string_view, DataItem&)> operation,
       std::vector<NodeVersionEntry>* out_versions = nullptr) = 0;

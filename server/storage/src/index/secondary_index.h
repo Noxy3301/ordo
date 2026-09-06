@@ -1,7 +1,7 @@
 #ifndef LINEAIRDB_SECONDARY_INDEX_H
 #define LINEAIRDB_SECONDARY_INDEX_H
 
-#include "concurrency_control/stable_read.hpp"
+#include "silo/stable_read.hpp"
 #include "index/index_base.h"
 #include "index/impl/masstree_index.hpp"
 #include "index/secondary_index_type.h"
@@ -47,14 +47,14 @@ class SecondaryIndex {
     return item;
   }
 
-  std::optional<size_t> Scan(
+  size_t Scan(
       std::string_view begin, std::optional<std::string_view> end,
       std::function<bool(std::string_view)> operation,
       std::vector<NodeVersionEntry>* out_versions = nullptr) {
     return secondary_index_->Scan(begin, end, operation, out_versions);
   }
 
-  std::optional<size_t> ScanReverse(
+  size_t ScanReverse(
       std::string_view begin, std::optional<std::string_view> end,
       std::function<bool(std::string_view)> operation,
       std::vector<NodeVersionEntry>* out_versions = nullptr) {

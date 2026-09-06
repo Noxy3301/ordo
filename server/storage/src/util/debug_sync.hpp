@@ -11,10 +11,10 @@
 // call into the cached enabled check plus one branch.
 //
 // Marking a point:
-//   LINEAIRDB_DEBUG_SYNC("stateless_commit.between_row_installs");
+//   LINEAIRDB_DEBUG_SYNC("silo_commit.between_row_installs");
 //
 // Activating a point (environment):
-//   LINEAIRDB_DEBUG_SYNC_STATELESS_COMMIT_BETWEEN_ROW_INSTALLS=sleep:1500
+//   LINEAIRDB_DEBUG_SYNC_SILO_COMMIT_BETWEEN_ROW_INSTALLS=sleep:1500
 // The variable name is the point name upper-cased with '.' mapped to '_'.
 // The prefix scan that answers "is anything armed" is cached at first use;
 // an armed process re-reads the point's action on every hit.

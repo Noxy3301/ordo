@@ -1,16 +1,16 @@
-#include "stateless/read.h"
+#include "silo/read.h"
 
 #include <mutex>
 
-#include "concurrency_control/stable_read.hpp"
+#include "silo/stable_read.hpp"
 #include "index/secondary_index.h"
-#include "stateless/packed_transaction_id.hpp"
+#include "silo/packed_transaction_id.hpp"
 #include "table/table.h"
 #include "table/table_dictionary.hpp"
 #include "types/data_item.hpp"
 
 namespace LineairDB {
-namespace Stateless {
+namespace Silo {
 
 StatelessReadResult Read(TableDictionary& tables,
                          std::shared_mutex& schema_mutex,
@@ -79,27 +79,24 @@ StatelessRangeScanResult RangeScan(TableDictionary& tables,
     return row_limit > 0 && returned_rows >= row_limit;
   };
 
-  auto scan_result =
-      reverse_scan
-          ? table.value()->GetPrimaryIndex().ScanReverse(
-                start_key, end_key, append_scan_entry)
-          : table.value()->GetPrimaryIndex().Scan(
-                start_key, end_key, append_scan_entry);
-  if (!scan_result.has_value()) {
-    result.ok = false;
-    result.rows.clear();
+  if (reverse_scan) {
+    table.value()->GetPrimaryIndex().ScanReverse(start_key, end_key,
+                                                 append_scan_entry);
+  } else {
+    table.value()->GetPrimaryIndex().Scan(start_key, end_key,
+                                          append_scan_entry);
   }
   return result;
 }
 
-}  // namespace Stateless
+}  // namespace Silo
 
 uint64_t PaxRowRefCurrentTid(const StatelessPaxRowRef& row) {
   const auto* item = static_cast<const DataItem*>(row.item);
-  return Stateless::PackTransactionId(item->transaction_id.load());
+  return Silo::PackTransactionId(item->transaction_id.load());
 }
 
-namespace Stateless {
+namespace Silo {
 
 StatelessPaxRowRefScanResult PaxRowRefScan(
     TableDictionary& tables, std::shared_mutex& schema_mutex,
@@ -148,12 +145,13 @@ StatelessPaxRowRefScanResult PaxRowRefScan(
     return row_limit > 0 && returned_rows >= row_limit;
   };
 
-  auto scan_result =
-      reverse_scan ? table.value()->GetPrimaryIndex().ScanReverse(
-                         start_key, end_key, append_ref)
-                   : table.value()->GetPrimaryIndex().Scan(start_key, end_key,
-                                                           append_ref);
-  if (!scan_result.has_value() || saw_non_pax) {
+  if (reverse_scan) {
+    table.value()->GetPrimaryIndex().ScanReverse(start_key, end_key,
+                                                 append_ref);
+  } else {
+    table.value()->GetPrimaryIndex().Scan(start_key, end_key, append_ref);
+  }
+  if (saw_non_pax) {
     // Keep the fallback contract simple: no partial refs escape on failure.
     result.ok = false;
     result.rows.clear();
@@ -215,16 +213,13 @@ StatelessSecondaryRangeScanResult SecondaryRangeScan(
     return false;
   };
 
-  auto scan_result =
-      reverse_scan
-          ? index->ScanReverse(start_key, end_key, append_secondary_entry)
-          : index->Scan(start_key, end_key, append_secondary_entry);
-  if (!scan_result.has_value()) {
-    result.ok = false;
-    result.rows.clear();
+  if (reverse_scan) {
+    index->ScanReverse(start_key, end_key, append_secondary_entry);
+  } else {
+    index->Scan(start_key, end_key, append_secondary_entry);
   }
   return result;
 }
 
-}  // namespace Stateless
+}  // namespace Silo
 }  // namespace LineairDB

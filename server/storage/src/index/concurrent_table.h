@@ -51,19 +51,19 @@ class ConcurrentTable {
   bool Put(const std::string_view key, DataItem&& value,
            NodeVersionUpdate* out_update = nullptr);
   void ForEach(std::function<bool(std::string_view, DataItem&)>);
-  std::optional<size_t> Scan(
+  size_t Scan(
       const std::string_view begin, const std::optional<std::string_view> end,
       std::function<bool(std::string_view)> operation,
       std::vector<NodeVersionEntry>* out_versions = nullptr);
-  std::optional<size_t> Scan(
+  size_t Scan(
       const std::string_view begin, const std::string_view end,
       std::function<bool(std::string_view, DataItem&)> operation,
       std::vector<NodeVersionEntry>* out_versions = nullptr);
-  std::optional<size_t> ScanReverse(
+  size_t ScanReverse(
       const std::string_view begin, const std::optional<std::string_view> end,
       std::function<bool(std::string_view)> operation,
       std::vector<NodeVersionEntry>* out_versions = nullptr);
-  std::optional<size_t> ScanReverse(
+  size_t ScanReverse(
       const std::string_view begin, const std::string_view end,
       std::function<bool(std::string_view, DataItem&)> operation,
       std::vector<NodeVersionEntry>* out_versions = nullptr);

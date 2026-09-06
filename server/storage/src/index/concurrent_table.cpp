@@ -72,28 +72,28 @@ void ConcurrentTable::ForEach(
   index_->ForEach(f);
 };
 
-std::optional<size_t> ConcurrentTable::Scan(
+size_t ConcurrentTable::Scan(
     const std::string_view begin, const std::optional<std::string_view> end,
     std::function<bool(std::string_view)> operation,
     std::vector<NodeVersionEntry>* out_versions) {
   return index_->Scan(begin, end, operation, out_versions);
 };
 
-std::optional<size_t> ConcurrentTable::Scan(
+size_t ConcurrentTable::Scan(
     const std::string_view begin, const std::string_view end,
     std::function<bool(std::string_view, DataItem&)> operation,
     std::vector<NodeVersionEntry>* out_versions) {
   return index_->Scan(begin, end, operation, out_versions);
 };
 
-std::optional<size_t> ConcurrentTable::ScanReverse(
+size_t ConcurrentTable::ScanReverse(
     const std::string_view begin, const std::optional<std::string_view> end,
     std::function<bool(std::string_view)> operation,
     std::vector<NodeVersionEntry>* out_versions) {
   return index_->ScanReverse(begin, end, operation, out_versions);
 };
 
-std::optional<size_t> ConcurrentTable::ScanReverse(
+size_t ConcurrentTable::ScanReverse(
     const std::string_view begin, const std::string_view end,
     std::function<bool(std::string_view, DataItem&)> operation,
     std::vector<NodeVersionEntry>* out_versions) {

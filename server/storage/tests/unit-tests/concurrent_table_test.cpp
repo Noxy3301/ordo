@@ -101,22 +101,14 @@ TEST(ConcurrentTableTest, Scan) {
   ASSERT_TRUE(table.Put("carol", {}));
 
   // Scan is half-open: carol is the exclusive upper bound.
-  auto count = table.Scan("alice", "carol", [](auto) { return false; });
-  if (count.has_value()) {
-    ASSERT_EQ(size_t(2), count.value());
-  }
+  ASSERT_EQ(size_t(2),
+            table.Scan("alice", "carol", [](auto) { return false; }));
   epoch.Sync();
   epoch.Sync();
-  auto count_synced = table.Scan("alice", "carol", [](auto) { return false; });
-
-  if (count_synced.has_value()) {
-    ASSERT_EQ(size_t(2), count_synced.value());
-  }
-
-  auto count_canceled = table.Scan("alice", "carol", [](auto) { return true; });
-  if (count_canceled.has_value()) {
-    ASSERT_EQ(size_t(1), count_canceled.value());
-  }
+  ASSERT_EQ(size_t(2),
+            table.Scan("alice", "carol", [](auto) { return false; }));
+  ASSERT_EQ(size_t(1),
+            table.Scan("alice", "carol", [](auto) { return true; }));
 }
 
 TEST(ConcurrentTableTest, TremendousPut) {

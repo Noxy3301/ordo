@@ -1,8 +1,9 @@
-#include "stateless/commit.h"
+#include "silo/commit.h"
 
 #include <xmmintrin.h>
 
 #include <algorithm>
+#include <cassert>
 #include <mutex>
 #include <string>
 #include <string_view>
@@ -16,7 +17,7 @@
 #include "index/secondary_index.h"
 #include "pax/version_store.hpp"
 #include "recovery/logger.h"
-#include "stateless/packed_transaction_id.hpp"
+#include "silo/packed_transaction_id.hpp"
 #include "table/table.h"
 #include "table/table_dictionary.hpp"
 #include "types/data_item.hpp"
@@ -24,16 +25,17 @@
 #include "util/epoch_framework.hpp"
 
 namespace LineairDB {
-namespace Stateless {
+namespace Silo {
 
 bool Commit(TableDictionary& tables, std::shared_mutex& schema_mutex,
             EpochFramework& epoch_framework, Index::Reaper& reaper,
-            Recovery::Logger& logger, const Config& config,
-            const std::vector<ExternalReadEntry>& reads,
-            const std::vector<ExternalWriteEntry>& writes,
-            const std::vector<ExternalSecondaryIndexEntry>& secondary_index_ops,
-            const std::vector<ExternalRangeReadEntry>& range_reads,
-            std::string* abort_reason) {
+            Recovery::Logger& logger, const CommitPayload& payload,
+            Config::CommitDurability policy, std::string* abort_reason) {
+  const auto& reads = payload.reads;
+  const auto& writes = payload.writes;
+  const auto& secondary_index_ops = payload.secondary_index_ops;
+  const auto& range_reads = payload.range_reads;
+
   // Epoch join.
   epoch_framework.MakeMeOnline();
   if (abort_reason != nullptr) abort_reason->clear();
@@ -139,12 +141,7 @@ bool Commit(TableDictionary& tables, std::shared_mutex& schema_mutex,
 
       DataItem* item =
           table.value()->GetPrimaryIndex().GetOrInsert(write.key);
-      if (item == nullptr) {
-        return abort_before_lock("write_get_or_insert_failed");
-      }
-      if (write.is_insert) {
-        LINEAIRDB_DEBUG_SYNC("stateless_commit.after_index_claim");
-      }
+      assert(item != nullptr);  // GetOrInsert materializes a blank slot
 
       // An insert onto a key an earlier entry of this request already made
       // live is a duplicate the committed state cannot excuse.
@@ -207,6 +204,13 @@ bool Commit(TableDictionary& tables, std::shared_mutex& schema_mutex,
       lock_items.push_back(item);
       lock_targets.push_back({item, nullptr, index, op.secondary_key});
     }
+  }
+
+  // Outside the schema lock: a test parks a committer here to race an insert
+  // against another connection, and holding a shared lock on the schema would
+  // block that connection's DDL rather than only its insert.
+  if (has_insert_entry) {
+    LINEAIRDB_DEBUG_SYNC("silo_commit.after_index_claim");
   }
 
   // Phase 1.1: address-sort and CAS-lock every write target. One global
@@ -401,15 +405,15 @@ bool Commit(TableDictionary& tables, std::shared_mutex& schema_mutex,
           return range.row_limit > 0 && result_pos >= range.row_limit;
         };
 
-        auto scan_result =
-            range.reverse_scan
-                ? table.value()->GetPrimaryIndex().ScanReverse(
-                      range.start_key, range.end_key, collect_key, nullptr)
-                : table.value()->GetPrimaryIndex().Scan(
-                      range.start_key, range.end_key, collect_key, nullptr);
+        if (range.reverse_scan) {
+          table.value()->GetPrimaryIndex().ScanReverse(
+              range.start_key, range.end_key, collect_key, nullptr);
+        } else {
+          table.value()->GetPrimaryIndex().Scan(range.start_key, range.end_key,
+                                                collect_key, nullptr);
+        }
         if (aborted) return false;
-        return scan_result.has_value() && matches &&
-               result_pos == range.result_keys.size();
+        return matches && result_pos == range.result_keys.size();
       };
 
   auto validate_secondary_key_list =
@@ -475,15 +479,15 @@ bool Commit(TableDictionary& tables, std::shared_mutex& schema_mutex,
           return false;
         };
 
-        auto scan_result =
-            range.reverse_scan
-                ? index->ScanReverse(range.start_key, range.end_key,
-                                     collect_secondary_key, nullptr)
-                : index->Scan(range.start_key, range.end_key,
-                              collect_secondary_key, nullptr);
+        if (range.reverse_scan) {
+          index->ScanReverse(range.start_key, range.end_key,
+                             collect_secondary_key, nullptr);
+        } else {
+          index->Scan(range.start_key, range.end_key, collect_secondary_key,
+                      nullptr);
+        }
         if (aborted) return false;
-        return scan_result.has_value() && matches &&
-               result_pos == range.result_keys.size() &&
+        return matches && result_pos == range.result_keys.size() &&
                result_pos == range.result_primary_keys.size();
       };
 
@@ -551,7 +555,7 @@ bool Commit(TableDictionary& tables, std::shared_mutex& schema_mutex,
     size_t installed = 0;
     for (auto& write : resolved_writes) {
       if (installed > 0) {
-        LINEAIRDB_DEBUG_SYNC("stateless_commit.between_row_installs");
+        LINEAIRDB_DEBUG_SYNC("silo_commit.between_row_installs");
       }
       if (write.is_delete) {
         write.item->Reset(nullptr, 0);
@@ -593,7 +597,7 @@ bool Commit(TableDictionary& tables, std::shared_mutex& schema_mutex,
   // Phase 3.2: build the log snapshot before unlock so a later transaction
   // cannot overwrite the values we just logged.
   WriteSetType log_set;
-  if (config.enable_logging) {
+  if (policy != Config::CommitDurability::Volatile) {
     log_set.reserve(resolved_writes.size() + resolved_si_ops.size());
 
     for (const auto& write : resolved_writes) {
@@ -675,12 +679,12 @@ bool Commit(TableDictionary& tables, std::shared_mutex& schema_mutex,
       log_enqueued &&
       logger.GetCommitDurability() == Config::CommitDurability::Sync;
 
-  LINEAIRDB_DEBUG_SYNC("stateless_commit.before_offline");
+  LINEAIRDB_DEBUG_SYNC("silo_commit.before_offline");
   epoch_framework.MakeMeOffline();
 
   logger.AwaitCommitDurability(current_epoch, awaits_durability);
   return true;
 }
 
-}  // namespace Stateless
+}  // namespace Silo
 }  // namespace LineairDB

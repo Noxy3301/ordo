@@ -1,5 +1,5 @@
-#ifndef LINEAIRDB_STATELESS_COMMIT_H
-#define LINEAIRDB_STATELESS_COMMIT_H
+#ifndef LINEAIRDB_SILO_COMMIT_H
+#define LINEAIRDB_SILO_COMMIT_H
 
 #include <lineairdb/config.h>
 #include <lineairdb/stateless.h>
@@ -21,7 +21,18 @@ namespace Index {
 class Reaper;
 }
 
-namespace Stateless {
+namespace Silo {
+
+/**
+ * @brief One transaction's request: what it observed and what it wants
+ * installed. A call-site view; it does not own the vectors.
+ */
+struct CommitPayload {
+  const std::vector<ExternalReadEntry>& reads;
+  const std::vector<ExternalWriteEntry>& writes;
+  const std::vector<ExternalSecondaryIndexEntry>& secondary_index_ops;
+  const std::vector<ExternalRangeReadEntry>& range_reads;
+};
 
 /**
  * @brief Run the Silo commit protocol for a transaction whose read and
@@ -64,6 +75,11 @@ namespace Stateless {
  * per-transaction state that could pin such a pointer across the RPC
  * boundary, so its lifetime cannot be guaranteed.
  *
+ * @param policy The durability contract this commit is written under.
+ * Volatile writes no log. Whether an acknowledgement waits for the device
+ * is still read from the logger at step 3.5, while the committing thread
+ * is online at its commit epoch, because SetCommitDurability's barrier
+ * argument rests on that read point.
  * @param[out] abort_reason When non-null and the attempt aborts,
  * receives a short label naming the failed check, such as
  * `exact_read_tid_moved`, `primary_range_result_changed`,
@@ -73,14 +89,10 @@ namespace Stateless {
  */
 bool Commit(TableDictionary& tables, std::shared_mutex& schema_mutex,
             EpochFramework& epoch_framework, Index::Reaper& reaper,
-            Recovery::Logger& logger, const Config& config,
-            const std::vector<ExternalReadEntry>& reads,
-            const std::vector<ExternalWriteEntry>& writes,
-            const std::vector<ExternalSecondaryIndexEntry>& secondary_index_ops,
-            const std::vector<ExternalRangeReadEntry>& range_reads,
-            std::string* abort_reason);
+            Recovery::Logger& logger, const CommitPayload& payload,
+            Config::CommitDurability policy, std::string* abort_reason);
 
-}  // namespace Stateless
+}  // namespace Silo
 }  // namespace LineairDB
 
-#endif  // LINEAIRDB_STATELESS_COMMIT_H
+#endif  // LINEAIRDB_SILO_COMMIT_H

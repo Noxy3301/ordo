@@ -1,5 +1,5 @@
-#ifndef LINEAIRDB_STATELESS_READ_H
-#define LINEAIRDB_STATELESS_READ_H
+#ifndef LINEAIRDB_SILO_READ_H
+#define LINEAIRDB_SILO_READ_H
 
 #include <lineairdb/stateless.h>
 
@@ -23,7 +23,7 @@ class TableDictionary;
  * returned packed TIDs are the read-set evidence the caller later submits
  * through ValidateAndCommit.
  */
-namespace Stateless {
+namespace Silo {
 
 /**
  * @brief Read one row without opening a Transaction.
@@ -101,7 +101,7 @@ StatelessSecondaryRangeScanResult SecondaryRangeScan(
     bool reverse_scan,
     const std::vector<uint32_t>* selected_columns = nullptr);
 
-}  // namespace Stateless
+}  // namespace Silo
 }  // namespace LineairDB
 
-#endif  // LINEAIRDB_STATELESS_READ_H
+#endif  // LINEAIRDB_SILO_READ_H

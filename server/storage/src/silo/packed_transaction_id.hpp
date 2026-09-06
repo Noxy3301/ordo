@@ -1,5 +1,5 @@
-#ifndef LINEAIRDB_STATELESS_PACKED_TRANSACTION_ID_HPP
-#define LINEAIRDB_STATELESS_PACKED_TRANSACTION_ID_HPP
+#ifndef LINEAIRDB_SILO_PACKED_TRANSACTION_ID_HPP
+#define LINEAIRDB_SILO_PACKED_TRANSACTION_ID_HPP
 
 #include <cstdint>
 
@@ -7,11 +7,11 @@
 #include "types/transaction_id.hpp"
 
 namespace LineairDB {
-namespace Stateless {
+namespace Silo {
 
 /**
  * @brief Pack a {epoch, tid} pair into one uint64_t so it can travel over
- * the stateless RPC as an opaque version token.
+ * the RPC as an opaque version token.
  */
 inline uint64_t PackTransactionId(const TransactionId& tid) {
   return (static_cast<uint64_t>(tid.epoch) << 32) |
@@ -29,7 +29,7 @@ inline TransactionId UnpackTransactionId(uint64_t packed) {
           static_cast<uint32_t>(packed & 0xffffffffu)};
 }
 
-}  // namespace Stateless
+}  // namespace Silo
 }  // namespace LineairDB
 
-#endif  // LINEAIRDB_STATELESS_PACKED_TRANSACTION_ID_HPP
+#endif  // LINEAIRDB_SILO_PACKED_TRANSACTION_ID_HPP

@@ -502,7 +502,7 @@ TEST_F(EpochScanCheckpointTest, ARowLockedDuringTheScanIsRetried) {
   Arm("LINEAIRDB_DEBUG_SYNC_CHECKPOINT_BEFORE_ROW_COPY",
       "arrive_and_wait:" + std::to_string(scan_arrived.write_fd()) + ":" +
           std::to_string(scan_release.read_fd()));
-  Arm("LINEAIRDB_DEBUG_SYNC_STATELESS_COMMIT_BETWEEN_ROW_INSTALLS",
+  Arm("LINEAIRDB_DEBUG_SYNC_SILO_COMMIT_BETWEEN_ROW_INSTALLS",
       "arrive_and_wait:" + std::to_string(write_arrived.write_fd()) + ":" +
           std::to_string(write_release.read_fd()));
 

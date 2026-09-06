@@ -1,5 +1,5 @@
-#ifndef LINEAIRDB_CONCURRENCY_CONTROL_STABLE_READ_HPP
-#define LINEAIRDB_CONCURRENCY_CONTROL_STABLE_READ_HPP
+#ifndef LINEAIRDB_SILO_STABLE_READ_HPP
+#define LINEAIRDB_SILO_STABLE_READ_HPP
 
 #include <string>
 #include <string_view>
@@ -147,4 +147,4 @@ inline StablePrimaryKeys StableReadPrimaryKeys(const DataItem& item) {
 }  // namespace ConcurrencyControl
 }  // namespace LineairDB
 
-#endif  // LINEAIRDB_CONCURRENCY_CONTROL_STABLE_READ_HPP
+#endif  // LINEAIRDB_SILO_STABLE_READ_HPP

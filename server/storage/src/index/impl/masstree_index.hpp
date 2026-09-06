@@ -32,19 +32,19 @@ class MasstreeIndex final : public IndexBase {
   void ForcePutBlankEntry(std::string_view key,
                           NodeVersionUpdate* out_update = nullptr) override;
 
-  std::optional<size_t> Scan(
+  size_t Scan(
       std::string_view begin, std::optional<std::string_view> end,
       std::function<bool(std::string_view)> operation,
       std::vector<NodeVersionEntry>* out_versions = nullptr) override;
-  std::optional<size_t> Scan(
+  size_t Scan(
       std::string_view begin, std::string_view end,
       std::function<bool(std::string_view, DataItem&)> operation,
       std::vector<NodeVersionEntry>* out_versions = nullptr) override;
-  std::optional<size_t> ScanReverse(
+  size_t ScanReverse(
       std::string_view begin, std::optional<std::string_view> end,
       std::function<bool(std::string_view)> operation,
       std::vector<NodeVersionEntry>* out_versions = nullptr) override;
-  std::optional<size_t> ScanReverse(
+  size_t ScanReverse(
       std::string_view begin, std::string_view end,
       std::function<bool(std::string_view, DataItem&)> operation,
       std::vector<NodeVersionEntry>* out_versions = nullptr) override;

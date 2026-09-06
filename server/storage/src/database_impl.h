@@ -42,12 +42,12 @@
 #include "pax/version_store.hpp"
 #include "recovery/epoch_scan_checkpoint.h"
 #include "recovery/flush_trace.h"
-#include "concurrency_control/stable_read.hpp"
+#include "silo/stable_read.hpp"
 #include "index/reaper.h"
 #include "recovery/logger.h"
-#include "stateless/commit.h"
-#include "stateless/packed_transaction_id.hpp"
-#include "stateless/read.h"
+#include "silo/commit.h"
+#include "silo/packed_transaction_id.hpp"
+#include "silo/read.h"
 #include "table/table.h"
 #include "table/table_dictionary.hpp"
 #include "types/snapshot.hpp"
@@ -57,6 +57,9 @@
 #include "util/logger.hpp"
 
 namespace LineairDB {
+
+// The concurrency control this database runs.
+
 class Database::Impl {
  public:
   inline static Database::Impl* CurrentDBInstance;
@@ -374,20 +377,20 @@ class Database::Impl {
   StatelessReadResult StatelessRead(
       const std::string_view table_name, const std::string_view key,
       const std::vector<uint32_t>* selected_columns = nullptr) {
-    return Stateless::Read(table_dictionary_, schema_mutex_, table_name, key,
+    return Silo::Read(table_dictionary_, schema_mutex_, table_name, key,
                            selected_columns);
   }
 
   std::vector<StatelessReadResult> StatelessBatchRead(
       const std::vector<std::pair<std::string, std::string>>& keys) {
-    return Stateless::BatchRead(table_dictionary_, schema_mutex_, keys);
+    return Silo::BatchRead(table_dictionary_, schema_mutex_, keys);
   }
 
   StatelessRangeScanResult StatelessRangeScan(
       const std::string_view table_name, const std::string_view start_key,
       const std::string_view end_key, uint64_t row_limit, bool reverse_scan,
       const std::vector<uint32_t>* selected_columns = nullptr) {
-    return Stateless::RangeScan(table_dictionary_, schema_mutex_, table_name,
+    return Silo::RangeScan(table_dictionary_, schema_mutex_, table_name,
                                 start_key, end_key, row_limit, reverse_scan,
                                 selected_columns);
   }
@@ -395,7 +398,7 @@ class Database::Impl {
   StatelessPaxRowRefScanResult StatelessPaxRowRefScan(
       const std::string_view table_name, const std::string_view start_key,
       const std::string_view end_key, uint64_t row_limit, bool reverse_scan) {
-    return Stateless::PaxRowRefScan(table_dictionary_, schema_mutex_, table_name,
+    return Silo::PaxRowRefScan(table_dictionary_, schema_mutex_, table_name,
                                  start_key, end_key, row_limit, reverse_scan);
   }
 
@@ -404,7 +407,7 @@ class Database::Impl {
       const std::string_view start_key, const std::string_view end_key,
       uint64_t row_limit, bool reverse_scan,
       const std::vector<uint32_t>* selected_columns = nullptr) {
-    return Stateless::SecondaryRangeScan(
+    return Silo::SecondaryRangeScan(
         table_dictionary_, schema_mutex_, table_name, index_name, start_key,
         end_key, row_limit, reverse_scan, selected_columns);
   }
@@ -500,14 +503,13 @@ class Database::Impl {
 
     if (index_name.empty()) {
       // Primary index entries are base rows, so count live rows directly.
-      auto scan_result = primary_index.Scan(
+      primary_index.Scan(
           std::string_view(), std::string_view(kFullScanEnd),
           [&](std::string_view key, DataItem& item) -> bool {
             if (!stable_live_base(item)) return false;
             return count_key(key);
           },
           nullptr);
-      if (!scan_result.has_value()) ok = false;
     } else {
       Index::SecondaryIndex* index =
           table.value()->GetSecondaryIndex(index_name);
@@ -540,7 +542,7 @@ class Database::Impl {
         return false;
       };
 
-      auto scan_result = index->Scan(
+      index->Scan(
           std::string_view(), std::string_view(kFullScanEnd),
           [&](std::string_view key) -> bool {
             DataItem* item = index->Get(key);
@@ -550,7 +552,6 @@ class Database::Impl {
             return count_key(key);
           },
           nullptr);
-      if (!scan_result.has_value()) ok = false;
     }
 
     if (!ok) {
@@ -709,10 +710,11 @@ class Database::Impl {
       const std::vector<ExternalSecondaryIndexEntry>& secondary_index_ops,
       const std::vector<ExternalRangeReadEntry>& range_reads,
       std::string* abort_reason = nullptr) {
-    return Stateless::Commit(table_dictionary_, schema_mutex_,
-                             epoch_framework_, reaper_, logger_, config_,
-                             reads, writes, secondary_index_ops, range_reads,
-                             abort_reason);
+    const Silo::CommitPayload payload{reads, writes, secondary_index_ops,
+                                    range_reads};
+    return Silo::Commit(table_dictionary_, schema_mutex_, epoch_framework_,
+                      reaper_, logger_, payload, GetCommitDurability(),
+                      abort_reason);
   }
 
   std::optional<Table*> GetTable(const std::string_view table_name) {

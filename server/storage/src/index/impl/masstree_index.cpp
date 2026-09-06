@@ -9,7 +9,9 @@
 
 // Masstree headers. Must come after the PImpl header guard so other LDB
 // sources never see them; masstree's include path is PRIVATE to LDB and
-// therefore unreachable from public headers and tests.
+// therefore unreachable from public headers and tests. config.h defines the
+// macros compiler.hh reads, so this block is not sortable.
+// clang-format off
 #include "config.h"
 #include "compiler.hh"
 #include "kvthread.hh"
@@ -19,6 +21,7 @@
 #include "masstree_scan.hh"
 #include "masstree_tcursor.hh"
 #include "string.hh"
+// clang-format on
 
 // Globals required by masstree-beta. masstree's kvthread.cc references these
 // as externs; exactly one translation unit must define them. Types must
@@ -422,7 +425,7 @@ struct MasstreeIndex::Impl {
     lp.finish(found ? 0 : 1, *tls_ti);
   }
 
-  std::optional<size_t> Scan(
+  size_t Scan(
       std::string_view begin, std::optional<std::string_view> end,
       std::function<bool(std::string_view)> op, IndexBase* owner,
       std::vector<NodeVersionEntry>* out_versions) {
@@ -439,7 +442,7 @@ struct MasstreeIndex::Impl {
     return adapter.count;
   }
 
-  std::optional<size_t> Scan(
+  size_t Scan(
       std::string_view begin, std::string_view end,
       std::function<bool(std::string_view, DataItem&)> op,
       IndexBase* owner,
@@ -457,7 +460,7 @@ struct MasstreeIndex::Impl {
     return adapter.count;
   }
 
-  std::optional<size_t> ScanReverse(
+  size_t ScanReverse(
       std::string_view begin, std::optional<std::string_view> end,
       std::function<bool(std::string_view)> op, IndexBase* owner,
       std::vector<NodeVersionEntry>* out_versions) {
@@ -494,7 +497,7 @@ struct MasstreeIndex::Impl {
     return adapter.count;
   }
 
-  std::optional<size_t> ScanReverse(
+  size_t ScanReverse(
       std::string_view begin, std::string_view end,
       std::function<bool(std::string_view, DataItem&)> op,
       IndexBase* owner,
@@ -600,21 +603,21 @@ void MasstreeIndex::ForcePutBlankEntry(std::string_view key,
   if (out_update != nullptr && out_update->valid) out_update->owner = this;
 }
 
-std::optional<size_t> MasstreeIndex::Scan(
+size_t MasstreeIndex::Scan(
     std::string_view begin, std::optional<std::string_view> end,
     std::function<bool(std::string_view)> operation,
     std::vector<NodeVersionEntry>* out_versions) {
   return impl_->Scan(begin, end, std::move(operation), this, out_versions);
 }
 
-std::optional<size_t> MasstreeIndex::Scan(
+size_t MasstreeIndex::Scan(
     std::string_view begin, std::string_view end,
     std::function<bool(std::string_view, DataItem&)> operation,
     std::vector<NodeVersionEntry>* out_versions) {
   return impl_->Scan(begin, end, std::move(operation), this, out_versions);
 }
 
-std::optional<size_t> MasstreeIndex::ScanReverse(
+size_t MasstreeIndex::ScanReverse(
     std::string_view begin, std::optional<std::string_view> end,
     std::function<bool(std::string_view)> operation,
     std::vector<NodeVersionEntry>* out_versions) {
@@ -622,7 +625,7 @@ std::optional<size_t> MasstreeIndex::ScanReverse(
                             out_versions);
 }
 
-std::optional<size_t> MasstreeIndex::ScanReverse(
+size_t MasstreeIndex::ScanReverse(
     std::string_view begin, std::string_view end,
     std::function<bool(std::string_view, DataItem&)> operation,
     std::vector<NodeVersionEntry>* out_versions) {

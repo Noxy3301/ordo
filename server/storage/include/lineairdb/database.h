@@ -367,7 +367,7 @@ class Database {
    * key to its record, lock the write set, validate the reads (point
    * TIDs, range replays, UNIQUE rechecks), then install the writes,
    * append the log set, and unlock with a new TID. The full contract
-   * lives with Stateless::Commit.
+   * lives with Silo::Commit.
    *
    * Aborts return false. The optional `abort_reason` is set to a short
    * machine-readable label such as `exact_read_tid_moved`,

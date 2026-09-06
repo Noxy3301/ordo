@@ -22,7 +22,6 @@
 #include <atomic>
 #include <cassert>
 #include <cstddef>
-#include <cstdlib>
 #include <cstring>
 #include <memory>
 #include <msgpack.hpp>
@@ -30,12 +29,9 @@
 #include <type_traits>
 #include <vector>
 
-#include "concurrency_control/pivot_object.hpp"
 #include "data_buffer.hpp"
-#include "lock/impl/readers_writers_lock.hpp"
 #include "packed_primary_keys.hpp"
 #include "types/transaction_id.hpp"
-#include "util/logger.hpp"
 
 namespace LineairDB {
 
@@ -43,21 +39,6 @@ struct DataItem {
   std::atomic<TransactionId> transaction_id;
   DataBuffer buffer;
   std::shared_ptr<const PackedPrimaryKeys> primary_keys_;
-
-#ifdef LINEAIRDB_WITH_NWR
-  std::atomic<NWRPivotObject> pivot_object;         // for NWR
-#else
-  // Compile NWR/2PL sources without carrying one pivot object per record.
-  // Startup rejects NWR when this process-wide dummy would be used.
-  static inline std::atomic<NWRPivotObject> pivot_object{};
-#endif
-#ifdef LINEAIRDB_WITH_2PL_CHECKPOINT_METADATA
-  Lock::ReadersWritersLockBO readers_writers_lock;  // for 2PL
-#else
-  // Slim layout for plain Silo.
-  // Startup rejects configs that would use this process-wide dummy.
-  static inline Lock::ReadersWritersLockBO readers_writers_lock{};
-#endif
 
   // Direct byte access is invalid for PAX-resident rows (no contiguous
   // bytes); those callers must go through DataBuffer::GatherInto / copies.
@@ -77,19 +58,6 @@ struct DataItem {
   }
   bool IsPrimaryInitialized() const { return buffer.size != 0; }
 
- private:
-#ifndef LINEAIRDB_WITH_2PL_CHECKPOINT_METADATA
-  [[noreturn]] static void AbortFullDataItemLayoutRequired(
-      const char* feature) {
-    SPDLOG_ERROR(
-        "{} requires the full DataItem layout. Rebuild with "
-        "-DLINEAIRDB_WITH_2PL_CHECKPOINT_METADATA.",
-        feature);
-    std::abort();
-  }
-#endif
-
- public:
   PackedPrimaryKeysView primary_keys_view() const {
     return PackedPrimaryKeysView(primary_keys_);
   }
@@ -115,21 +83,10 @@ struct DataItem {
     std::atomic_store(&primary_keys_, std::move(packed));
   }
 
-  DataItem()
-      : transaction_id(0)
-#ifdef LINEAIRDB_WITH_NWR
-        ,
-        pivot_object(NWRPivotObject())
-#endif
-  {}
+  DataItem() : transaction_id(0) {}
   DataItem(const DataItem& rhs)
       : transaction_id(rhs.transaction_id.load()),
-        primary_keys_(std::atomic_load(&rhs.primary_keys_))
-#ifdef LINEAIRDB_WITH_NWR
-        ,
-        pivot_object(NWRPivotObject())
-#endif
-  {
+        primary_keys_(std::atomic_load(&rhs.primary_keys_)) {
     buffer.Reset(rhs.buffer);
     /* if (rhs.sec_idx_buffers) {
       sec_idx_buffers =
@@ -155,20 +112,12 @@ struct DataItem {
   DataItem(DataItem&& rhs) noexcept
       : transaction_id(rhs.transaction_id.load()),
         buffer(std::move(rhs.buffer)),
-        primary_keys_(std::move(rhs.primary_keys_))
-#ifdef LINEAIRDB_WITH_NWR
-        ,
-        pivot_object(rhs.pivot_object.load())
-#endif
-  {}
+        primary_keys_(std::move(rhs.primary_keys_)) {}
 
   DataItem& operator=(DataItem&& rhs) noexcept {
     transaction_id.store(rhs.transaction_id.load());
     buffer = std::move(rhs.buffer);
     std::atomic_store(&primary_keys_, std::move(rhs.primary_keys_));
-#ifdef LINEAIRDB_WITH_NWR
-    pivot_object.store(rhs.pivot_object.load());
-#endif
     return *this;
   }
 
@@ -203,22 +152,9 @@ struct DataItem {
                                 return !(lhs < rhs);
                               }) == keys.end();
   }
-
- public:
-
-  decltype(readers_writers_lock)& GetRWLockRef() {
-#ifndef LINEAIRDB_WITH_2PL_CHECKPOINT_METADATA
-    AbortFullDataItemLayoutRequired("2PL row lock");
-#else
-    return readers_writers_lock;
-#endif
-  };
 };
 
-#if !defined(LINEAIRDB_WITH_2PL_CHECKPOINT_METADATA) && \
-    !defined(LINEAIRDB_WITH_NWR)
 static_assert(sizeof(DataItem) == 48,
               "DataItem must remain 48 bytes in the slim layout");
-#endif
 }  // namespace LineairDB
 #endif /* LINEAIRDB_DATA_ITEM_HPP */

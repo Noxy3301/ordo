@@ -202,7 +202,5 @@ class Transaction::Impl {
   Table* current_table_;
 };
 
-void* GetCurrentTransactionContext();
-
 }  // namespace LineairDB
 #endif /* LINEAIRDB_TRANSACTION_IMPL_H */

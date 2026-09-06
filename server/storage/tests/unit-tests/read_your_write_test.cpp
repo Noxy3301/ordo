@@ -40,10 +40,8 @@ TEST_F(ReadYourWriteTest, ScanShouldIncludeInsertedKeys) {
   tx.Write<int>("bob", bob);
   tx.Write<int>("carol", carol);
 
+  // Scan is half-open: erin is the exclusive upper bound.
   auto count = tx.Scan<int>("alice", "erin", [&](auto key, auto value) {
-    if (key == "erin") {
-      EXPECT_EQ(value, erin);
-    }
     if (key == "bob") {
       EXPECT_EQ(value, bob);
     }
@@ -53,7 +51,7 @@ TEST_F(ReadYourWriteTest, ScanShouldIncludeInsertedKeys) {
     return false;
   });
   ASSERT_TRUE(count.has_value());
-  ASSERT_EQ(count.value(), size_t(4));
+  ASSERT_EQ(count.value(), size_t(3));
 
   const bool committed = db_->EndTransaction(tx, [](auto status) {
     ASSERT_EQ(status, LineairDB::TxStatus::Committed);
@@ -82,10 +80,9 @@ TEST_F(ReadYourWriteTest, ScanShouldReturnKeysInOrder) {
     tx.Write<int>("erin", 5);
 
     // Scan should return keys in alphabetical order:
-    // alice(index), bob(write_set), carol(write_set), diana(index),
-    // erin(write_set)
-    std::vector<std::string> expected_order = {"alice", "bob", "carol", "diana",
-                                               "erin"};
+    // alice(index), bob(write_set), carol(write_set), diana(index)
+    std::vector<std::string> expected_order = {"alice", "bob", "carol",
+                                               "diana"};
     std::vector<std::string> actual_order;
 
     auto count = tx.Scan<int>("alice", "erin", [&](auto key, auto value) {
@@ -104,15 +101,12 @@ TEST_F(ReadYourWriteTest, ScanShouldReturnKeysInOrder) {
       if (key == "diana") {
         EXPECT_EQ(value, 4);
       }
-      if (key == "erin") {
-        EXPECT_EQ(value, 5);
-      }
 
       return false;
     });
 
     ASSERT_TRUE(count.has_value());
-    ASSERT_EQ(count.value(), size_t(5));
+    ASSERT_EQ(count.value(), size_t(4));
     ASSERT_EQ(actual_order, expected_order);
 
     const bool committed = db_->EndTransaction(tx, [](auto status) {

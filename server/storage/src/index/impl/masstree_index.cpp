@@ -399,10 +399,9 @@ struct MasstreeIndex::Impl {
     return true;
   }
 
-  // Idempotent blank insert: PL's ForcePutBlankEntry never removes, just
-  // ensures a slot exists. When `out_update` is non-null and we structurally
-  // bumped the leaf, records the version delta for Silo §4.6 own-write
-  // node-set reconciliation.
+  // Idempotent blank insert: never removes, just ensures a slot exists. When
+  // `out_update` is non-null and we structurally bumped the leaf, records the
+  // version delta for Silo §4.6 own-write node-set reconciliation.
   void ForcePutBlankEntry(std::string_view key,
                            NodeVersionUpdate* out_update = nullptr) {
     ensure_thread_active();
@@ -421,14 +420,6 @@ struct MasstreeIndex::Impl {
     }
     fence();
     lp.finish(found ? 0 : 1, *tls_ti);
-  }
-
-  bool EnsureVisibleForSecondaryWrite(
-      std::string_view key, NodeVersionUpdate* out_update = nullptr) {
-    // Single-tree Masstree has no "range-empty point-present" DELETED state,
-    // so any successful insert/idempotent-visit keeps the key observable.
-    ForcePutBlankEntry(key, out_update);
-    return true;
   }
 
   std::optional<size_t> Scan(
@@ -607,13 +598,6 @@ void MasstreeIndex::ForcePutBlankEntry(std::string_view key,
                                         NodeVersionUpdate* out_update) {
   impl_->ForcePutBlankEntry(key, out_update);
   if (out_update != nullptr && out_update->valid) out_update->owner = this;
-}
-
-bool MasstreeIndex::EnsureVisibleForSecondaryWrite(
-    std::string_view key, NodeVersionUpdate* out_update) {
-  bool ok = impl_->EnsureVisibleForSecondaryWrite(key, out_update);
-  if (out_update != nullptr && out_update->valid) out_update->owner = this;
-  return ok;
 }
 
 std::optional<size_t> MasstreeIndex::Scan(

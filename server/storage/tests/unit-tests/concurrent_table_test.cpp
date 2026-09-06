@@ -100,16 +100,17 @@ TEST(ConcurrentTableTest, Scan) {
   ASSERT_TRUE(table.Put("bob", {}));
   ASSERT_TRUE(table.Put("carol", {}));
 
+  // Scan is half-open: carol is the exclusive upper bound.
   auto count = table.Scan("alice", "carol", [](auto) { return false; });
   if (count.has_value()) {
-    ASSERT_EQ(size_t(3), count.value());
+    ASSERT_EQ(size_t(2), count.value());
   }
   epoch.Sync();
   epoch.Sync();
   auto count_synced = table.Scan("alice", "carol", [](auto) { return false; });
 
   if (count_synced.has_value()) {
-    ASSERT_EQ(size_t(3), count_synced.value());
+    ASSERT_EQ(size_t(2), count_synced.value());
   }
 
   auto count_canceled = table.Scan("alice", "carol", [](auto) { return true; });
@@ -166,8 +167,6 @@ TEST(ConcurrentTableTest, ForEachIsSafeWithRehashing) {
   std::vector<std::thread> threads;
   std::vector<LineairDB::DataItem*> items;
   LineairDB::EpochFramework epoch(1);
-  LineairDB::Config config;
-  config.rehash_threshold = 0.3;
   epoch.Start();
   LineairDB::Index::ConcurrentTable table(epoch);
 

@@ -196,9 +196,6 @@ bool Commit(TableDictionary& tables, std::shared_mutex& schema_mutex,
       } else {
         item = index->GetOrInsertForWrite(op.secondary_key);
       }
-      if (item == nullptr) {
-        return abort_before_lock("si_get_or_insert_failed");
-      }
 
       resolved_si_ops.push_back({op.table_name, op.index_name,
                                  op.secondary_key, op.primary_key,

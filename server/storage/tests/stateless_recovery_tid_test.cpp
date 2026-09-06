@@ -14,9 +14,6 @@ LineairDB::Config MakeConfig() {
   LineairDB::Config config;
   config.max_thread = 1;
   config.epoch_duration_ms = 10;
-  config.concurrency_control_protocol =
-      LineairDB::Config::ConcurrencyControl::Silo;
-  config.index_structure = LineairDB::Config::IndexStructure::Masstree;
   config.enable_recovery = true;
   config.commit_durability = LineairDB::Config::CommitDurability::Async;
   config.work_dir = "./lineairdb_stateless_recovery_tid_test_logs";

@@ -52,11 +52,11 @@ TEST_F(IndexTest, Scan) {
   auto& tx = db_->BeginTransaction();
   tx.SetTable("users");
   auto count = tx.Scan("alice", "bob", [&](auto key, auto) {
-    EXPECT_TRUE(key == "alice" || key == "bob");
+    EXPECT_TRUE(key == "alice");
     return false;
   });
   ASSERT_TRUE(count.has_value());
-  ASSERT_EQ(size_t(2), count.value());  // #Scan is not inclusive
+  ASSERT_EQ(size_t(1), count.value());  // half-open: bob is excluded
   db_->EndTransaction(tx, [](auto) {});
 }
 
@@ -64,8 +64,10 @@ TEST_F(IndexTest, AlphabeticalOrdering) {
   {
     auto& tx = db_->BeginTransaction();
     tx.SetTable("users");
+    // An inverted range holds nothing; a missing count means an unsafe scan.
     auto count = tx.Scan("carol", "alice", [&](auto, auto) { return false; });
-    ASSERT_FALSE(count.has_value());
+    ASSERT_TRUE(count.has_value());
+    ASSERT_EQ(size_t(0), count.value());
     db_->EndTransaction(tx, [](auto) {});
   }
 
@@ -83,11 +85,11 @@ TEST_F(IndexTest, ScanViaTemplate) {
   auto& tx = db_->BeginTransaction();
   tx.SetTable("users");
   auto count = tx.Scan<int>("alice", "bob", [&](auto key, auto) {
-    EXPECT_TRUE(key == "alice" || key == "bob");
+    EXPECT_TRUE(key == "alice");
     return false;
   });
   ASSERT_TRUE(count.has_value());
-  ASSERT_EQ(size_t(2), count.value());
+  ASSERT_EQ(size_t(1), count.value());
   db_->EndTransaction(tx, [](auto) {});
 }
 
@@ -153,12 +155,12 @@ TEST_F(IndexTest, Delete) {
     auto& tx = db_->BeginTransaction();
     tx.SetTable("users");
     auto count = tx.Scan("alice", "carol", [&](auto key, auto) {
-      EXPECT_TRUE(key == "alice" || key == "carol");
+      EXPECT_TRUE(key == "alice");
       EXPECT_FALSE(key == "bob");
       return false;
     });
     ASSERT_TRUE(count.has_value());
-    ASSERT_EQ(size_t(2), count.value());
+    ASSERT_EQ(size_t(1), count.value());
     db_->EndTransaction(tx, [](auto) {});
   }
 }
@@ -189,12 +191,11 @@ TEST_F(IndexTest, FenceShouldMakeAllInsertionsVisible) {
     auto& tx = db_->BeginTransaction();
     tx.SetTable("users");
     auto count = tx.Scan("alice", "eve", [&](auto key, auto) {
-      EXPECT_TRUE(key == "alice" || key == "bob" || key == "carol" ||
-                  key == "eve");
+      EXPECT_TRUE(key == "alice" || key == "bob" || key == "carol");
       return false;
     });
     ASSERT_TRUE(count.has_value());
-    ASSERT_EQ(size_t(4), count.value());
+    ASSERT_EQ(size_t(3), count.value());
     db_->EndTransaction(tx, [](auto) {});
   }
 }

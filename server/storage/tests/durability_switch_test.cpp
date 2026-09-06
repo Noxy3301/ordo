@@ -32,9 +32,6 @@ class DurabilitySwitchTest : public ::testing::Test {
     config_.max_thread = 4;
     // The combination the server runs; the defaults need build options this
     // tree does not set.
-    config_.concurrency_control_protocol =
-        LineairDB::Config::ConcurrencyControl::Silo;
-    config_.index_structure = LineairDB::Config::IndexStructure::Masstree;
     config_.commit_durability = LineairDB::Config::CommitDurability::Async;
     config_.enable_recovery = true;
   }

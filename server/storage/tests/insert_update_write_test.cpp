@@ -289,11 +289,6 @@ TEST(InsertUpdateWriteTest, InsertThenUpdateSameTransaction) {
 TEST(InsertUpdateWriteTest, DeleteThenInsertSameTransaction) {
   LineairDB::Config config;
   config.enable_recovery = false;
-  // The default protocol needs the NWR pivot metadata this build omits, and
-  // the range-index backend cannot serve a re-inserted key at all: reading one
-  // back never returns, with or without this transaction shape.
-  config.concurrency_control_protocol = LineairDB::Config::ConcurrencyControl::Silo;
-  config.index_structure = LineairDB::Config::IndexStructure::Masstree;
   LineairDB::Database db(config);
 
   std::string key = "delete_then_insert_key";
@@ -354,8 +349,6 @@ TEST(InsertUpdateWriteTest, DeleteThenInsertSameTransaction) {
 TEST(InsertUpdateWriteTest, InsertAfterTombstoneIsPurged) {
   LineairDB::Config config;
   config.enable_recovery = false;
-  config.concurrency_control_protocol = LineairDB::Config::ConcurrencyControl::Silo;
-  config.index_structure = LineairDB::Config::IndexStructure::Masstree;
   LineairDB::Database db(config);
 
   std::string key = "purged_then_reinserted_key";

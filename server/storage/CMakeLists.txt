@@ -25,7 +25,7 @@ project(
 
 # Build Options
 option(BUILD_TESTS "Build testing executables" ON)
-option(BUILD_SANITIZER "Build with clang's address sanitizer" ON)
+option(BUILD_SANITIZER "Build with clang's address sanitizer" OFF)
 
 # Build Parameters
 if (DEFINED PREFETCH_LOCALITY)

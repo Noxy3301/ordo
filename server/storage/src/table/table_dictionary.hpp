@@ -2,7 +2,7 @@
 
 #include <string>
 
-#include "index/precision_locking_index/point_index/mpmc_concurrent_set_impl.hpp"
+#include "util/mpmc_concurrent_set.hpp"
 #include "table/table.h"
 
 namespace LineairDB {

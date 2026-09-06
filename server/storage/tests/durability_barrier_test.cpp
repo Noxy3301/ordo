@@ -105,9 +105,6 @@ LineairDB::Config BarrierConfig() {
   config.work_dir = kWorkDir;
   config.max_thread = 4;
   config.epoch_duration_ms = 40;
-  config.concurrency_control_protocol =
-      LineairDB::Config::ConcurrencyControl::Silo;
-  config.index_structure = LineairDB::Config::IndexStructure::Masstree;
   config.commit_durability = LineairDB::Config::CommitDurability::Async;
   config.enable_recovery = false;
   return config;

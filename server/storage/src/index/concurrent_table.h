@@ -70,10 +70,8 @@ class ConcurrentTable {
   bool Insert(const std::string_view key,
               NodeVersionUpdate* out_update = nullptr);
 
-  // Make an existing key observable through the range index again, for a
-  // backend that removes it on Delete. No-op on a single-tree index.
-  bool EnsureVisibleForSecondaryWrite(const std::string_view key,
-                                      NodeVersionUpdate* out_update = nullptr);
+  void ForcePutBlankEntry(const std::string_view key,
+                          NodeVersionUpdate* out_update = nullptr);
 
   bool Delete(const std::string_view key);
 

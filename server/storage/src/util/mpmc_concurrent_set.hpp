@@ -14,8 +14,8 @@
  *   limitations under the License.
  */
 
-#ifndef LINEAIRDB_MPMC_CONCURRENT_SET_IMPL_H
-#define LINEAIRDB_MPMC_CONCURRENT_SET_IMPL_H
+#ifndef LINEAIRDB_MPMC_CONCURRENT_SET_H
+#define LINEAIRDB_MPMC_CONCURRENT_SET_H
 
 #include <atomic>
 #include <cassert>
@@ -362,4 +362,4 @@ void MPMCConcurrentSetImpl<T>::ForEach(
 }  // namespace Index
 }  // namespace LineairDB
 
-#endif /* LINEAIRDB_MPMC_CONCURRENT_SET_IMPL_H */
+#endif /* LINEAIRDB_MPMC_CONCURRENT_SET_H */

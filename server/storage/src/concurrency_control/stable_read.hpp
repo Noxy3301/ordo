@@ -18,7 +18,7 @@ namespace ConcurrencyControl {
  * implementation): load the TID, yield while the lock bit (LSB) is set,
  * copy the payload, then re-load the TID and retry until it has not moved.
  *
- * SiloNWR::Read and ReadDirect run the same loop inline; these helpers
+ * Silo::Read and ReadDirect run the same loop inline; these helpers
  * serve callers that need the copy without a transaction. The returned TID
  * is the version the copy is consistent with.
  */

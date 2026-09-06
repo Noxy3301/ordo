@@ -263,12 +263,6 @@ bool EpochScanCheckpoint::Supported() const {
         "recovery, and this durability contract writes no log");
     return false;
   }
-  if (config_.index_structure != Config::IndexStructure::Masstree) {
-    SPDLOG_WARN(
-        "No checkpoint image is written: the scan walks the index with the "
-        "Masstree backend's iteration contract");
-    return false;
-  }
   return true;
 }
 

@@ -26,8 +26,7 @@
 #include <utility>
 
 #include "concurrency_control/concurrency_control_base.h"
-#include "concurrency_control/impl/silo_nwr.hpp"
-#include "concurrency_control/impl/two_phase_locking.hpp"
+#include "concurrency_control/impl/silo.hpp"
 #include "database_impl.h"
 #include "types/snapshot.hpp"
 #include "util/debug_sync.hpp"
@@ -35,13 +34,6 @@
 namespace LineairDB {
 
 namespace {
-thread_local void* current_transaction_context = nullptr;
-// Upper 32 bits: thread identity, lower 32 bits: per-thread sequence.
-// Wraparound is safe because old transactions have already completed.
-thread_local uint64_t tx_context_thread_tag =
-    (std::hash<std::thread::id>{}(std::this_thread::get_id()) & 0xFFFFFFFF) << 32;
-thread_local uint64_t tx_context_seq = 0;
-
 // Above this many entries, a set lookup builds and uses a hash index instead
 // of scanning. Below it the scan is cheaper and allocates nothing.
 constexpr size_t kSetIndexThreshold = 64;
@@ -174,16 +166,11 @@ bool MaybeDeleteEmptyUniqueSecondaryIndex(
 }
 }
 
-void* GetCurrentTransactionContext() { return current_transaction_context; }
-
 Transaction::Impl::Impl(Database::Impl* db_pimpl) noexcept
     : current_status_(TxStatus::Running),
       db_pimpl_(db_pimpl),
       config_ptr_(&db_pimpl_->GetConfig()),
       current_table_(nullptr) {
-  current_transaction_context =
-      reinterpret_cast<void*>(tx_context_thread_tag | (++tx_context_seq & 0xFFFFFFFF));
-
   auto register_deferred_purge = [this](const Snapshot& snapshot,
                                         TransactionId delete_commit_tid) {
     db_pimpl_->RegisterDeferredPurge(snapshot, delete_commit_tid);
@@ -195,30 +182,11 @@ Transaction::Impl::Impl(Database::Impl* db_pimpl) noexcept
   // Here we allocate one (derived) concurrency control instance per
   // transactions. It may be worse on performance because of heap
   // memory allocation. Need to re-implement with composition or templates.
-  switch (config_ptr_->concurrency_control_protocol) {
-    case Config::ConcurrencyControl::SiloNWR:
-      concurrency_control_ = std::make_unique<ConcurrencyControl::SiloNWR>(
-          std::move(tx));
-      break;
-    case Config::ConcurrencyControl::Silo:
-      concurrency_control_ = std::make_unique<ConcurrencyControl::Silo>(
-          std::move(tx));
-      break;
-    case Config::ConcurrencyControl::TwoPhaseLocking:
-      concurrency_control_ =
-          std::make_unique<ConcurrencyControl::TwoPhaseLocking>(
-              std::move(tx));
-      break;
-
-    default:
-      concurrency_control_ = std::make_unique<ConcurrencyControl::SiloNWR>(
-          std::move(tx));
-
-      break;
-  }
+  concurrency_control_ =
+      std::make_unique<ConcurrencyControl::Silo>(std::move(tx));
 }
 
-Transaction::Impl::~Impl() noexcept { current_transaction_context = nullptr; }
+Transaction::Impl::~Impl() noexcept {}
 
 void Transaction::Impl::ReconcileOwnInsertWithNodeVersionSet(
     const Index::NodeVersionUpdate& update) {
@@ -253,11 +221,6 @@ void Transaction::Impl::Reset(Database::Impl* db_pimpl) {
   db_pimpl_ = db_pimpl;
   config_ptr_ = &db_pimpl_->GetConfig();
   current_table_ = nullptr;
-  // Generate a unique tx_context per transaction so that PrecisionLocking
-  // can distinguish successive transactions on the same thread.
-  // Upper 32 bits: thread identity, lower 32 bits: per-thread sequence.
-  current_transaction_context =
-      reinterpret_cast<void*>(tx_context_thread_tag | (++tx_context_seq & 0xFFFFFFFF));
   read_set_.clear();
   write_set_.clear();
   read_index_ = {};
@@ -467,10 +430,6 @@ void Transaction::Impl::WriteSecondaryIndex(
   // existing key
   Index::NodeVersionUpdate si_own_insert;
   DataItem* index_leaf = index->GetOrInsertForWrite(key, &si_own_insert);
-  if (index_leaf == nullptr) {
-    Abort();
-    return;
-  }
   ReconcileOwnInsertWithNodeVersionSet(si_own_insert);
   if (IsAborted()) return;
 
@@ -561,14 +520,8 @@ void Transaction::Impl::Insert(const std::string_view key,
       refuse();
       return;
     }
-    // Delete removed the key from the range index; make it visible again.
-    // No-op on Masstree.
     Index::NodeVersionUpdate own_revisit;
-    if (!current_table_->GetPrimaryIndex().EnsureVisibleForSecondaryWrite(
-            key, &own_revisit)) {
-      Abort();
-      return;
-    }
+    current_table_->GetPrimaryIndex().ForcePutBlankEntry(key, &own_revisit);
     ReconcileOwnInsertWithNodeVersionSet(own_revisit);
     if (IsAborted()) return;
     Write(key, value, size);
@@ -736,8 +689,8 @@ const std::optional<size_t> Transaction::Impl::Scan(
   }
 
   // Step 1: Collect keys from index.
-  // Keys come out sorted from PrecisionLocking's std::map, so we use a vector
-  // instead of std::set to avoid per-key heap allocations.
+  // The index scan yields keys in order, so we use a vector instead of
+  // std::set to avoid per-key heap allocations.
   std::vector<std::string> index_keys;
   index_keys.reserve(4096);
   auto index_result = current_table_->GetPrimaryIndex().Scan(
@@ -871,7 +824,7 @@ const std::optional<size_t> Transaction::Impl::ScanReverse(
     return ScanPrimaryIndexWithEarlyStop(begin, end.value(), operation, true);
   }
 
-  // Step 1: Collect keys from index (reverse order from PL's map)
+  // Step 1: collect keys, walking the index backwards
   std::vector<std::string> index_keys;
   index_keys.reserve(4096);
   auto index_result = current_table_->GetPrimaryIndex().ScanReverse(
@@ -1378,10 +1331,6 @@ void Transaction::Impl::UpdateSecondaryIndex(
   Index::NodeVersionUpdate si_own_insert_new;
   auto new_leaf =
       index->GetOrInsertForWrite(new_secondary_key, &si_own_insert_new);
-  if (new_leaf == nullptr) {
-    Abort();
-    return;
-  }
   ReconcileOwnInsertWithNodeVersionSet(si_own_insert_new);
   if (IsAborted()) return;
   bool new_found_in_write_set = false;

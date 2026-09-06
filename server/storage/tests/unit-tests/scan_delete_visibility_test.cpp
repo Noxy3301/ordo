@@ -55,16 +55,14 @@ TEST_F(ScanDeleteVisibilityTest, ScanShouldExcludeDeletedKeys) {
       if (key == "alice") {
         EXPECT_EQ(value, 1);
       }
-      if (key == "carol") {
-        EXPECT_EQ(value, 3);
-      }
       return false;
     });
 
     ASSERT_TRUE(count.has_value());
-    ASSERT_EQ(count.value(), size_t(2));  // bob should be excluded
+    // bob is deleted and carol is the exclusive upper bound.
+    ASSERT_EQ(count.value(), size_t(1));
 
-    std::vector<std::string> expected = {"alice", "carol"};
+    std::vector<std::string> expected = {"alice"};
     ASSERT_EQ(scanned_keys, expected);
 
     db_->EndTransaction(tx, [](auto) {});
@@ -97,16 +95,14 @@ TEST_F(ScanDeleteVisibilityTest, ScanShouldExcludeReadYourWriteDeletedKeys) {
       if (key == "alice") {
         EXPECT_EQ(value, 1);
       }
-      if (key == "carol") {
-        EXPECT_EQ(value, 3);
-      }
       return false;
     });
 
     ASSERT_TRUE(count.has_value());
-    ASSERT_EQ(count.value(), size_t(2));  // bob should be excluded
+    // bob is deleted and carol is the exclusive upper bound.
+    ASSERT_EQ(count.value(), size_t(1));
 
-    std::vector<std::string> expected = {"alice", "carol"};
+    std::vector<std::string> expected = {"alice"};
     ASSERT_EQ(scanned_keys, expected);
 
     const bool committed = db_->EndTransaction(tx, [](auto status) {

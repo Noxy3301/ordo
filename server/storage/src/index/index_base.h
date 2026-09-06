@@ -68,17 +68,10 @@ class IndexBase {
                       NodeVersionUpdate* out_update = nullptr) = 0;
   virtual bool Delete(std::string_view key) = 0;
 
-  // Force-insert a blank entry into the point index. PL uses this to seed a
-  // value slot that later writes fill in; single-tree backends implement it
-  // as an idempotent Insert.
+  // Seed a blank entry for a key that later writes fill in. Idempotent on an
+  // existing key.
   virtual void ForcePutBlankEntry(std::string_view key,
                                    NodeVersionUpdate* out_update = nullptr) = 0;
-
-  // Make the key visible to future scans even if a prior write left the point
-  // index populated but the range index empty (PL's DELETED state).
-  // Returns false on phantom anomaly.
-  virtual bool EnsureVisibleForSecondaryWrite(
-      std::string_view key, NodeVersionUpdate* out_update = nullptr) = 0;
 
   // Range operations. Returning std::nullopt signals a phantom anomaly
   // detected synchronously (PL). Backends that defer phantom checks append

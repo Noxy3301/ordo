@@ -119,8 +119,9 @@ TEST_F(DatabaseTest, Scan) {
                           }
                           return false;
                         });
+                    // Scan is half-open: carol is the exclusive upper bound.
                     if (count.has_value()) {
-                      ASSERT_EQ(count.value(), size_t(3));
+                      ASSERT_EQ(count.value(), size_t(2));
                     }
                   },
                   [&](LineairDB::Transaction& tx) {

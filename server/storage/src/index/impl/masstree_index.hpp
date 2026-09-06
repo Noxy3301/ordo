@@ -13,9 +13,8 @@ namespace Index {
 
 // PImpl wrapper around masstree-beta. Masstree headers are confined to
 // masstree_index.cpp; this header stays free of masstree to avoid leaking
-// its templates / macros through index_factory.hpp -> secondary_index.h
-// into the rest of LDB (and through there, into tests that do not have
-// masstree on their include path).
+// its templates / macros into the rest of LDB (and through there, into tests
+// that do not have masstree on their include path).
 class MasstreeIndex final : public IndexBase {
  public:
   MasstreeIndex(Config c, EpochFramework& e);
@@ -32,8 +31,6 @@ class MasstreeIndex final : public IndexBase {
 
   void ForcePutBlankEntry(std::string_view key,
                           NodeVersionUpdate* out_update = nullptr) override;
-  bool EnsureVisibleForSecondaryWrite(
-      std::string_view key, NodeVersionUpdate* out_update = nullptr) override;
 
   std::optional<size_t> Scan(
       std::string_view begin, std::optional<std::string_view> end,

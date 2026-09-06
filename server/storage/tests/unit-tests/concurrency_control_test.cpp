@@ -32,13 +32,11 @@
 #include "gtest/gtest.h"
 #include "util/logger.hpp"
 
-class ConcurrencyControlTest
-    : public ::testing::TestWithParam<LineairDB::Config::ConcurrencyControl> {
+class ConcurrencyControlTest : public ::testing::Test {
  protected:
   LineairDB::Config config_;
   std::unique_ptr<LineairDB::Database> db_;
   virtual void SetUp() {
-    config_.concurrency_control_protocol = ConcurrencyControlTest::GetParam();
     config_.enable_recovery = false;
     config_.commit_durability = LineairDB::Config::CommitDurability::Volatile;
     // NOTE: The testcase AvoidingReadOnlyAnomaly requires to be executed on 3
@@ -52,18 +50,9 @@ class ConcurrencyControlTest
   virtual void TearDown() { std::filesystem::remove_all("lineairdb_logs"); }
 };
 
-const std::array<std::string, 3> Protocols{"Silo", "SiloNWR", "2PL"};
-INSTANTIATE_TEST_SUITE_P(
-    ForEachProtocol, ConcurrencyControlTest,
-    ::testing::Values(LineairDB::Config::ConcurrencyControl::Silo,
-                      LineairDB::Config::ConcurrencyControl::SiloNWR,
-                      LineairDB::Config::ConcurrencyControl::TwoPhaseLocking),
-    [](const testing::TestParamInfo<LineairDB::Config::ConcurrencyControl>&
-           param) { return Protocols[param.index]; });
+TEST_F(ConcurrencyControlTest, Instantiate) {}
 
-TEST_P(ConcurrencyControlTest, Instantiate) {}
-
-TEST_P(ConcurrencyControlTest, IncrementOnMultiThreads) {
+TEST_F(ConcurrencyControlTest, IncrementOnMultiThreads) {
   int initial_value = 1;
   TestHelper::DoTransactions(db_.get(), {[&](LineairDB::Transaction& tx) {
                                tx.SetTable("users");
@@ -96,7 +85,7 @@ TEST_P(ConcurrencyControlTest, IncrementOnMultiThreads) {
                              }});
 }
 
-TEST_P(ConcurrencyControlTest, AvoidingDeadLock) {
+TEST_F(ConcurrencyControlTest, AvoidingDeadLock) {
   TransactionProcedure readX_writeY([](LineairDB::Transaction& tx) {
     tx.SetTable("users");
     tx.Read<int>("x");
@@ -112,7 +101,7 @@ TEST_P(ConcurrencyControlTest, AvoidingDeadLock) {
       db_.get(), {readX_writeY, readX_writeY, readY_writeX, readY_writeX});
 }
 
-TEST_P(ConcurrencyControlTest, AvoidingDirtyReadAnomaly) {
+TEST_F(ConcurrencyControlTest, AvoidingDirtyReadAnomaly) {
   TransactionProcedure insertTenTimes([](LineairDB::Transaction& tx) {
     int value = 0xBEEF;
     for (size_t idx = 0; idx <= 10; idx++) {
@@ -136,7 +125,7 @@ TEST_P(ConcurrencyControlTest, AvoidingDirtyReadAnomaly) {
   });
 }
 
-TEST_P(ConcurrencyControlTest, RepeatableRead) {
+TEST_F(ConcurrencyControlTest, RepeatableRead) {
   TransactionProcedure updateTenTimes([](LineairDB::Transaction& tx) {
     int value = 0xBEEF;
     for (size_t idx = 0; idx <= 10; idx++) {
@@ -163,7 +152,7 @@ TEST_P(ConcurrencyControlTest, RepeatableRead) {
   });
 }
 
-TEST_P(ConcurrencyControlTest, ConcurrentDeleteAndRead) {
+TEST_F(ConcurrencyControlTest, ConcurrentDeleteAndRead) {
   constexpr size_t kMaxRetry = 100;
   size_t retry = 0;
   bool alice_deleted = false;
@@ -210,7 +199,7 @@ TEST_P(ConcurrencyControlTest, ConcurrentDeleteAndRead) {
       << "alice still existed after " << kMaxRetry << " retries.";
 }
 
-TEST_P(ConcurrencyControlTest, AvoidingWriteSkewAnomaly) {
+TEST_F(ConcurrencyControlTest, AvoidingWriteSkewAnomaly) {
   /** initialize **/
   TestHelper::DoTransactions(db_.get(), {[](LineairDB::Transaction& tx) {
                                tx.SetTable("users");
@@ -250,7 +239,7 @@ TEST_P(ConcurrencyControlTest, AvoidingWriteSkewAnomaly) {
                              }});
 }
 
-TEST_P(ConcurrencyControlTest, AvoidingReadOnlyAnomaly) {
+TEST_F(ConcurrencyControlTest, AvoidingReadOnlyAnomaly) {
   // Reference: Example 1.3 in
   // https://www.cse.iitb.ac.in/infolab/Data/Courses/CS632/2009/Papers/p492-fekete.pdf
 
@@ -333,7 +322,7 @@ TEST_P(ConcurrencyControlTest, AvoidingReadOnlyAnomaly) {
   }
 }
 
-TEST_P(ConcurrencyControlTest, Recoverability) {
+TEST_F(ConcurrencyControlTest, Recoverability) {
   std::atomic<size_t> transaction_id(0);
   std::vector<std::pair<size_t, size_t>> committed_values;
   std::vector<std::pair<size_t, size_t>> read_values;

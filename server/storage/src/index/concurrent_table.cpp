@@ -18,7 +18,7 @@
 
 #include <functional>
 
-#include "index/index_factory.hpp"
+#include "index/impl/masstree_index.hpp"
 #include "lineairdb/config.h"
 #include "types/data_item.hpp"
 #include "types/definitions.h"
@@ -28,7 +28,7 @@ namespace Index {
 
 ConcurrentTable::ConcurrentTable(EpochFramework& epoch_framework, Config config,
                                  WriteSetType recovery_set)
-    : index_(MakeIndex(config, epoch_framework)),
+    : index_(std::make_unique<MasstreeIndex>(config, epoch_framework)),
       epoch_manager_ref_(epoch_framework) {
   if (recovery_set.empty()) return;
   for (auto& entry : recovery_set) {
@@ -56,9 +56,9 @@ bool ConcurrentTable::Insert(const std::string_view key,
   return index_->Insert(key, out_update);
 }
 
-bool ConcurrentTable::EnsureVisibleForSecondaryWrite(
-    const std::string_view key, NodeVersionUpdate* out_update) {
-  return index_->EnsureVisibleForSecondaryWrite(key, out_update);
+void ConcurrentTable::ForcePutBlankEntry(const std::string_view key,
+                                         NodeVersionUpdate* out_update) {
+  index_->ForcePutBlankEntry(key, out_update);
 }
 
 // return false if a corresponding entry already exists

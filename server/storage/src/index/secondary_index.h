@@ -3,7 +3,7 @@
 
 #include "concurrency_control/stable_read.hpp"
 #include "index/index_base.h"
-#include "index/index_factory.hpp"
+#include "index/impl/masstree_index.hpp"
 #include "index/secondary_index_type.h"
 #include "types/snapshot.hpp"
 #include "util/epoch_framework.hpp"
@@ -17,7 +17,8 @@ class SecondaryIndex {
                  SecondaryIndexType index_type = SecondaryIndexType(),
                  [[maybe_unused]] WriteSetType recovery_set = WriteSetType())
       : index_type_(index_type),
-        secondary_index_(MakeIndex(config, epoch_framework)) {}
+        secondary_index_(std::make_unique<MasstreeIndex>(config,
+                                                        epoch_framework)) {}
 
   DataItem* Get(std::string_view key) { return secondary_index_->Get(key); }
 
@@ -34,15 +35,12 @@ class SecondaryIndex {
 
   DataItem* GetOrInsertForWrite(std::string_view key,
                                   NodeVersionUpdate* out_update = nullptr) {
-    // OCC guards existing entries; new keys (and PL's point-present /
-    // range-absent DELETED slots, where IsInitialized() is false) still need
-    // EnsureVisibleForSecondaryWrite so the range index can run its phantom
-    // detection.
+    // OCC guards existing entries. A key whose slot carries no live PK list
+    // still needs a blank entry the write can fill in.
     auto* item = secondary_index_->Get(key);
     if (item == nullptr ||
         !ConcurrencyControl::StableReadPrimaryKeys(*item).found) {
-      if (!secondary_index_->EnsureVisibleForSecondaryWrite(key, out_update))
-        return nullptr;
+      secondary_index_->ForcePutBlankEntry(key, out_update);
       item = secondary_index_->Get(key);
       assert(item != nullptr);
     }
@@ -68,10 +66,6 @@ class SecondaryIndex {
   }
 
   bool Delete(std::string_view key) {
-    // Range-only deletion to hide the key from scans.
-    // Point index does not support erase currently.
-    // Implement as a method on HashTableWithPrecisionLockingIndex when
-    // available.
     return secondary_index_->Delete(key);
   }
 

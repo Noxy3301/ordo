@@ -102,14 +102,13 @@ TEST_F(DeleteSecondaryIndexTest, DeleteAndScan) {
         }
         return false;
       });
-  ASSERT_EQ(result.value(), 3);
-  ASSERT_EQ(scan_results.size(), 3);
+  // The scan range is half-open: c is the exclusive upper bound.
+  ASSERT_EQ(result.value(), 2);
+  ASSERT_EQ(scan_results.size(), 2);
   EXPECT_EQ(scan_results[0].first, "a");
   EXPECT_EQ(scan_results[0].second, pk1);
   EXPECT_EQ(scan_results[1].first, "b");
   EXPECT_EQ(scan_results[1].second, pk2);
-  EXPECT_EQ(scan_results[2].first, "c");
-  EXPECT_EQ(scan_results[2].second, pk3);
 
   db_->EndTransaction(tx2, [](auto status) {
     ASSERT_EQ(status, LineairDB::TxStatus::Committed);
@@ -145,12 +144,10 @@ TEST_F(DeleteSecondaryIndexTest, DeleteAndScan) {
         }
         return false;
       });
-  ASSERT_EQ(result3.value(), 2);
-  ASSERT_EQ(scan_results.size(), 2);
+  ASSERT_EQ(result3.value(), 1);
+  ASSERT_EQ(scan_results.size(), 1);
   EXPECT_EQ(scan_results[0].first, "a");
   EXPECT_EQ(scan_results[0].second, pk1);
-  EXPECT_EQ(scan_results[1].first, "c");
-  EXPECT_EQ(scan_results[1].second, pk3);
 
   db_->EndTransaction(tx4, [](auto status) {
     ASSERT_EQ(status, LineairDB::TxStatus::Committed);

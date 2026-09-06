@@ -103,26 +103,6 @@ class Database::Impl {
     config.enable_logging =
         config.commit_durability != Config::CommitDurability::Volatile;
 
-#ifndef LINEAIRDB_WITH_2PL_CHECKPOINT_METADATA
-    // The slim DataItem layout keeps only shared dummy storage for this path.
-    if (config.concurrency_control_protocol ==
-        Config::ConcurrencyControl::TwoPhaseLocking) {
-      SPDLOG_ERROR(
-          "Unsupported configuration: TwoPhaseLocking requires the full "
-          "DataItem layout. Rebuild with "
-          "-DLINEAIRDB_WITH_2PL_CHECKPOINT_METADATA.");
-      exit(EXIT_FAILURE);
-    }
-#endif
-#ifndef LINEAIRDB_WITH_NWR
-    if (config.concurrency_control_protocol ==
-        Config::ConcurrencyControl::SiloNWR) {
-      SPDLOG_ERROR(
-          "Unsupported configuration: SiloNWR requires per-record NWR pivot "
-          "metadata. Rebuild with -DLINEAIRDB_WITH_NWR.");
-      exit(EXIT_FAILURE);
-    }
-#endif
     return config;
   }
 
@@ -135,16 +115,6 @@ class Database::Impl {
         epoch_framework_(config_.epoch_duration_ms, EventsOnEpochIsUpdated()),
         scan_checkpoint_(config_, table_dictionary_, epoch_framework_,
                          logger_) {
-    // 2PL x Masstree unsupported (see 2PL ReadDirect FIXME).
-    if (config_.concurrency_control_protocol ==
-            Config::ConcurrencyControl::TwoPhaseLocking &&
-        config_.index_structure == Config::IndexStructure::Masstree) {
-      SPDLOG_ERROR(
-          "Unsupported LineairDB configuration: TwoPhaseLocking + Masstree. "
-          "See src/concurrency_control/impl/two_phase_locking.hpp for the "
-          "supported CC x Index matrix.");
-      exit(EXIT_FAILURE);
-    }
     if (Database::Impl::CurrentDBInstance == nullptr) {
       Database::Impl::CurrentDBInstance = this;
       SPDLOG_INFO("LineairDB instance has been constructed.");
@@ -557,10 +527,6 @@ class Database::Impl {
                         const std::vector<int8_t>& field_scale = {}) {
     if (!config_.enable_pax_storage) return false;
     if (field_max_bytes.empty()) return false;
-    // PAX blank-item routing is implemented for the Masstree backend only;
-    // other index structures keep the heap-backed DataBuffer layout.
-    if (config_.index_structure != Config::IndexStructure::Masstree)
-      return false;
     auto table = GetTable(table_name);
     if (!table.has_value()) return false;
     Pax::TableSchema schema;

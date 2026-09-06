@@ -53,17 +53,6 @@ struct Config {
    */
   size_t epoch_duration_ms = 40;
 
-  enum ConcurrencyControl { Silo, SiloNWR, TwoPhaseLocking };
-  /**
-   * @brief
-   * Set a concurrency control algorithm.
-   * See LineairDB::Config::ConcurrencyControl for the enum options of this
-   * configuration.
-   *
-   * Default: SiloNWR
-   */
-  ConcurrencyControl concurrency_control_protocol = SiloNWR;
-
   enum Logger { ThreadLocalLogger };
   /**
    * @brief
@@ -74,17 +63,6 @@ struct Config {
    * Default: ThreadLocalLogger
    */
   Logger logger = ThreadLocalLogger;
-
-  enum IndexStructure { HashTableWithPrecisionLockingIndex, Masstree };
-  /**
-   * @brief
-   * Set the type of index.
-   * See LineairDB::Config::IndexStructure for the enum options of this
-   * configuration.
-   *
-   * Default: Hash table with precision locking index
-   */
-  IndexStructure index_structure = HashTableWithPrecisionLockingIndex;
 
   /**
    * @brief
@@ -214,18 +192,6 @@ struct Config {
    * Default: 0 (no image)
    */
   size_t checkpoint_once_after_ms = 0;
-
-  /**
-   * @brief
-   * It uses as the threshold (percentage) for rehashing of the hash index.
-   * A large value (e.g., 99) will not easily rehash the index and thus reduce
-   * memory consumption because leaving less room in the index. On the other
-   * hand, a problem with open addressing hash indexes (current implementation)
-   * is that the computational cost of an insert increases on the less room.
-   *
-   * Default: 75 (percent)
-   */
-  double rehash_threshold = 0.75;
 
   /**
    * @brief

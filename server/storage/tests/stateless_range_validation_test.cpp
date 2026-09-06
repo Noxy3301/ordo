@@ -15,9 +15,6 @@ constexpr const char* kTable = "__anonymous_table";
 LineairDB::Config MakeConfig() {
   LineairDB::Config config;
   config.max_thread = 1;
-  config.concurrency_control_protocol =
-      LineairDB::Config::ConcurrencyControl::Silo;
-  config.index_structure = LineairDB::Config::IndexStructure::Masstree;
   config.enable_recovery = false;
   config.commit_durability = LineairDB::Config::CommitDurability::Volatile;
   config.work_dir = "./lineairdb_stateless_range_validation_test_logs";

@@ -106,14 +106,13 @@ TEST_F(ScanSecondaryIndexTest, DeleteAndScan) {
         }
         return false;
       });
-  ASSERT_EQ(result.value(), 3);
-  ASSERT_EQ(scan_results.size(), 3);
+  // The scan range is half-open: c is the exclusive upper bound.
+  ASSERT_EQ(result.value(), 2);
+  ASSERT_EQ(scan_results.size(), 2);
   EXPECT_EQ(scan_results[0].first, "a");
   EXPECT_EQ(scan_results[0].second, pk1);
   EXPECT_EQ(scan_results[1].first, "b");
   EXPECT_EQ(scan_results[1].second, pk2);
-  EXPECT_EQ(scan_results[2].first, "c");
-  EXPECT_EQ(scan_results[2].second, pk3);
 
   db_->EndTransaction(tx2, [](auto status) {
     ASSERT_EQ(status, LineairDB::TxStatus::Committed);
@@ -149,12 +148,10 @@ TEST_F(ScanSecondaryIndexTest, DeleteAndScan) {
         }
         return false;
       });
-  ASSERT_EQ(result3.value(), 2);
-  ASSERT_EQ(scan_results.size(), 2);
+  ASSERT_EQ(result3.value(), 1);
+  ASSERT_EQ(scan_results.size(), 1);
   EXPECT_EQ(scan_results[0].first, "a");
   EXPECT_EQ(scan_results[0].second, pk1);
-  EXPECT_EQ(scan_results[1].first, "c");
-  EXPECT_EQ(scan_results[1].second, pk3);
 
   db_->EndTransaction(tx4, [](auto status) {
     ASSERT_EQ(status, LineairDB::TxStatus::Committed);
@@ -244,8 +241,8 @@ TEST_F(ScanSecondaryIndexTest, ScanShouldIncludeInsertedKeys) {
         });
 
     ASSERT_TRUE(count.has_value());
-    ASSERT_EQ(count.value(), 4);  // alice, bob, carol, erin
-    ASSERT_EQ(scan_results.size(), 4);
+    ASSERT_EQ(count.value(), 3);  // alice, bob, carol; erin is excluded
+    ASSERT_EQ(scan_results.size(), 3);
 
     const bool committed = db_->EndTransaction(tx, [](auto status) {
       ASSERT_EQ(status, LineairDB::TxStatus::Committed);
@@ -304,8 +301,8 @@ TEST_F(ScanSecondaryIndexTest, ScanShouldReturnKeysInOrder) {
     // Scanはアルファベット順で返すべき:
     // alice(index), bob(write_set), carol(write_set), diana(index),
     // erin(write_set)
-    std::vector<std::string> expected_order = {"alice", "bob", "carol", "diana",
-                                               "erin"};
+    std::vector<std::string> expected_order = {"alice", "bob", "carol",
+                                               "diana"};
     std::vector<std::string> actual_order;
 
     auto count = tx.ScanSecondaryIndex(
@@ -315,7 +312,7 @@ TEST_F(ScanSecondaryIndexTest, ScanShouldReturnKeysInOrder) {
         });
 
     ASSERT_TRUE(count.has_value());
-    ASSERT_EQ(count.value(), 5);
+    ASSERT_EQ(count.value(), 4);
     ASSERT_EQ(actual_order, expected_order);
 
     const bool committed = db_->EndTransaction(tx, [](auto status) {
@@ -360,8 +357,10 @@ TEST_F(ScanSecondaryIndexTest,
     tx.SetTable("users");
 
     std::vector<std::string> actual_order;
+    // The reverse range is half-open too, so the end has to sort above the key.
+    const std::string end("group\0", 6);
     auto count = tx.ScanSecondaryIndexReverse(
-        "group_index", "group", "group", [&](auto key, auto primary_keys) {
+        "group_index", "group", end, [&](auto key, auto primary_keys) {
           EXPECT_EQ(std::string(key), "group");
           for (const auto& primary_key : primary_keys) {
             actual_order.emplace_back(primary_key);
@@ -515,9 +514,9 @@ TEST_F(ScanSecondaryIndexTest, ScanShouldExcludeDeletedKeys) {
         });
 
     ASSERT_TRUE(count.has_value());
-    ASSERT_EQ(count.value(), 2);  // bob should be excluded
+    ASSERT_EQ(count.value(), 1);  // bob is deleted, carol is out of range
 
-    std::vector<std::string> expected = {"alice", "carol"};
+    std::vector<std::string> expected = {"alice"};
     ASSERT_EQ(scanned_keys, expected);
 
     db_->EndTransaction(tx, [](auto) {});
@@ -574,9 +573,9 @@ TEST_F(ScanSecondaryIndexTest, ScanShouldExcludeReadYourWriteDeletedKeys) {
         });
 
     ASSERT_TRUE(count.has_value());
-    ASSERT_EQ(count.value(), 2);  // bob should be excluded
+    ASSERT_EQ(count.value(), 1);  // bob is deleted, carol is out of range
 
-    std::vector<std::string> expected = {"alice", "carol"};
+    std::vector<std::string> expected = {"alice"};
     ASSERT_EQ(scanned_keys, expected);
 
     const bool committed = db_->EndTransaction(tx, [](auto status) {

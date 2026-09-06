@@ -19,7 +19,7 @@
 ---
 
 - Keys and values are arbitrary byte arrays.
-- The basic operations are read(key), write(key, value), ExecuteTransaction(procedure, callback).
+- The basic operations are Read(table, key), the range scans, and ValidateAndCommit(reads, writes).
 - Changes in a transaction for multiple key-value pairs are made with atomicity and durability.
 - Concurrent transactions are processed with strict serializability.
 - In contended write-heavy workloads, high scalability for many-core CPUs is provided.
@@ -38,25 +38,19 @@
 #include <lineairdb/lineairdb.h>
 
 int main() {
-  {
-    LineairDB::Database db;
-    LineairDB::TxStatus status;
+  LineairDB::Database db;
+  db.CreateTable("accounts");
 
-    // Execute: enqueue a transaction with an expected callback
-    db.ExecuteTransaction(
-        [](LineairDB::Transaction& tx) {
-          auto alice = tx.Read<int>("alice");
-          if (alice.has_value()) {
-            int alice = alice.value();
-          }
-          tx.Write<int>("bob", 1);
-        },
-        [&](LineairDB::TxStatus s) { status = s; });
+  // Read: the returned tid is the evidence the commit is validated against.
+  auto alice = db.Read("accounts", "alice");
 
-    // Fence: Block-wait until all running transactions are terminated
-    db.Fence();
-    // status == LineairDB::TxStatus::Committed;
-  }
+  // Commit: hand back what was read and what to install. The read set is
+  // revalidated and the writes are installed atomically, or nothing is.
+  const std::vector<LineairDB::ExternalReadEntry> reads = {
+      {"accounts", "alice", alice.tid, alice.found}};
+  const std::vector<LineairDB::ExternalWriteEntry> writes = {
+      {"accounts", "bob", "1"}};
+  const bool committed = db.ValidateAndCommit(reads, writes, {}, {});
 }
 ```
 
@@ -89,7 +83,7 @@ We have been tested LineairDB in the following environments:
 
 [The LineairDB library documentation](https://lineairdb.github.io/LineairDB/) is available.
 
-Technical detail of concurrency control protocols such as SiloNWR is also available in the research paper [at this link](https://arxiv.org/abs/1904.08119).
+The research paper LineairDB grew out of is available [at this link](https://arxiv.org/abs/1904.08119).
 
 ### Contributing
 

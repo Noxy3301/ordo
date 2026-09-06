@@ -29,8 +29,8 @@ using LineairDB::Recovery::WalIo;
 constexpr auto kTestTimeout = std::chrono::seconds(5);
 
 // Exercises the logger without constructing a Database: the WAL and the
-// durability frontier are the units under test here, and a Database would drag
-// in the epoch framework and the thread pool.
+// durability frontier are the units under test here, and a Database would
+// drag in the epoch framework.
 class LoggerDurabilityTest : public ::testing::Test {
  protected:
   void SetUp() override {

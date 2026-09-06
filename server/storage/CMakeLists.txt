@@ -146,6 +146,9 @@ file(MAKE_DIRECTORY ${MASSTREE_DIR})
 
 add_custom_command(
   OUTPUT ${MASSTREE_LIB}
+  # Tracked entry points of the submodule, so a bump rebuilds the copy.
+  DEPENDS ${MASSTREE_SRC}/masstree.hh ${MASSTREE_SRC}/configure.ac
+          ${MASSTREE_SRC}/bootstrap.sh
   COMMAND ${CMAKE_COMMAND} -E copy_directory ${MASSTREE_SRC} ${MASSTREE_DIR}
   COMMAND ${CMAKE_COMMAND} -E env "CXXFLAGS=-fPIC -O3" ./bootstrap.sh
   COMMAND ${CMAKE_COMMAND} -E env "CXXFLAGS=-fPIC -O3" ./configure --disable-assertions

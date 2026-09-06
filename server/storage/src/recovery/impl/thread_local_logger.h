@@ -25,9 +25,9 @@
 #include <thread>
 
 #include "recovery/log_record.h"
-#include "types/snapshot.hpp"
 #include "recovery/wal.h"
 #include "types/definitions.h"
+#include "types/snapshot.hpp"
 #include "util/thread_key_storage.h"
 
 namespace LineairDB {
@@ -42,10 +42,8 @@ namespace Recovery {
  * swaps those vectors, buckets the records by epoch, and writes one group
  * per fdatasync.
  *
- * @note The flusher owns a thread instead of a pool slot: a pool worker
- * serves the visibility-callback queue only while its own work queue is
- * empty, and a flusher there would postpone those callbacks, and Fence,
- * indefinitely.
+ * @note The flusher owns a thread of its own: the fdatasync it blocks on
+ * must not sit on a thread that serves requests.
  */
 class ThreadLocalLogger final {
  public:

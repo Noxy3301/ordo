@@ -59,8 +59,6 @@ class ConcurrentTable {
       const std::string_view begin, const std::string_view end,
       std::function<bool(std::string_view, DataItem &)> operation);
 
-  void PutBlank(const std::string_view key);
-
   bool Purge(std::string_view key, DataItem *expected,
              TransactionId retired_tid = {}) {
     return index_.Purge(key, expected, retired_tid);

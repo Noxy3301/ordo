@@ -39,7 +39,8 @@ struct CommitPayload {
  * write sets were assembled by the caller through the stateless API.
  *
  * @details
- * The payload arrives by value; nothing in it references server memory:
+ * The entries carry values only; nothing in them points into storage
+ * memory:
  *   - reads:       (key, observed TID, found)
  *   - writes:      (key, value | delete)
  *   - SI ops:      (secondary key, primary key, add | remove)

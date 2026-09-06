@@ -15,18 +15,18 @@ namespace LineairDB {
 class TableDictionary;
 
 /**
- * Read side of the stateless API: point reads and range scans that run
- * without opening a Transaction. The functions are stateless, so they take
- * the table dictionary and the schema mutex from the caller instead of
- * holding them. Every call takes a shared lock on the schema, resolves
- * index slots, and copies rows with the Silo-style stable read; the
+ * Read side of the stateless API: point reads and range scans. The
+ * functions hold no state between calls, so they take the table dictionary
+ * and the schema mutex from the caller instead of owning them. Every call
+ * takes a shared lock on the schema, resolves index slots, and copies rows
+ * with the Silo-style stable read; the
  * returned packed TIDs are the read-set evidence the caller later submits
  * through ValidateAndCommit.
  */
 namespace Silo {
 
 /**
- * @brief Read one row without opening a Transaction.
+ * @brief Read one row.
  *
  * Takes a shared lock on the schema, resolves the primary-index slot, and
  * performs a Silo-style double TID read on the DataItem: load the TID,
@@ -60,8 +60,9 @@ std::vector<StatelessReadResult> BatchRead(
  * arguments and the returned keys. Tombstones are skipped: key-list
  * validation catches any reuse of their slots without a per-entry TID.
  *
- * `ok` distinguishes a genuine empty result from a Masstree retry that
- * gave up. Callers should treat `!ok` as an abort signal.
+ * `ok` distinguishes a genuine empty result from a scan that never ran:
+ * the table does not exist, or `end_key` is empty. Callers should treat
+ * `!ok` as an abort signal.
  */
 StatelessRangeScanResult Scan(
     TableDictionary &tables, std::shared_mutex &schema_mutex,

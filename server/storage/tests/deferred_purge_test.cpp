@@ -32,9 +32,9 @@ bool CommitWrite(LineairDB::Database &db, const std::string &key,
 }
 
 bool CommitInsert(LineairDB::Database &db, const std::string &key,
-                  const std::string &value) {
-  const bool committed =
-      db.ValidateAndCommit({}, {{kTable, key, value, false, true}}, {});
+                  const std::string &value, std::string *reason = nullptr) {
+  const bool committed = db.ValidateAndCommit(
+      {}, {{kTable, key, value, false, true}}, {}, {}, reason);
   db.ReleaseMasstreeThreadEpoch();
   return committed;
 }
@@ -161,4 +161,48 @@ TEST(DeferredPurgeTest, InsertAfterThePurgeClaimsAFreshSlot) {
   const auto live = Read(db, key);
   EXPECT_TRUE(live.found);
   EXPECT_EQ(live.value, "v2");
+}
+
+TEST(DeferredPurgeTest, TwoInsertsOfOneKeyInARequestAreRefused) {
+  auto config = MakeConfig(100);
+  LineairDB::Database db(config);
+  ASSERT_TRUE(db.CreateTable(kTable));
+
+  const std::string key = "twice_inserted_key";
+  std::string reason;
+  EXPECT_FALSE(db.ValidateAndCommit(
+      {}, {{kTable, key, "v1", false, true}, {kTable, key, "v2", false, true}},
+      {}, {}, &reason));
+  db.ReleaseMasstreeThreadEpoch();
+  EXPECT_EQ(reason, LineairDB::kDuplicateKeyAbortReason);
+  EXPECT_FALSE(Read(db, key).found);
+
+  // Deleted in between, the second insert is not a duplicate.
+  reason.clear();
+  EXPECT_TRUE(db.ValidateAndCommit({},
+                                   {{kTable, key, "v1", false, true},
+                                    {kTable, key, "", true, false},
+                                    {kTable, key, "v2", false, true}},
+                                   {}, {}, &reason));
+  db.ReleaseMasstreeThreadEpoch();
+  const auto live = Read(db, key);
+  EXPECT_TRUE(live.found);
+  EXPECT_EQ(live.value, "v2");
+}
+
+TEST(DeferredPurgeTest, InsertOntoALiveKeyIsRefused) {
+  auto config = MakeConfig(100);
+  LineairDB::Database db(config);
+  ASSERT_TRUE(db.CreateTable(kTable));
+
+  const std::string key = "live_key";
+  ASSERT_TRUE(CommitInsert(db, key, "v1"));
+
+  std::string reason;
+  EXPECT_FALSE(CommitInsert(db, key, "v2", &reason));
+  EXPECT_EQ(reason, LineairDB::kDuplicateKeyAbortReason);
+
+  const auto live = Read(db, key);
+  EXPECT_TRUE(live.found);
+  EXPECT_EQ(live.value, "v1");
 }

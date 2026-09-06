@@ -57,9 +57,9 @@ struct StatelessSecondaryScanRow {
 /**
  * @brief Outcome of Database::Scan.
  *
- * `ok` separates a genuine empty result from a Masstree retry that gave up
- * or a missing table. On `ok == false` the caller should abort the logical
- * transaction.
+ * `ok` separates a genuine empty result from a scan that never ran: the
+ * table does not exist, or the exclusive end bound is empty. On
+ * `ok == false` the caller should abort the logical transaction.
  */
 struct StatelessRangeScanResult {
   bool ok = false;
@@ -87,8 +87,9 @@ struct StatelessPaxRowRef {
  * @brief Outcome of a PAX primary-index range scan.
  *
  * @details `ok == false` means the caller must use the materializing
- * Scan path instead. This happens when the table is missing, has
- * no PAX store, contains heap-fallback rows, or the index scan retries out.
+ * Scan path instead. This happens when the end bound is empty,
+ * the table is missing, it has no PAX store, or it contains heap-fallback
+ * rows.
  */
 struct StatelessPaxRowRefScanResult {
   bool ok = false;
@@ -147,6 +148,9 @@ struct ExternalWriteEntry {
 /// Abort reason ValidateAndCommit reports when an insert entry finds a live
 /// row.
 inline constexpr char kDuplicateKeyAbortReason[] = "duplicate_primary_key";
+
+/// Every abort reason for a refused UNIQUE secondary key starts with this.
+inline constexpr char kDuplicateSecondaryKeyAbortPrefix[] = "unique_si_";
 
 /**
  * @brief Secondary-index add or remove to install during ValidateAndCommit.

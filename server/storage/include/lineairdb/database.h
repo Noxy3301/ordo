@@ -29,7 +29,6 @@
 #include <vector>
 
 #include "config.h"
-#include "tx_status.h"
 
 namespace LineairDB {
 
@@ -279,8 +278,8 @@ class Database {
    * @param reverse_scan When true, iterate from `end_key` toward `start_key`.
    * @param selected_columns Optional zero-based MySQL columns to materialize
    * for PAX-resident rows. Unselected PAX columns are returned as empty fields.
-   * @return Result with `ok == false` if the scan retried out or the table
-   *         is missing. Callers should treat `!ok` as an abort signal.
+   * @return Result with `ok == false` if the table is missing or `end_key`
+   *         is empty. Callers should treat `!ok` as an abort signal.
    */
   StatelessRangeScanResult Scan(
       const std::string_view table_name, const std::string_view start_key,
@@ -306,8 +305,8 @@ class Database {
    * @param selected_columns Optional zero-based MySQL columns to materialize
    * for PAX-resident base rows. Unselected PAX columns are returned as empty
    * fields.
-   * @return Result with `ok == false` if the scan retried out or the
-   *         table/index is missing.
+   * @return Result with `ok == false` if the table or the index is missing,
+   *         or `end_key` is empty.
    */
   StatelessSecondaryRangeScanResult ScanIndex(
       const std::string_view table_name, const std::string_view index_name,

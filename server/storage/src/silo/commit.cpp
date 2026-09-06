@@ -30,7 +30,7 @@ namespace Silo {
 namespace {
 
 // A point read to re-validate, with the version the caller observed.
-struct Read {
+struct ReadEntry {
   Table *table = nullptr;
   std::string table_name;
   std::string key;
@@ -90,7 +90,7 @@ struct Ctx {
   const CommitPayload &payload;
   std::string *abort_reason;
 
-  std::vector<Read> reads;
+  std::vector<ReadEntry> reads;
   std::vector<Write> writes;
   std::vector<SiOp> si_ops;
   std::vector<DataItem *> items;  // lock set: address-sorted and unique
@@ -225,7 +225,8 @@ bool Resolve(Ctx &c, std::shared_mutex &schema_mutex) {
       const std::string unique_key =
           op.table_name + '\0' + op.index_name + '\0' + op.secondary_key;
       if (!unique_si_adds.insert(unique_key).second) {
-        return c.Abort("unique_si_duplicate_in_request");
+        return c.Abort(std::string(kDuplicateSecondaryKeyAbortPrefix) +
+                       "duplicate_in_request");
       }
     }
 
@@ -235,6 +236,7 @@ bool Resolve(Ctx &c, std::shared_mutex &schema_mutex) {
     } else {
       item = index->GetOrInsertForWrite(op.secondary_key);
     }
+    assert(item != nullptr);  // both paths materialize a blank slot
 
     c.si_ops.push_back({op.table_name, op.index_name, op.secondary_key,
                         op.primary_key, op.is_delete, item, index,
@@ -303,7 +305,7 @@ std::string KeyHex(const std::string &key) {
   return out;
 }
 
-std::string ReadReason(const char *reason, const Read &read) {
+std::string ReadReason(const char *reason, const ReadEntry &read) {
   std::string out(reason);
   out += ':';
   out += read.table_name;
@@ -523,7 +525,8 @@ bool ValidateUnique(Ctx &c) {
     }
 
     if (!keys.empty()) {
-      return c.AbortLocked("unique_si_exists_after_lock");
+      return c.AbortLocked(std::string(kDuplicateSecondaryKeyAbortPrefix) +
+                           "exists_after_lock");
     }
     primary_keys = PackedPrimaryKeys::Insert(primary_keys, op.primary_key);
   }
@@ -580,7 +583,7 @@ void Install(Ctx &c) {
 
 // Phase 3.2: build the log snapshot before unlock so a later transaction
 // cannot overwrite the values we just logged.
-WriteSetType LogSet(Ctx &c, Config::CommitDurability policy) {
+WriteSetType BuildLog(Ctx &c, Config::CommitDurability policy) {
   WriteSetType log_set;
   if (policy == Config::CommitDurability::Volatile) return log_set;
 
@@ -719,7 +722,7 @@ bool Commit(TableDictionary &tables, std::shared_mutex &schema_mutex,
   if (!ValidateUnique(c)) return false;
 
   Install(c);
-  WriteSetType log_set = LogSet(c, policy);
+  WriteSetType log_set = BuildLog(c, policy);
   Publish(c, reaper, log_set);
   const bool awaits_durability = Enqueue(logger, log_set, c.commit_epoch);
 

@@ -203,13 +203,10 @@ struct MasstreeIndex::Impl {
     // value forever. If the same thread later does masstree ops, each op
     // path goes through ensure_thread_active and re-enrols.
     //
-    // If the caller is ALREADY in an RCU critical section (e.g., a Path B
-    // tx on this thread invoked CreateTable / CreateSecondaryIndex
-    // mid-transaction), we must not touch its enrolment: rcu_stop()
-    // would clear gc_epoch_ while raw DataItem* pointers in tx state are
-    // still in use, opening a use-after-free window once another thread's
-    // physical-delete schedules them for RCU free. Preserve the section
-    // in that case (the existing rcu_start covers the initialize).
+    // A caller already inside an RCU critical section keeps its enrolment:
+    // rcu_stop() would clear gc_epoch_ while raw DataItem* pointers it still
+    // holds could be scheduled for RCU free by another thread's physical
+    // delete. The existing rcu_start covers the initialize.
     ensure_thread_init();
     const bool was_enrolled = tls_enrolled;
     if (!was_enrolled) {
@@ -226,8 +223,7 @@ struct MasstreeIndex::Impl {
     // deallocate_rcu, but this wrapper never advances the RCU epoch so the
     // callbacks would never run. Consequence: at process exit, the entire
     // live tree (every leaf/internode allocation) and every stored
-    // DataItem* leaks. This differs from PL, whose point-index destructor
-    // frees stored values. Accepted for benchmark-scope runs only; a real
+    // DataItem* leaks. Accepted for benchmark-scope runs only; a real
     // reclamation path is required for long-running service deployment.
   }
 
@@ -492,11 +488,10 @@ void MasstreeFullyDrainThread() {
   // lifetime.
   //
   // Closing this properly requires either (i) a server architecture
-  // change to keep RPC threads alive (thread pool instead of detached
-  // per-connection threads) so the same thread eventually drains its
-  // own limbo on a later op, or (ii) patching masstree-beta to expose a
-  // cross-thread drain primitive so the LineairDB epoch ticker can
-  // process exited threadinfos. Both are out of scope for this patch.
+  // change to keep RPC threads alive so the same thread eventually drains
+  // its own limbo on a later op, or (ii) patching masstree-beta to expose a
+  // cross-thread drain primitive the epoch ticker could use on exited
+  // threadinfos.
   //
   // In the meantime: the leak is bounded by per-connection-close
   // workload. Benchmarks that keep connections alive (BenchBase / sysbench

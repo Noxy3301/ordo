@@ -100,10 +100,10 @@ set(SOURCES
     rpc/duckdb_bridge_executor.hh
     
     # Storage layer
-    storage/database_manager.cc
-    storage/database_manager.hh
-    storage/transaction_manager.cc
-    storage/transaction_manager.hh
+    database_manager.cc
+    database_manager.hh
+    transaction_manager.cc
+    transaction_manager.hh
 
     # Protocol
     protocol/message.hh

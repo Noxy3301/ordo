@@ -10,8 +10,8 @@
 #include <vector>
 
 #include "../protocol/message.hh"
-#include "../storage/database_manager.hh"
-#include "../storage/transaction_manager.hh"
+#include "../database_manager.hh"
+#include "../transaction_manager.hh"
 
 // Server-wide table row count tracker, shared across all connections.
 struct TableRowCounts {

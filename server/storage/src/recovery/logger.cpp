@@ -48,169 +48,156 @@ size_t HashCombine(size_t seed, size_t value) {
   return seed ^ (value + kGoldenRatioMix + (seed << 6) + (seed >> 2));
 }
 
-/**
- * Folds decoded records into the write set the database replays.
- *
- * A key may appear in several epochs; the newest transaction id wins. Secondary
- * index entries arrive as per-primary-key deltas and are regrouped into one
- * entry per secondary key, so a key deleted after being added does not come
- * back.
- *
- * The checkpoint image is folded in ahead of the log's tail as ordinary
- * records, under the same rule that resolves two epochs of the log.
- */
-WriteSetType BuildRecoverySet(const LogRecords &image, const LogRecords &tail) {
-  struct SecondaryOpKey {
-    std::string table_name;
-    std::string index_name;
-    uint32_t index_type;
-    std::string secondary_key;
-    std::string primary_key;
-    bool operator==(const SecondaryOpKey &rhs) const {
-      return table_name == rhs.table_name && index_name == rhs.index_name &&
-             index_type == rhs.index_type &&
-             secondary_key == rhs.secondary_key &&
-             primary_key == rhs.primary_key;
-    }
-  };
-  struct SecondaryOpKeyHash {
-    size_t operator()(const SecondaryOpKey &key) const {
-      const std::hash<std::string> hasher;
-      size_t seed = hasher(key.table_name);
-      seed = HashCombine(seed, hasher(key.index_name));
-      seed = HashCombine(seed, std::hash<uint32_t>{}(key.index_type));
-      seed = HashCombine(seed, hasher(key.secondary_key));
-      seed = HashCombine(seed, hasher(key.primary_key));
-      return seed;
-    }
-  };
-  struct SecondaryOpState {
-    TransactionId tid;
-    SecondaryIndexOp op;
-  };
-  struct SecondaryGroupKey {
-    std::string table_name;
-    std::string index_name;
-    uint32_t index_type;
-    std::string secondary_key;
-    bool operator==(const SecondaryGroupKey &rhs) const {
-      return table_name == rhs.table_name && index_name == rhs.index_name &&
-             index_type == rhs.index_type && secondary_key == rhs.secondary_key;
-    }
-  };
-  struct SecondaryGroupKeyHash {
-    size_t operator()(const SecondaryGroupKey &key) const {
-      const std::hash<std::string> hasher;
-      size_t seed = hasher(key.table_name);
-      seed = HashCombine(seed, hasher(key.index_name));
-      seed = HashCombine(seed, std::hash<uint32_t>{}(key.index_type));
-      seed = HashCombine(seed, hasher(key.secondary_key));
-      return seed;
-    }
-  };
-  struct SecondaryGroupValue {
-    TransactionId max_tid{};
-    std::vector<std::string> primary_keys;
-  };
+using KeyValuePair = LogRecord::KeyValuePair;
 
-  std::unordered_map<SecondaryOpKey, SecondaryOpState, SecondaryOpKeyHash>
-      secondary_latest;
-  WriteSetType recovery_set;
+// One secondary-index delta: which primary key the entry gained or lost.
+struct SecondaryOpKey {
+  std::string table_name;
+  std::string index_name;
+  uint32_t index_type;
+  std::string secondary_key;
+  std::string primary_key;
+  bool operator==(const SecondaryOpKey &rhs) const {
+    return table_name == rhs.table_name && index_name == rhs.index_name &&
+           index_type == rhs.index_type && secondary_key == rhs.secondary_key &&
+           primary_key == rhs.primary_key;
+  }
+};
+struct SecondaryOpKeyHash {
+  size_t operator()(const SecondaryOpKey &key) const {
+    const std::hash<std::string> hasher;
+    size_t seed = hasher(key.table_name);
+    seed = HashCombine(seed, hasher(key.index_name));
+    seed = HashCombine(seed, std::hash<uint32_t>{}(key.index_type));
+    seed = HashCombine(seed, hasher(key.secondary_key));
+    seed = HashCombine(seed, hasher(key.primary_key));
+    return seed;
+  }
+};
+struct SecondaryOpState {
+  TransactionId tid;
+  SecondaryIndexOp op;
+};
 
-  // (table_name, key) -> position in recovery_set. Only the primary path
-  // uses it; a primary kvp always carries an empty index_name.
-  struct PrimaryKeyHash {
-    size_t operator()(const std::pair<std::string, std::string> &key) const {
-      const std::hash<std::string> hasher;
-      return HashCombine(hasher(key.first), hasher(key.second));
-    }
-  };
-  std::unordered_map<std::pair<std::string, std::string>, size_t,
-                     PrimaryKeyHash>
-      primary_position;
+// One secondary-index entry the deltas above are regrouped into.
+struct SecondaryGroupKey {
+  std::string table_name;
+  std::string index_name;
+  uint32_t index_type;
+  std::string secondary_key;
+  bool operator==(const SecondaryGroupKey &rhs) const {
+    return table_name == rhs.table_name && index_name == rhs.index_name &&
+           index_type == rhs.index_type && secondary_key == rhs.secondary_key;
+  }
+};
+struct SecondaryGroupKeyHash {
+  size_t operator()(const SecondaryGroupKey &key) const {
+    const std::hash<std::string> hasher;
+    size_t seed = hasher(key.table_name);
+    seed = HashCombine(seed, hasher(key.index_name));
+    seed = HashCombine(seed, std::hash<uint32_t>{}(key.index_type));
+    seed = HashCombine(seed, hasher(key.secondary_key));
+    return seed;
+  }
+};
+struct SecondaryGroupValue {
+  TransactionId max_tid{};
+  std::vector<std::string> primary_keys;
+};
 
-  const LogRecords *sources[] = {&image, &tail};
-  for (const auto *source : sources) {
-    for (const auto &log_record : *source) {
-      for (const auto &kvp : log_record.key_value_pairs) {
-        const auto op = static_cast<SecondaryIndexOp>(kvp.secondary_op);
-        const bool is_secondary_index =
-            !kvp.index_name.empty() || op != SecondaryIndexOp::None ||
-            !kvp.primary_keys.empty() || !kvp.secondary_primary_key.empty() ||
-            kvp.index_type != 0;
-        if (is_secondary_index) {
-          if (op == SecondaryIndexOp::Full) {
-            for (const auto &pk : kvp.primary_keys) {
-              SecondaryOpKey op_key{kvp.table_name, kvp.index_name,
-                                    kvp.index_type, kvp.key, pk};
-              auto it = secondary_latest.find(op_key);
-              if (it == secondary_latest.end() || it->second.tid < kvp.tid) {
-                secondary_latest[op_key] = {kvp.tid, SecondaryIndexOp::Add};
-              }
-            }
-          } else if (!kvp.secondary_primary_key.empty()) {
-            SecondaryOpKey op_key{kvp.table_name, kvp.index_name,
-                                  kvp.index_type, kvp.key,
-                                  kvp.secondary_primary_key};
-            auto it = secondary_latest.find(op_key);
-            if (it == secondary_latest.end() || it->second.tid < kvp.tid) {
-              secondary_latest[op_key] = {kvp.tid, op};
-            }
-          }
-          continue;
-        }
+struct PrimaryKeyHash {
+  size_t operator()(const std::pair<std::string, std::string> &key) const {
+    const std::hash<std::string> hasher;
+    return HashCombine(hasher(key.first), hasher(key.second));
+  }
+};
 
-        const std::byte *value_ptr =
-            kvp.buffer.empty()
-                ? nullptr
-                : reinterpret_cast<const std::byte *>(kvp.buffer.data());
-        // Folded through an index rather than a rescan of the set: the fold
-        // runs once per logged write, and a linear rescan makes recovery
-        // quadratic in the log size.
-        const auto it = primary_position.find({kvp.table_name, kvp.key});
-        const bool not_found = it == primary_position.end();
-        if (!not_found) {
-          auto &item = recovery_set[it->second];
-          if (item.data_item_copy.transaction_id.load() < kvp.tid) {
-            item.data_item_copy.Reset(value_ptr, kvp.buffer.size(), kvp.tid);
-            item.table_name = kvp.table_name;
-            item.index_name = kvp.index_name;
-            item.index_type =
-                Index::SecondaryIndexType::FromRaw(kvp.index_type);
-          }
-        }
-        if (not_found) {
-          primary_position.emplace(std::make_pair(kvp.table_name, kvp.key),
-                                   recovery_set.size());
-          Snapshot snapshot = {
-              kvp.key,
-              reinterpret_cast<const std::byte *>(kvp.buffer.data()),
-              kvp.buffer.size(),
-              nullptr,
-              kvp.table_name,
-              kvp.index_name,
-              kvp.tid,
-              Index::SecondaryIndexType::FromRaw(kvp.index_type),
-          };
-          recovery_set.emplace_back(std::move(snapshot));
-        }
+using SecondaryOps =
+    std::unordered_map<SecondaryOpKey, SecondaryOpState, SecondaryOpKeyHash>;
+// (table_name, key) -> position in the recovery set. Only the primary path
+// uses it; a primary kvp always carries an empty index_name.
+using PrimaryPos = std::unordered_map<std::pair<std::string, std::string>,
+                                      size_t, PrimaryKeyHash>;
+
+bool IsSecondary(const KeyValuePair &kvp) {
+  return !kvp.index_name.empty() ||
+         static_cast<SecondaryIndexOp>(kvp.secondary_op) !=
+             SecondaryIndexOp::None ||
+         !kvp.primary_keys.empty() || !kvp.secondary_primary_key.empty() ||
+         kvp.index_type != 0;
+}
+
+// Keep the newest delta per (secondary key, primary key). A full entry
+// arrives as one add per primary key it holds.
+void FoldSecondary(const KeyValuePair &kvp, SecondaryOps &ops) {
+  const auto op = static_cast<SecondaryIndexOp>(kvp.secondary_op);
+  if (op == SecondaryIndexOp::Full) {
+    for (const auto &pk : kvp.primary_keys) {
+      SecondaryOpKey op_key{kvp.table_name, kvp.index_name, kvp.index_type,
+                            kvp.key, pk};
+      auto it = ops.find(op_key);
+      if (it == ops.end() || it->second.tid < kvp.tid) {
+        ops[op_key] = {kvp.tid, SecondaryIndexOp::Add};
       }
     }
+  } else if (!kvp.secondary_primary_key.empty()) {
+    SecondaryOpKey op_key{kvp.table_name, kvp.index_name, kvp.index_type,
+                          kvp.key, kvp.secondary_primary_key};
+    auto it = ops.find(op_key);
+    if (it == ops.end() || it->second.tid < kvp.tid) {
+      ops[op_key] = {kvp.tid, op};
+    }
+  }
+}
+
+// Keep the newest version per row. Folded through an index rather than a
+// rescan of the set: the fold runs once per logged write, and a linear
+// rescan makes recovery quadratic in the log size.
+void FoldPrimary(const KeyValuePair &kvp, WriteSetType &recovery_set,
+                 PrimaryPos &positions) {
+  const std::byte *value_ptr =
+      kvp.buffer.empty()
+          ? nullptr
+          : reinterpret_cast<const std::byte *>(kvp.buffer.data());
+  const auto it = positions.find({kvp.table_name, kvp.key});
+  if (it != positions.end()) {
+    auto &item = recovery_set[it->second];
+    if (item.data_item_copy.transaction_id.load() < kvp.tid) {
+      item.data_item_copy.Reset(value_ptr, kvp.buffer.size(), kvp.tid);
+      item.table_name = kvp.table_name;
+      item.index_name = kvp.index_name;
+      item.index_type = Index::SecondaryIndexType::FromRaw(kvp.index_type);
+    }
+    return;
   }
 
+  positions.emplace(std::make_pair(kvp.table_name, kvp.key),
+                    recovery_set.size());
+  Snapshot snapshot = {
+      kvp.key,           reinterpret_cast<const std::byte *>(kvp.buffer.data()),
+      kvp.buffer.size(), nullptr,
+      kvp.table_name,    kvp.index_name,
+      kvp.tid,           Index::SecondaryIndexType::FromRaw(kvp.index_type),
+  };
+  recovery_set.emplace_back(std::move(snapshot));
+}
+
+// Regroup the surviving adds into one entry per secondary key, so a key
+// deleted after being added does not come back.
+void GroupSecondary(const SecondaryOps &ops, WriteSetType &recovery_set) {
   std::unordered_map<SecondaryGroupKey, SecondaryGroupValue,
                      SecondaryGroupKeyHash>
-      grouped_secondary;
-  for (const auto &[op_key, state] : secondary_latest) {
+      grouped;
+  for (const auto &[op_key, state] : ops) {
     if (state.op != SecondaryIndexOp::Add) continue;
     SecondaryGroupKey group_key{op_key.table_name, op_key.index_name,
                                 op_key.index_type, op_key.secondary_key};
-    auto &entry = grouped_secondary[group_key];
+    auto &entry = grouped[group_key];
     entry.primary_keys.emplace_back(op_key.primary_key);
     if (entry.max_tid < state.tid) entry.max_tid = state.tid;
   }
 
-  for (auto &[group_key, entry] : grouped_secondary) {
+  for (auto &[group_key, entry] : grouped) {
     if (entry.primary_keys.empty()) continue;
     std::sort(entry.primary_keys.begin(), entry.primary_keys.end());
     entry.primary_keys.erase(
@@ -229,6 +216,37 @@ WriteSetType BuildRecoverySet(const LogRecords &image, const LogRecords &tail) {
     snapshot.data_item_copy.Reset(nullptr, 0, entry.max_tid);
     recovery_set.emplace_back(std::move(snapshot));
   }
+}
+
+/**
+ * Folds decoded records into the write set the database replays.
+ *
+ * A key may appear in several epochs; the newest transaction id wins. Secondary
+ * index entries arrive as per-primary-key deltas and are regrouped into one
+ * entry per secondary key.
+ *
+ * The checkpoint image is folded in ahead of the log's tail as ordinary
+ * records, under the same rule that resolves two epochs of the log.
+ */
+WriteSetType BuildRecoverySet(const LogRecords &image, const LogRecords &tail) {
+  SecondaryOps secondary_latest;
+  PrimaryPos primary_position;
+  WriteSetType recovery_set;
+
+  const LogRecords *sources[] = {&image, &tail};
+  for (const auto *source : sources) {
+    for (const auto &log_record : *source) {
+      for (const auto &kvp : log_record.key_value_pairs) {
+        if (IsSecondary(kvp)) {
+          FoldSecondary(kvp, secondary_latest);
+        } else {
+          FoldPrimary(kvp, recovery_set, primary_position);
+        }
+      }
+    }
+  }
+
+  GroupSecondary(secondary_latest, recovery_set);
   return recovery_set;
 }
 

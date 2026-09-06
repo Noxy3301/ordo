@@ -38,8 +38,7 @@ class SecondaryIndex {
     // OCC guards existing entries. A key whose slot carries no live PK list
     // still needs a blank entry the write can fill in.
     auto *item = secondary_index_->Get(key);
-    if (item == nullptr ||
-        !ConcurrencyControl::StableReadPrimaryKeys(*item).found) {
+    if (item == nullptr || !Silo::StableReadPrimaryKeys(*item).found) {
       secondary_index_->ForcePutBlankEntry(key, out_update);
       item = secondary_index_->Get(key);
       assert(item != nullptr);

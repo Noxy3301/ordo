@@ -135,14 +135,18 @@ target_include_directories(
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/third_party/msgpack/include>)
 
 # Masstree B+tree backend (switchable index)
-# Built via masstree's own autoconf -> libjson.a. Linked PRIVATE because
-# masstree symbols are internal to index implementation, not exposed via
-# public headers. To refresh after submodule update: rm the libjson.a.
-set(MASSTREE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party/masstree")
+# Built via masstree's own autoconf -> libjson.a, from a copy in the build
+# tree: its bootstrap writes generated sources next to the ones it reads, and
+# the submodule stays untouched. Linked PRIVATE because masstree symbols are
+# internal to the index implementation, not exposed via public headers.
+set(MASSTREE_SRC "${CMAKE_CURRENT_SOURCE_DIR}/third_party/masstree")
+set(MASSTREE_DIR "${CMAKE_CURRENT_BINARY_DIR}/masstree")
 set(MASSTREE_LIB "${MASSTREE_DIR}/libjson.a")
+file(MAKE_DIRECTORY ${MASSTREE_DIR})
 
 add_custom_command(
   OUTPUT ${MASSTREE_LIB}
+  COMMAND ${CMAKE_COMMAND} -E copy_directory ${MASSTREE_SRC} ${MASSTREE_DIR}
   COMMAND ${CMAKE_COMMAND} -E env "CXXFLAGS=-fPIC -O3" ./bootstrap.sh
   COMMAND ${CMAKE_COMMAND} -E env "CXXFLAGS=-fPIC -O3" ./configure --disable-assertions
   COMMAND make -j libjson.a

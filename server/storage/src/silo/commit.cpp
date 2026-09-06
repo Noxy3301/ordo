@@ -27,220 +27,235 @@
 namespace LineairDB {
 namespace Silo {
 
-bool Commit(TableDictionary &tables, std::shared_mutex &schema_mutex,
-            EpochFramework &epoch_framework, Index::Reaper &reaper,
-            Recovery::Logger &logger, const CommitPayload &payload,
-            Config::CommitDurability policy, std::string *abort_reason) {
-  const auto &reads = payload.reads;
-  const auto &writes = payload.writes;
-  const auto &secondary_index_ops = payload.secondary_index_ops;
-  const auto &range_reads = payload.range_reads;
+namespace {
 
-  // Epoch join.
-  epoch_framework.MakeMeOnline();
-  if (abort_reason != nullptr) abort_reason->clear();
+// A point read to re-validate, with the version the caller observed.
+struct Read {
+  Table *table = nullptr;
+  std::string table_name;
+  std::string key;
+  DataItem *item = nullptr;
+  TransactionId captured_tid;
+  bool found = false;
+};
 
-  struct ValidationEntry {
-    Table *table = nullptr;
-    std::string table_name;
-    std::string key;
-    DataItem *item = nullptr;
-    TransactionId captured_tid;
-    bool found = false;
-  };
-  struct ResolvedWrite {
-    std::string table_name;
-    std::string key;
-    std::string value;
-    bool is_delete = false;
-    DataItem *item = nullptr;
-    Index::ConcurrentTable *index = nullptr;
-    // Insert entry that is the first entry for its key in this request, so
-    // the committed row is what decides whether the key is free.
-    bool check_committed_row = false;
-  };
-  struct ResolvedSecondaryIndexOp {
-    std::string table_name;
-    std::string index_name;
-    std::string secondary_key;
-    std::string primary_key;
-    bool is_delete = false;
-    DataItem *item = nullptr;
-    Index::SecondaryIndex *index = nullptr;
-    Index::SecondaryIndexType index_type;
-  };
-  struct LockTarget {
-    DataItem *item = nullptr;
-    Index::ConcurrentTable *primary_index = nullptr;
-    Index::SecondaryIndex *secondary_index = nullptr;
-    std::string key;
-  };
+// A row write resolved to the primary-index entry it locks.
+struct Write {
+  std::string table_name;
+  std::string key;
+  std::string value;
+  bool is_delete = false;
+  DataItem *item = nullptr;
+  Index::ConcurrentTable *index = nullptr;
+  // Insert entry that is the first entry for its key in this request, so
+  // the committed row is what decides whether the key is free.
+  bool check_committed_row = false;
+};
 
-  std::vector<ValidationEntry> validation_entries;
-  std::vector<ResolvedWrite> resolved_writes;
-  std::vector<ResolvedSecondaryIndexOp> resolved_si_ops;
-  std::vector<DataItem *> lock_items;
-  std::vector<LockTarget> lock_targets;
+// A secondary-index add or remove resolved to the entry it locks.
+struct SiOp {
+  std::string table_name;
+  std::string index_name;
+  std::string secondary_key;
+  std::string primary_key;
+  bool is_delete = false;
+  DataItem *item = nullptr;
+  Index::SecondaryIndex *index = nullptr;
+  Index::SecondaryIndexType index_type;
+};
+
+// The index entry a locked item must still be reachable through.
+struct LockTarget {
+  DataItem *item = nullptr;
+  Index::ConcurrentTable *primary_index = nullptr;
+  Index::SecondaryIndex *secondary_index = nullptr;
+  std::string key;
+};
+
+struct LockedTid {
+  DataItem *item = nullptr;
+  TransactionId before_lock;
+  TransactionId locked;
+};
+
+/**
+ * @brief One commit attempt's working state, passed between the phases.
+ *
+ * @details Resolve fills the entry vectors and the lock set; Phase 1 fills
+ * `locked`; Phase 3 fills `unlocked` and the commit epoch.
+ */
+struct Ctx {
+  TableDictionary &tables;
+  EpochFramework &epoch;
+  const CommitPayload &payload;
+  std::string *abort_reason;
+
+  std::vector<Read> reads;
+  std::vector<Write> writes;
+  std::vector<SiOp> si_ops;
+  std::vector<DataItem *> items;  // lock set: address-sorted and unique
+  std::vector<LockTarget> targets;
+  std::vector<LockedTid> locked;
+  std::unordered_map<DataItem *, TransactionId> unlocked;
+  std::unordered_map<DataItem *, bool> si_empty;
+  EpochNumber commit_epoch = 0;
+  bool has_insert = false;
+
+  // Abort before the lock loop: nothing to release.
+  bool Abort(const std::string &reason) {
+    if (abort_reason != nullptr) *abort_reason = reason;
+    epoch.MakeMeOffline();
+    return false;
+  }
+
+  // Abort after the lock loop: release every lock this attempt took.
+  bool AbortLocked(const std::string &reason) {
+    if (abort_reason != nullptr) *abort_reason = reason;
+    for (auto &entry : locked) {
+      TransactionId current = entry.item->transaction_id.load();
+      if (current.tid & 1u) {
+        current.tid--;
+        entry.item->transaction_id.store(current);
+      }
+    }
+    epoch.MakeMeOffline();
+    return false;
+  }
+
+  bool IsOwnLocked(DataItem *item) const {
+    for (const auto &entry : locked) {
+      if (entry.item == item) return true;
+    }
+    return false;
+  }
+
+  // Silo Phase 2 read validation is wait-free: a record locked by another
+  // transaction is treated as dirty and forces abort. Spinning here breaks
+  // the paper's deadlock-freedom invariant — sorted write-lock acquisition
+  // protects only write-to-write edges, not read-to-write edges introduced
+  // by validators.
+  bool LockedByOther(DataItem *item) const {
+    TransactionId tid = item->transaction_id.load();
+    if (!(tid.tid & 1u)) return false;
+    return !IsOwnLocked(item);
+  }
+};
+
+// Resolve (R1-R3): map reads, writes, and SI ops to their DataItems.
+bool Resolve(Ctx &c, std::shared_mutex &schema_mutex) {
   std::unordered_set<std::string> unique_si_adds;
   // Liveness a key reached through the entries already resolved in this
   // request; absent means the request has not touched the key yet. Only an
   // insert consults it, so a request without one does not pay for it.
   std::unordered_map<std::string, bool> live_in_request;
-  const bool has_insert_entry = std::any_of(
-      writes.begin(), writes.end(),
-      [](const ExternalWriteEntry &entry) { return entry.is_insert; });
 
-  auto abort_before_lock = [&](const std::string &reason) {
-    if (abort_reason != nullptr) *abort_reason = reason;
-    epoch_framework.MakeMeOffline();
-    return false;
-  };
+  std::shared_lock<std::shared_mutex> lk(schema_mutex);
 
-  // A range entry without its exclusive end bound cannot be replayed;
-  // abort instead of skipping the validation.
-  for (const auto &range : range_reads) {
-    if (range.end_key.empty()) {
-      return abort_before_lock("range_end_key_missing");
+  // Resolve point reads to the DataItem and version observed by proxy
+  c.reads.reserve(c.payload.reads.size());
+  for (const auto &read : c.payload.reads) {
+    auto table = c.tables.GetTable(read.table_name);
+    if (!table.has_value()) {
+      if (read.found || read.tid != 0) {
+        return c.Abort("read_table_missing");
+      }
+      continue;
     }
+
+    DataItem *item = table.value()->GetPrimaryIndex().Get(read.key);
+    c.reads.push_back({table.value(), read.table_name, read.key, item,
+                       UnpackTransactionId(read.tid), read.found});
   }
 
-  // Resolve (R1-R2): map reads, writes, and SI ops to their DataItems.
-  {
-    std::shared_lock<std::shared_mutex> lk(schema_mutex);
-
-    // Resolve point reads to the DataItem and version observed by proxy
-    validation_entries.reserve(reads.size());
-    for (const auto &read : reads) {
-      auto table = tables.GetTable(read.table_name);
-      if (!table.has_value()) {
-        if (read.found || read.tid != 0) {
-          return abort_before_lock("read_table_missing");
-        }
-        continue;
-      }
-
-      DataItem *item = table.value()->GetPrimaryIndex().Get(read.key);
-      validation_entries.push_back({table.value(), read.table_name, read.key,
-                                    item, UnpackTransactionId(read.tid),
-                                    read.found});
+  // Resolve row writes and deletes to the primary-index entries to lock.
+  // R2: a key with no DataItem yet cannot be locked, so GetOrInsert
+  // materializes a blank slot (uninitialized, TID 0); this mutates the
+  // tree but takes no row lock — Silo's native insert stages an "absent"
+  // record the same way.
+  c.writes.reserve(c.payload.writes.size());
+  for (const auto &write : c.payload.writes) {
+    auto table = c.tables.GetTable(write.table_name);
+    if (!table.has_value()) {
+      return c.Abort("write_table_missing");
     }
 
-    // Resolve row writes and deletes to the primary-index entries to lock.
-    // R2: a key with no DataItem yet cannot be locked, so GetOrInsert
-    // materializes a blank slot (uninitialized, TID 0); this mutates the
-    // tree but takes no row lock — Silo's native insert stages an "absent"
-    // record the same way.
-    resolved_writes.reserve(writes.size());
-    for (const auto &write : writes) {
-      auto table = tables.GetTable(write.table_name);
-      if (!table.has_value()) {
-        return abort_before_lock("write_table_missing");
-      }
+    DataItem *item = table.value()->GetPrimaryIndex().GetOrInsert(write.key);
+    assert(item != nullptr);  // GetOrInsert materializes a blank slot
 
-      DataItem *item = table.value()->GetPrimaryIndex().GetOrInsert(write.key);
-      assert(item != nullptr);  // GetOrInsert materializes a blank slot
-
-      // An insert onto a key an earlier entry of this request already made
-      // live is a duplicate the committed state cannot excuse.
-      bool check_committed_row = false;
-      if (has_insert_entry) {
-        const std::string request_key = write.table_name + '\0' + write.key;
-        auto live_it = live_in_request.find(request_key);
-        if (write.is_insert) {
-          if (live_it == live_in_request.end()) {
-            check_committed_row = true;
-          } else if (live_it->second) {
-            return abort_before_lock(kDuplicateKeyAbortReason);
-          }
-        }
-        live_in_request[request_key] = !write.is_delete;
-      }
-
-      auto *primary_index = &table.value()->GetPrimaryIndex();
-      resolved_writes.push_back({write.table_name, write.key, write.value,
-                                 write.is_delete, item, primary_index,
-                                 check_committed_row});
-      lock_items.push_back(item);
-      lock_targets.push_back({item, primary_index, nullptr, write.key});
-    }
-
-    // Resolve secondary-index updates to the secondary-index entries to lock
-    resolved_si_ops.reserve(secondary_index_ops.size());
-    for (const auto &op : secondary_index_ops) {
-      auto table = tables.GetTable(op.table_name);
-      if (!table.has_value()) {
-        return abort_before_lock("si_table_missing");
-      }
-
-      Index::SecondaryIndex *index =
-          table.value()->GetSecondaryIndex(op.index_name);
-      if (index == nullptr) {
-        return abort_before_lock("si_index_missing");
-      }
-
-      // R3: reject the same UNIQUE SI key appearing twice in this request.
-      if (!op.is_delete && index->IsUnique()) {
-        const std::string unique_key =
-            op.table_name + '\0' + op.index_name + '\0' + op.secondary_key;
-        if (!unique_si_adds.insert(unique_key).second) {
-          return abort_before_lock("unique_si_duplicate_in_request");
+    // An insert onto a key an earlier entry of this request already made
+    // live is a duplicate the committed state cannot excuse.
+    bool check_committed_row = false;
+    if (c.has_insert) {
+      const std::string request_key = write.table_name + '\0' + write.key;
+      auto live_it = live_in_request.find(request_key);
+      if (write.is_insert) {
+        if (live_it == live_in_request.end()) {
+          check_committed_row = true;
+        } else if (live_it->second) {
+          return c.Abort(kDuplicateKeyAbortReason);
         }
       }
-
-      DataItem *item = nullptr;
-      if (op.is_delete) {
-        item = index->GetOrInsert(op.secondary_key);
-      } else {
-        item = index->GetOrInsertForWrite(op.secondary_key);
-      }
-
-      resolved_si_ops.push_back({op.table_name, op.index_name, op.secondary_key,
-                                 op.primary_key, op.is_delete, item, index,
-                                 index->GetIndexType()});
-      lock_items.push_back(item);
-      lock_targets.push_back({item, nullptr, index, op.secondary_key});
+      live_in_request[request_key] = !write.is_delete;
     }
+
+    auto *primary_index = &table.value()->GetPrimaryIndex();
+    c.writes.push_back({write.table_name, write.key, write.value,
+                        write.is_delete, item, primary_index,
+                        check_committed_row});
+    c.items.push_back(item);
+    c.targets.push_back({item, primary_index, nullptr, write.key});
   }
 
-  // Outside the schema lock: a test parks a committer here to race an insert
-  // against another connection, and holding a shared lock on the schema would
-  // block that connection's DDL rather than only its insert.
-  if (has_insert_entry) {
-    LINEAIRDB_DEBUG_SYNC("silo_commit.after_index_claim");
-  }
+  // Resolve secondary-index updates to the secondary-index entries to lock
+  c.si_ops.reserve(c.payload.secondary_index_ops.size());
+  for (const auto &op : c.payload.secondary_index_ops) {
+    auto table = c.tables.GetTable(op.table_name);
+    if (!table.has_value()) {
+      return c.Abort("si_table_missing");
+    }
 
-  // Phase 1.1: address-sort and CAS-lock every write target. One global
-  // lock order keeps concurrent committers free of write-write deadlock;
-  // the pre-lock TID is kept because validation must compare reads against
-  // it, not against the TID we just dirtied.
-  std::sort(lock_items.begin(), lock_items.end());
-  lock_items.erase(std::unique(lock_items.begin(), lock_items.end()),
-                   lock_items.end());
+    Index::SecondaryIndex *index =
+        table.value()->GetSecondaryIndex(op.index_name);
+    if (index == nullptr) {
+      return c.Abort("si_index_missing");
+    }
 
-  struct LockedTid {
+    // R3: reject the same UNIQUE SI key appearing twice in this request.
+    if (!op.is_delete && index->IsUnique()) {
+      const std::string unique_key =
+          op.table_name + '\0' + op.index_name + '\0' + op.secondary_key;
+      if (!unique_si_adds.insert(unique_key).second) {
+        return c.Abort("unique_si_duplicate_in_request");
+      }
+    }
+
     DataItem *item = nullptr;
-    TransactionId before_lock;
-    TransactionId locked;
-  };
-
-  std::vector<LockedTid> locked_tids;
-  locked_tids.reserve(lock_items.size());
-
-  auto unlock_and_abort = [&](const std::string &reason) {
-    if (abort_reason != nullptr) *abort_reason = reason;
-    for (auto &locked : locked_tids) {
-      TransactionId current = locked.item->transaction_id.load();
-      if (current.tid & 1u) {
-        current.tid--;
-        locked.item->transaction_id.store(current);
-      }
+    if (op.is_delete) {
+      item = index->GetOrInsert(op.secondary_key);
+    } else {
+      item = index->GetOrInsertForWrite(op.secondary_key);
     }
-    epoch_framework.MakeMeOffline();
-    return false;
-  };
 
-  auto lock_target_attached = [&](DataItem *item) {
-    for (const auto &target : lock_targets) {
+    c.si_ops.push_back({op.table_name, op.index_name, op.secondary_key,
+                        op.primary_key, op.is_delete, item, index,
+                        index->GetIndexType()});
+    c.items.push_back(item);
+    c.targets.push_back({item, nullptr, index, op.secondary_key});
+  }
+  return true;
+}
+
+// Phase 1.1: address-sort and CAS-lock every write target. One global lock
+// order keeps concurrent committers free of write-write deadlock; the
+// pre-lock TID is kept because validation must compare reads against it, not
+// against the TID we just dirtied.
+bool Lock(Ctx &c) {
+  std::sort(c.items.begin(), c.items.end());
+  c.items.erase(std::unique(c.items.begin(), c.items.end()), c.items.end());
+  c.locked.reserve(c.items.size());
+
+  auto attached = [&](DataItem *item) {
+    for (const auto &target : c.targets) {
       if (target.item != item) continue;
       DataItem *current = nullptr;
       if (target.primary_index != nullptr) {
@@ -256,7 +271,7 @@ bool Commit(TableDictionary &tables, std::shared_mutex &schema_mutex,
   };
 
   // Lock loop: spin until the LSB CAS lands.
-  for (auto *item : lock_items) {
+  for (auto *item : c.items) {
     for (;;) {
       TransactionId current = item->transaction_id.load();
       if (current.tid & 1u) {
@@ -266,56 +281,48 @@ bool Commit(TableDictionary &tables, std::shared_mutex &schema_mutex,
       TransactionId locked = current;
       locked.tid |= 1u;
       if (item->transaction_id.compare_exchange_weak(current, locked)) {
-        locked_tids.push_back({item, current, locked});
-        if (!lock_target_attached(item)) {
-          return unlock_and_abort("write_target_detached");
+        c.locked.push_back({item, current, locked});
+        if (!attached(item)) {
+          return c.AbortLocked("write_target_detached");
         }
         break;
       }
     }
   }
+  return true;
+}
 
-  // Phase 1.2: re-read the global epoch with all locks held — the
-  // serialization point: epoch-grouped commit and recovery follow the
-  // serial order only if the commit epoch is taken here. The thread-local
-  // epoch is fixed at join time, so leaving and re-joining is the only way
-  // to re-read it.
-  epoch_framework.MakeMeOffline();
-  epoch_framework.MakeMeOnline();
+std::string KeyHex(const std::string &key) {
+  static constexpr char kHex[] = "0123456789abcdef";
+  std::string out;
+  out.reserve(key.size() * 2);
+  for (unsigned char byte : key) {
+    out.push_back(kHex[byte >> 4]);
+    out.push_back(kHex[byte & 0x0F]);
+  }
+  return out;
+}
 
-  // Phase 2.1: re-read exact-key TIDs and confirm they have not moved; a
-  // moved TID means a concurrent commit overwrote the row after the caller
-  // read it.
-  auto key_hex = [](const std::string &key) {
-    static constexpr char kHex[] = "0123456789abcdef";
-    std::string out;
-    out.reserve(key.size() * 2);
-    for (unsigned char byte : key) {
-      out.push_back(kHex[byte >> 4]);
-      out.push_back(kHex[byte & 0x0F]);
-    }
-    return out;
-  };
+std::string ReadReason(const char *reason, const Read &read) {
+  std::string out(reason);
+  out += ':';
+  out += read.table_name;
+  out += ":key=";
+  out += KeyHex(read.key);
+  return out;
+}
 
-  auto exact_read_reason = [&](const char *reason,
-                               const ValidationEntry &read) {
-    std::string out(reason);
-    out += ':';
-    out += read.table_name;
-    out += ":key=";
-    out += key_hex(read.key);
-    return out;
-  };
-
-  for (const auto &read : validation_entries) {
+// Phase 2.1: re-read exact-key TIDs and confirm they have not moved; a moved
+// TID means a concurrent commit overwrote the row after the caller read it.
+bool ValidateReads(Ctx &c) {
+  for (const auto &read : c.reads) {
     DataItem *item = read.table->GetPrimaryIndex().Get(read.key);
     if (item == nullptr) {
       // A read observed as present must still resolve at validation
       // time. An unresolvable key here means a committed delete purged
       // the slot after the read, which is a serializability conflict.
       if (read.found) {
-        return unlock_and_abort(
-            exact_read_reason("exact_read_disappeared", read));
+        return c.AbortLocked(ReadReason("exact_read_disappeared", read));
       }
       continue;
     }
@@ -324,16 +331,15 @@ bool Commit(TableDictionary &tables, std::shared_mutex &schema_mutex,
       if (!item->IsPrimaryInitialized()) {
         continue;
       }
-      return unlock_and_abort(exact_read_reason("exact_read_appeared", read));
+      return c.AbortLocked(ReadReason("exact_read_appeared", read));
     }
 
     TransactionId expected = read.captured_tid;
-    for (const auto &locked : locked_tids) {
+    for (const auto &locked : c.locked) {
       if (locked.item == item) {
         if (locked.before_lock.epoch != read.captured_tid.epoch ||
             locked.before_lock.tid != read.captured_tid.tid) {
-          return unlock_and_abort(
-              exact_read_reason("exact_read_tid_moved", read));
+          return c.AbortLocked(ReadReason("exact_read_tid_moved", read));
         }
         expected = locked.locked;
         break;
@@ -341,170 +347,161 @@ bool Commit(TableDictionary &tables, std::shared_mutex &schema_mutex,
     }
 
     if (item->transaction_id.load() != expected) {
-      return unlock_and_abort(exact_read_reason("exact_read_tid_moved", read));
+      return c.AbortLocked(ReadReason("exact_read_tid_moved", read));
     }
     if (read.found && !item->IsPrimaryInitialized()) {
-      return unlock_and_abort(exact_read_reason("exact_read_deleted", read));
+      return c.AbortLocked(ReadReason("exact_read_deleted", read));
     }
   }
+  return true;
+}
 
-  // Phase 2.2: replay each range scan and compare the key lists. This is
-  // the phantom check Silo performs with Masstree node versions (physical
-  // validation), done by value because a stateless caller cannot hold node
-  // pointers across the RPC boundary. The comparison is membership only;
-  // row TIDs are validated at 2.1.
-  auto is_own_locked = [&](DataItem *item) {
-    for (const auto &locked : locked_tids) {
-      if (locked.item == item) return true;
+// Replay one primary range scan and compare the key list positionally.
+// Stopping at the first divergence bounds the replay at one live row past
+// the evidence even when the range is unlimited.
+bool ReplayRange(Ctx &c, const ExternalRangeReadEntry &range) {
+  auto table = c.tables.GetTable(range.table_name);
+  if (!table.has_value()) return false;
+
+  size_t result_pos = 0;
+  bool aborted = false;
+  bool matches = true;
+  auto collect_key = [&](std::string_view key, DataItem &item) {
+    if (c.LockedByOther(&item)) {
+      aborted = true;
+      return true;
+    }
+    if (item.IsPrimaryInitialized()) {
+      if (result_pos >= range.result_keys.size() ||
+          std::string_view(range.result_keys[result_pos]) != key) {
+        matches = false;
+        return true;
+      }
+      ++result_pos;
+    }
+    return range.row_limit > 0 && result_pos >= range.row_limit;
+  };
+
+  if (range.reverse_scan) {
+    table.value()->GetPrimaryIndex().ScanReverse(range.start_key, range.end_key,
+                                                 collect_key, nullptr);
+  } else {
+    table.value()->GetPrimaryIndex().Scan(range.start_key, range.end_key,
+                                          collect_key, nullptr);
+  }
+  if (aborted) return false;
+  return matches && result_pos == range.result_keys.size();
+}
+
+// Replay one secondary range scan: compare the secondary keys and the base
+// rows they reach.
+bool ReplayIndexRange(Ctx &c, const ExternalRangeReadEntry &range) {
+  auto table = c.tables.GetTable(range.table_name);
+  if (!table.has_value()) return false;
+  auto *index = table.value()->GetSecondaryIndex(range.index_name);
+  if (index == nullptr) return false;
+
+  size_t result_pos = 0;
+  bool aborted = false;
+  bool matches = true;
+  auto collect_base_row = [&](const std::string &secondary_key,
+                              std::string_view primary_key) {
+    DataItem *item = table.value()->GetPrimaryIndex().Get(primary_key);
+    if (item == nullptr) return false;
+    if (c.LockedByOther(item)) {
+      aborted = true;
+      return true;
+    }
+    if (item->IsPrimaryInitialized()) {
+      if (result_pos >= range.result_keys.size() ||
+          result_pos >= range.result_primary_keys.size() ||
+          std::string_view(range.result_keys[result_pos]) !=
+              std::string_view(secondary_key) ||
+          std::string_view(range.result_primary_keys[result_pos]) !=
+              primary_key) {
+        matches = false;
+        return true;
+      }
+      ++result_pos;
+    }
+    return range.row_limit > 0 && result_pos >= range.row_limit;
+  };
+
+  auto collect_secondary_key = [&](std::string_view key) {
+    const std::string secondary_key(key);
+    DataItem *item = index->Get(key);
+    if (item == nullptr) return false;
+    // Pin the immutable primary-key list under a double-TID read, as in
+    // the staging scan. A committer publishes a new list under its lock;
+    // the TID stays constant while own-locked, so re-check after loading.
+    const TransactionId observed = item->transaction_id.load();
+    if ((observed.tid & 1u) && !c.IsOwnLocked(item)) {
+      aborted = true;
+      return true;
+    }
+    auto primary_keys = std::atomic_load(&item->primary_keys_);
+    const bool secondary_live = primary_keys && primary_keys->count != 0;
+    if (item->transaction_id.load() != observed) {
+      aborted = true;
+      return true;
+    }
+    if (!secondary_live) {
+      return false;
+    }
+    for (std::string_view primary_key : PackedPrimaryKeysView(primary_keys)) {
+      if (collect_base_row(secondary_key, primary_key)) return true;
     }
     return false;
   };
 
-  // Silo Phase 2 read validation is wait-free: a record locked by another
-  // transaction is treated as dirty and forces abort. Spinning here breaks
-  // the paper's deadlock-freedom invariant — sorted write-lock acquisition
-  // protects only write-to-write edges, not read-to-write edges introduced
-  // by validators.
-  auto locked_by_another = [&](DataItem *item) {
-    TransactionId tid = item->transaction_id.load();
-    if (!(tid.tid & 1u)) return false;
-    return !is_own_locked(item);
-  };
+  if (range.reverse_scan) {
+    index->ScanReverse(range.start_key, range.end_key, collect_secondary_key,
+                       nullptr);
+  } else {
+    index->Scan(range.start_key, range.end_key, collect_secondary_key, nullptr);
+  }
+  if (aborted) return false;
+  return matches && result_pos == range.result_keys.size() &&
+         result_pos == range.result_primary_keys.size();
+}
 
-  auto validate_primary_key_list = [&](const ExternalRangeReadEntry &range) {
-    auto table = tables.GetTable(range.table_name);
-    if (!table.has_value()) return false;
-
-    // Compare positionally against the evidence and stop at the first
-    // divergence, which bounds the replay at one live row past the
-    // evidence even when the range is unlimited.
-    size_t result_pos = 0;
-    bool aborted = false;
-    bool matches = true;
-    auto collect_key = [&](std::string_view key, DataItem &item) {
-      if (locked_by_another(&item)) {
-        aborted = true;
-        return true;
-      }
-      if (item.IsPrimaryInitialized()) {
-        if (result_pos >= range.result_keys.size() ||
-            std::string_view(range.result_keys[result_pos]) != key) {
-          matches = false;
-          return true;
-        }
-        ++result_pos;
-      }
-      return range.row_limit > 0 && result_pos >= range.row_limit;
-    };
-
-    if (range.reverse_scan) {
-      table.value()->GetPrimaryIndex().ScanReverse(
-          range.start_key, range.end_key, collect_key, nullptr);
-    } else {
-      table.value()->GetPrimaryIndex().Scan(range.start_key, range.end_key,
-                                            collect_key, nullptr);
-    }
-    if (aborted) return false;
-    return matches && result_pos == range.result_keys.size();
-  };
-
-  auto validate_secondary_key_list = [&](const ExternalRangeReadEntry &range) {
-    auto table = tables.GetTable(range.table_name);
-    if (!table.has_value()) return false;
-    auto *index = table.value()->GetSecondaryIndex(range.index_name);
-    if (index == nullptr) return false;
-
-    size_t result_pos = 0;
-    bool aborted = false;
-    bool matches = true;
-    auto collect_base_row = [&](const std::string &secondary_key,
-                                std::string_view primary_key) {
-      DataItem *item = table.value()->GetPrimaryIndex().Get(primary_key);
-      if (item == nullptr) return false;
-      if (locked_by_another(item)) {
-        aborted = true;
-        return true;
-      }
-      if (item->IsPrimaryInitialized()) {
-        if (result_pos >= range.result_keys.size() ||
-            result_pos >= range.result_primary_keys.size() ||
-            std::string_view(range.result_keys[result_pos]) !=
-                std::string_view(secondary_key) ||
-            std::string_view(range.result_primary_keys[result_pos]) !=
-                primary_key) {
-          matches = false;
-          return true;
-        }
-        ++result_pos;
-      }
-      return range.row_limit > 0 && result_pos >= range.row_limit;
-    };
-
-    auto collect_secondary_key = [&](std::string_view key) {
-      const std::string secondary_key(key);
-      DataItem *item = index->Get(key);
-      if (item == nullptr) return false;
-      // Pin the immutable primary-key list under a double-TID read, as in
-      // the staging scan. A committer publishes a new list under its lock;
-      // the TID stays constant while own-locked, so re-check after loading.
-      const TransactionId observed = item->transaction_id.load();
-      if ((observed.tid & 1u) && !is_own_locked(item)) {
-        aborted = true;
-        return true;
-      }
-      auto primary_keys = std::atomic_load(&item->primary_keys_);
-      const bool secondary_live = primary_keys && primary_keys->count != 0;
-      if (item->transaction_id.load() != observed) {
-        aborted = true;
-        return true;
-      }
-      if (!secondary_live) {
-        return false;
-      }
-      for (std::string_view primary_key : PackedPrimaryKeysView(primary_keys)) {
-        if (collect_base_row(secondary_key, primary_key)) return true;
-      }
-      return false;
-    };
-
-    if (range.reverse_scan) {
-      index->ScanReverse(range.start_key, range.end_key, collect_secondary_key,
-                         nullptr);
-    } else {
-      index->Scan(range.start_key, range.end_key, collect_secondary_key,
-                  nullptr);
-    }
-    if (aborted) return false;
-    return matches && result_pos == range.result_keys.size() &&
-           result_pos == range.result_primary_keys.size();
-  };
-
-  for (const auto &range : range_reads) {
-    const bool ok = range.index_name.empty()
-                        ? validate_primary_key_list(range)
-                        : validate_secondary_key_list(range);
+// Phase 2.2: replay each range scan and compare the key lists. This is the
+// phantom check Silo performs with Masstree node versions (physical
+// validation), done by value because a stateless caller cannot hold node
+// pointers across the RPC boundary. The comparison is membership only; row
+// TIDs are validated at 2.1.
+bool ValidateRanges(Ctx &c) {
+  for (const auto &range : c.payload.range_reads) {
+    const bool ok = range.index_name.empty() ? ReplayRange(c, range)
+                                             : ReplayIndexRange(c, range);
     if (!ok) {
-      return unlock_and_abort(range.index_name.empty()
-                                  ? "primary_range_result_changed"
-                                  : "secondary_range_result_changed");
+      return c.AbortLocked(range.index_name.empty()
+                               ? "primary_range_result_changed"
+                               : "secondary_range_result_changed");
     }
   }
+  return true;
+}
 
-  // Phase 2.3: an insert must find its key free. Checked under the write lock
-  // that installs the rows, so a competing inserter of the same key is
-  // serialized behind it and sees the row this transaction is about to write.
-  for (const auto &write : resolved_writes) {
+// Phase 2.3: an insert must find its key free. Checked under the write lock
+// that installs the rows, so a competing inserter of the same key is
+// serialized behind it and sees the row this transaction is about to write.
+bool ValidateInserts(Ctx &c) {
+  for (const auto &write : c.writes) {
     if (!write.check_committed_row) continue;
     if (write.item->IsPrimaryInitialized()) {
-      return unlock_and_abort(kDuplicateKeyAbortReason);
+      return c.AbortLocked(kDuplicateKeyAbortReason);
     }
   }
+  return true;
+}
 
-  // Phase 2.4: post-lock UNIQUE recheck. A competing add may have installed
-  // the same secondary key while we were waiting on the write lock, so the
-  // resolve-time dedup (R3) is not enough on its own.
+// Phase 2.4: post-lock UNIQUE recheck. A competing add may have installed the
+// same secondary key while we were waiting on the write lock, so the
+// resolve-time dedup (R3) is not enough on its own.
+bool ValidateUnique(Ctx &c) {
   std::unordered_map<DataItem *, PackedPrimaryKeys::Ptr> si_primary_keys;
-  for (const auto &op : resolved_si_ops) {
+  for (const auto &op : c.si_ops) {
     if (!op.index_type.IsUnique()) continue;
 
     auto [state_it, inserted] =
@@ -527,21 +524,23 @@ bool Commit(TableDictionary &tables, std::shared_mutex &schema_mutex,
     }
 
     if (!keys.empty()) {
-      return unlock_and_abort("unique_si_exists_after_lock");
+      return c.AbortLocked("unique_si_exists_after_lock");
     }
     primary_keys = PackedPrimaryKeys::Insert(primary_keys, op.primary_key);
   }
+  return true;
+}
 
-  // Phase 3.1: install row writes/deletes and SI add/remove. Deletes leave
-  // tombstones in the tree; physical removal is deferred until a later
-  // epoch so same-key reinserts reuse the slot and advance its TID chain.
+// Phase 3.1: install row writes/deletes and SI add/remove. Deletes leave
+// tombstones in the tree; physical removal is deferred until a later epoch so
+// same-key reinserts reuse the slot and advance its TID chain.
+void Install(Ctx &c) {
   {
     // Tags the install region with the commit epoch so the PAX
     // before-image capture can label its entries.
-    Pax::ScopedCommitEpoch commit_epoch_scope(
-        epoch_framework.GetMyThreadLocalEpoch());
+    Pax::ScopedCommitEpoch commit_epoch_scope(c.epoch.GetMyThreadLocalEpoch());
     size_t installed = 0;
-    for (auto &write : resolved_writes) {
+    for (auto &write : c.writes) {
       if (installed > 0) {
         LINEAIRDB_DEBUG_SYNC("silo_commit.between_row_installs");
       }
@@ -558,7 +557,7 @@ bool Commit(TableDictionary &tables, std::shared_mutex &schema_mutex,
 
   // Install secondary-index add/remove. Empty SI slots are tombstones too;
   // their physical removal is deferred with primary rows.
-  for (auto &op : resolved_si_ops) {
+  for (auto &op : c.si_ops) {
     const auto *primary_key =
         reinterpret_cast<const std::byte *>(op.primary_key.data());
     if (op.is_delete) {
@@ -573,52 +572,54 @@ bool Commit(TableDictionary &tables, std::shared_mutex &schema_mutex,
   // committer can publish a replacement under its own lock.
   // Computed after the whole install loop so a delete-then-add sequence on
   // the same slot within this transaction reads the final state.
-  std::unordered_map<DataItem *, bool> si_empty_after_install;
-  for (const auto &op : resolved_si_ops) {
+  for (const auto &op : c.si_ops) {
     if (!op.is_delete) continue;
     const auto primary_keys = std::atomic_load(&op.item->primary_keys_);
-    si_empty_after_install[op.item] =
-        PackedPrimaryKeysView(primary_keys).empty();
+    c.si_empty[op.item] = PackedPrimaryKeysView(primary_keys).empty();
   }
+}
 
-  // Phase 3.2: build the log snapshot before unlock so a later transaction
-  // cannot overwrite the values we just logged.
+// Phase 3.2: build the log snapshot before unlock so a later transaction
+// cannot overwrite the values we just logged.
+WriteSetType LogSet(Ctx &c, Config::CommitDurability policy) {
   WriteSetType log_set;
-  if (policy != Config::CommitDurability::Volatile) {
-    log_set.reserve(resolved_writes.size() + resolved_si_ops.size());
+  if (policy == Config::CommitDurability::Volatile) return log_set;
 
-    for (const auto &write : resolved_writes) {
-      Snapshot snapshot(write.key, nullptr, 0, write.item, write.table_name,
-                        "");
-      snapshot.data_item_copy = *write.item;
-      log_set.emplace_back(std::move(snapshot));
-    }
-    for (const auto &op : resolved_si_ops) {
-      Snapshot snapshot(op.secondary_key, nullptr, 0, op.item, op.table_name,
-                        op.index_name, 0, op.index_type);
-      snapshot.data_item_copy = *op.item;
-      snapshot.RecordSecondaryIndexDelta(
-          op.primary_key,
-          op.is_delete ? SecondaryIndexOp::Remove : SecondaryIndexOp::Add);
-      log_set.emplace_back(std::move(snapshot));
-    }
+  log_set.reserve(c.writes.size() + c.si_ops.size());
+  for (const auto &write : c.writes) {
+    Snapshot snapshot(write.key, nullptr, 0, write.item, write.table_name, "");
+    snapshot.data_item_copy = *write.item;
+    log_set.emplace_back(std::move(snapshot));
   }
+  for (const auto &op : c.si_ops) {
+    Snapshot snapshot(op.secondary_key, nullptr, 0, op.item, op.table_name,
+                      op.index_name, 0, op.index_type);
+    snapshot.data_item_copy = *op.item;
+    snapshot.RecordSecondaryIndexDelta(
+        op.primary_key,
+        op.is_delete ? SecondaryIndexOp::Remove : SecondaryIndexOp::Add);
+    log_set.emplace_back(std::move(snapshot));
+  }
+  return log_set;
+}
 
-  // Phase 3.3: unlock by writing the new TID. Carry the epoch forward when
-  // the captured TID is from an earlier epoch.
-  const EpochNumber current_epoch = epoch_framework.GetMyThreadLocalEpoch();
-  std::unordered_map<DataItem *, TransactionId> unlocked_tids;
-  unlocked_tids.reserve(lock_items.size());
-  for (auto *item : lock_items) {
+// Phase 3.3-3.4: publish the new TIDs, stamp them into the log snapshot, and
+// hand slots this transaction left empty to the reaper.
+void Publish(Ctx &c, Index::Reaper &reaper, WriteSetType &log_set) {
+  // Unlock by writing the new TID. Carry the epoch forward when the captured
+  // TID is from an earlier epoch.
+  c.commit_epoch = c.epoch.GetMyThreadLocalEpoch();
+  c.unlocked.reserve(c.items.size());
+  for (auto *item : c.items) {
     TransactionId current = item->transaction_id.load();
     TransactionId unlocked;
-    if (current.epoch == current_epoch) {
-      unlocked = {current_epoch, current.tid + 1};
+    if (current.epoch == c.commit_epoch) {
+      unlocked = {c.commit_epoch, current.tid + 1};
     } else {
-      unlocked = {current_epoch, 2};
+      unlocked = {c.commit_epoch, 2};
     }
     item->transaction_id.store(unlocked);
-    unlocked_tids.emplace(item, unlocked);
+    c.unlocked.emplace(item, unlocked);
   }
 
   // The log snapshot was captured under the lock and still carries the
@@ -626,49 +627,107 @@ bool Commit(TableDictionary &tables, std::shared_mutex &schema_mutex,
   // to the key would spin on a lock nobody owns. Publish the unlocked TID
   // into the snapshot, as the native commit path does.
   for (auto &snapshot : log_set) {
-    const auto tid_it = unlocked_tids.find(snapshot.index_cache);
-    if (tid_it == unlocked_tids.end()) continue;
+    const auto tid_it = c.unlocked.find(snapshot.index_cache);
+    if (tid_it == c.unlocked.end()) continue;
     snapshot.data_item_copy.transaction_id.store(tid_it->second);
   }
 
-  // Phase 3.4: register slots left empty by this transaction for deferred
-  // physical purge, keyed by the published unlocked TID; immediate removal
-  // could free memory still visible to concurrent readers.
-  for (const auto &write : resolved_writes) {
+  // Register slots left empty by this transaction for deferred physical
+  // purge, keyed by the published unlocked TID; immediate removal could free
+  // memory still visible to concurrent readers.
+  for (const auto &write : c.writes) {
     if (!write.is_delete) continue;
-    auto tid_it = unlocked_tids.find(write.item);
-    if (tid_it == unlocked_tids.end()) continue;
+    auto tid_it = c.unlocked.find(write.item);
+    if (tid_it == c.unlocked.end()) continue;
     reaper.Enqueue(write.index, nullptr, write.key, write.item, tid_it->second);
   }
 
   std::unordered_set<DataItem *> registered_si_purges;
-  for (const auto &op : resolved_si_ops) {
+  for (const auto &op : c.si_ops) {
     if (!op.is_delete) continue;
-    auto empty_it = si_empty_after_install.find(op.item);
-    if (empty_it == si_empty_after_install.end() || !empty_it->second) {
+    auto empty_it = c.si_empty.find(op.item);
+    if (empty_it == c.si_empty.end() || !empty_it->second) {
       continue;
     }
     if (!registered_si_purges.insert(op.item).second) continue;
-    auto tid_it = unlocked_tids.find(op.item);
-    if (tid_it == unlocked_tids.end()) continue;
+    auto tid_it = c.unlocked.find(op.item);
+    if (tid_it == c.unlocked.end()) continue;
     reaper.Enqueue(nullptr, op.index, op.secondary_key, op.item,
                    tid_it->second);
   }
+}
 
-  // Phase 3.5: enqueue the log set, capture the policy while still online at
-  // current_epoch, then leave the epoch.
-  bool log_enqueued = false;
-  if (!log_set.empty()) {
-    log_enqueued = logger.Enqueue(log_set, current_epoch);
+/**
+ * @brief Phase 3.5: enqueue the log set and read the durability contract.
+ *
+ * @return true when the caller must wait for the device. The contract is read
+ * here, while the committing thread is online at its commit epoch, because
+ * SetCommitDurability's barrier argument rests on that read point.
+ */
+bool Enqueue(Recovery::Logger &logger, WriteSetType &log_set,
+             EpochNumber commit_epoch) {
+  if (log_set.empty()) return false;
+  return logger.Enqueue(log_set, commit_epoch) &&
+         logger.GetCommitDurability() == Config::CommitDurability::Sync;
+}
+
+}  // namespace
+
+bool Commit(TableDictionary &tables, std::shared_mutex &schema_mutex,
+            EpochFramework &epoch_framework, Index::Reaper &reaper,
+            Recovery::Logger &logger, const CommitPayload &payload,
+            Config::CommitDurability policy, std::string *abort_reason) {
+  Ctx c{tables, epoch_framework, payload, abort_reason};
+
+  // Epoch join.
+  epoch_framework.MakeMeOnline();
+  if (abort_reason != nullptr) abort_reason->clear();
+
+  c.has_insert = std::any_of(
+      payload.writes.begin(), payload.writes.end(),
+      [](const ExternalWriteEntry &entry) { return entry.is_insert; });
+
+  // A range entry without its exclusive end bound cannot be replayed;
+  // abort instead of skipping the validation.
+  for (const auto &range : payload.range_reads) {
+    if (range.end_key.empty()) {
+      return c.Abort("range_end_key_missing");
+    }
   }
-  const bool awaits_durability =
-      log_enqueued &&
-      logger.GetCommitDurability() == Config::CommitDurability::Sync;
+
+  if (!Resolve(c, schema_mutex)) return false;
+
+  // Outside the schema lock: a test parks a committer here to race an insert
+  // against another connection, and holding a shared lock on the schema would
+  // block that connection's DDL rather than only its insert.
+  if (c.has_insert) {
+    LINEAIRDB_DEBUG_SYNC("silo_commit.after_index_claim");
+  }
+
+  if (!Lock(c)) return false;
+
+  // Phase 1.2: re-read the global epoch with all locks held — the
+  // serialization point: epoch-grouped commit and recovery follow the
+  // serial order only if the commit epoch is taken here. The thread-local
+  // epoch is fixed at join time, so leaving and re-joining is the only way
+  // to re-read it.
+  epoch_framework.MakeMeOffline();
+  epoch_framework.MakeMeOnline();
+
+  if (!ValidateReads(c)) return false;
+  if (!ValidateRanges(c)) return false;
+  if (!ValidateInserts(c)) return false;
+  if (!ValidateUnique(c)) return false;
+
+  Install(c);
+  WriteSetType log_set = LogSet(c, policy);
+  Publish(c, reaper, log_set);
+  const bool awaits_durability = Enqueue(logger, log_set, c.commit_epoch);
 
   LINEAIRDB_DEBUG_SYNC("silo_commit.before_offline");
   epoch_framework.MakeMeOffline();
 
-  logger.AwaitCommitDurability(current_epoch, awaits_durability);
+  logger.AwaitCommitDurability(c.commit_epoch, awaits_durability);
   return true;
 }
 

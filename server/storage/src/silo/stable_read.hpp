@@ -12,7 +12,7 @@
 #include "types/transaction_id.hpp"
 
 namespace LineairDB {
-namespace ConcurrencyControl {
+namespace Silo {
 
 /**
  * @brief Silo-style stable read (tuple.h stable_read in the reference
@@ -145,7 +145,7 @@ inline StablePrimaryKeys StableReadPrimaryKeys(const DataItem &item) {
   }
 }
 
-}  // namespace ConcurrencyControl
+}  // namespace Silo
 }  // namespace LineairDB
 
 #endif  // LINEAIRDB_SILO_STABLE_READ_HPP

@@ -20,45 +20,31 @@
 #include <lineairdb/database.h>
 #include <lineairdb/tx_status.h>
 #include <table/table.h>
-#include <xmmintrin.h>
 
-#include <algorithm>
 #include <chrono>
-#include <condition_variable>
 #include <cstdint>
 #include <functional>
-#include <iterator>
 #include <shared_mutex>
 #include <string>
-#include <thread>
-#include <tuple>
-#include <unordered_map>
-#include <unordered_set>
 #include <utility>
 #include <vector>
 
-#include "index/impl/masstree_index.hpp"
 #include "index/reaper.h"
-#include "pax/version_store.hpp"
 #include "recovery/epoch_scan_checkpoint.h"
-#include "recovery/flush_trace.h"
 #include "recovery/logger.h"
 #include "silo/commit.h"
-#include "silo/packed_transaction_id.hpp"
 #include "silo/read.h"
-#include "silo/stable_read.hpp"
-#include "table/table.h"
 #include "table/table_dictionary.hpp"
 #include "types/snapshot.hpp"
 #include "types/transaction_id.hpp"
-#include "util/debug_sync.hpp"
 #include "util/epoch_framework.hpp"
-#include "util/logger.hpp"
 
 namespace LineairDB {
 
 // The concurrency control this database runs.
 
+// Bodies live in database.cpp (lifecycle, tables, reads, commit),
+// durability.cpp, pax_view.cpp, and stats.cpp.
 class Database::Impl {
  public:
   inline static Database::Impl *CurrentDBInstance;
@@ -77,16 +63,7 @@ class Database::Impl {
    * UINT32_MAX by design, and `frontier + 1` would wrap to zero, the value
    * that means "no participant".
    */
-  static EpochNumber ResumeEpochAbove(EpochNumber frontier) {
-    if (frontier >= EpochFramework::kEpochHighWater - 1) {
-      SPDLOG_CRITICAL(
-          "Startup failed: resuming above the recovered epoch {0} would reach "
-          "the epoch high-water mark {1}",
-          frontier, EpochFramework::kEpochHighWater);
-      exit(EXIT_FAILURE);
-    }
-    return frontier + 1;
-  }
+  static EpochNumber ResumeEpochAbove(EpochNumber frontier);
 
   /**
    * @brief The configuration this instance runs with: derived settings are
@@ -95,228 +72,33 @@ class Database::Impl {
    * overwritten from it before any component reads it, so a caller that sets
    * only commit_durability and a caller that sets both agree.
    */
-  static Config NormalizeAndValidateConfig(Config config) {
-    config.enable_logging =
-        config.commit_durability != Config::CommitDurability::Volatile;
-
-    return config;
-  }
+  static Config NormalizeAndValidateConfig(Config config);
 
  public:
-  Impl(const Config &c = Config())
-      : config_(NormalizeAndValidateConfig(c)),
-        logger_(config_),
-        epoch_framework_(config_.epoch_duration_ms, EventsOnEpochIsUpdated()),
-        scan_checkpoint_(config_, table_dictionary_, epoch_framework_,
-                         logger_) {
-    if (Database::Impl::CurrentDBInstance == nullptr) {
-      Database::Impl::CurrentDBInstance = this;
-      SPDLOG_INFO("LineairDB instance has been constructed.");
-    } else {
-      SPDLOG_ERROR(
-          "It is prohibited to allocate two LineairDB::Database instance at "
-          "the same time.");
-      exit(EXIT_FAILURE);
-    }
-    // Always scan the log, even without recovery: an interrupted tail has to be
-    // removed before the first append lands behind it, and recovery only
-    // controls whether the decoded records are replayed into the database.
-    if (config_.enable_recovery) {
-      Recovery();
-    } else {
-      auto scanned = logger_.Recover();
-      if (scanned.status != Recovery::Logger::RecoveryStatus::Ok) {
-        SPDLOG_CRITICAL(
-            "Startup failed: the write-ahead log could not be read; refusing "
-            "to "
-            "start with an unknown durable state");
-        exit(EXIT_FAILURE);
-      }
-      if (scanned.frontier != 0) {
-        // Records exist that this instance will not replay; resuming at or
-        // below their epoch would let a Sync commit inherit their frontier.
-        epoch_framework_.SetGlobalEpoch(ResumeEpochAbove(scanned.frontier));
-      }
-    }
-    // Armed after recovery, which reports its own failures by refusing to
-    // start, and before the flusher that can raise one at run time.
-    if (config_.enable_logging) logger_.EnableProcessFailStop();
-    // Built before any thread records, so its storage and its dump signal are
-    // in place rather than raised by whichever path happens to reach it first.
-    Recovery::FlushTrace::Instance();
-    logger_.StartFlusher();
-    epoch_framework_.Start();
-    // Last: its scan waits on the epoch it starts.
-    scan_checkpoint_.Start();
-  }
+  Impl(const Config &c = Config());
+  ~Impl();
 
-  ~Impl() {
-    epoch_framework_.Sync();
-    // Before the epoch writer stops, since a capture in progress waits for the
-    // epoch to advance.
-    scan_checkpoint_.Stop();
-    epoch_framework_.Stop();
-    // After the epoch writer has joined no further closed epoch arrives, so the
-    // flusher can drain what it already owns and be joined before the log is
-    // closed.
-    logger_.StopAndDrainFlusher();
-    SPDLOG_DEBUG(
-        "Epoch number and Durable epoch number are ended at {0}, and {1}, "
-        "respectively.",
-        epoch_framework_.GetGlobalEpoch(), logger_.GetDurableEpoch());
-    // Written once every thread that records has joined, so the census reaches
-    // the filesystem without any of its cost landing on a measured path.
-    Recovery::FlushTrace::Instance().Dump();
-    SPDLOG_INFO("LineairDB instance has been destructed.");
-    assert(Database::Impl::CurrentDBInstance == this);
-    Database::Impl::CurrentDBInstance = nullptr;
-  }
-
-  EpochNumber GetMyThreadLocalEpoch() {
-    return epoch_framework_.GetMyThreadLocalEpoch();
-  }
+  EpochNumber GetMyThreadLocalEpoch();
 
   /** See Database::SetCommitDurability. */
   bool SetCommitDurability(Config::CommitDurability mode,
-                           std::chrono::milliseconds barrier_timeout) {
-    if (!config_.enable_logging) return false;
-    if (mode == Config::CommitDurability::Volatile) return false;
-    if (barrier_timeout <= std::chrono::milliseconds::zero()) return false;
-    if (epoch_framework_.GetMyThreadLocalEpoch() !=
-        EpochFramework::THREAD_OFFLINE) {
-      return false;
-    }
-
-    // One deadline for the whole call, so a switch queued behind a long
-    // barrier expires with its own caller. Holding the lock across the barrier
-    // is what lets the argument below stand on one store.
-    const auto deadline = std::chrono::steady_clock::now() + barrier_timeout;
-    std::unique_lock<std::timed_mutex> switch_lock(durability_switch_mtx_,
-                                                   std::defer_lock);
-    if (!switch_lock.try_lock_until(deadline)) return false;
-    if (std::chrono::steady_clock::now() >= deadline) return false;
-
-    logger_.SetCommitDurability(mode);
-    if (mode != Config::CommitDurability::Sync) return true;
-
-    // Read after the store: a commit that captured Async did so while its
-    // thread was online at its commit epoch e, and the global epoch never
-    // decreases, so e <= cut.
-    const EpochNumber cut = epoch_framework_.GetGlobalEpoch();
-    LINEAIRDB_DEBUG_SYNC("database.before_durability_barrier");
-
-    // At cut+2 every thread that was online at an epoch <= cut has gone
-    // offline, and the epoch hook will have scheduled the flush through cut.
-    if (!epoch_framework_.WaitGlobalEpochAtLeastUntil(cut + 2, deadline)) {
-      return false;
-    }
-    if (logger_.WaitUntilDurable(cut, deadline) !=
-        Recovery::Logger::WaitResult::Durable) {
-      return false;
-    }
-    // Both waits report success for a target already reached without looking
-    // at the clock, so the last word on the caller's window is here.
-    return std::chrono::steady_clock::now() <= deadline;
-  }
-
-  Config::CommitDurability GetCommitDurability() const {
-    if (!config_.enable_logging) return Config::CommitDurability::Volatile;
-    return logger_.GetCommitDurability();
-  }
+                           std::chrono::milliseconds barrier_timeout);
+  Config::CommitDurability GetCommitDurability() const;
 
   // The two clocks the durable barrier reasons about.
-  EpochNumber GetDurableEpoch() const { return logger_.GetDurableEpoch(); }
-  EpochNumber GetGlobalEpoch() const {
-    return epoch_framework_.GetGlobalEpoch();
-  }
+  EpochNumber GetDurableEpoch() const;
+  EpochNumber GetGlobalEpoch() const;
 
-  const Config &GetConfig() const { return config_; }
+  const Config &GetConfig() const;
 
   // NOTE: Called by a special thread managed by EpochFramework.
-  std::function<void(EpochNumber)> EventsOnEpochIsUpdated() {
-    return [&](EpochNumber updated_epoch) {
-      // Logging. The global epoch advances from U-1 to U while threads may
-      // still be online in U-1, so U-2 is the newest epoch that is certainly
-      // closed and safe to write. Handing the target to the logger's own
-      // flusher keeps the durability fdatasync off this pool.
-      if (config_.enable_logging && updated_epoch >= 3) {
-        logger_.ScheduleFlush(updated_epoch - 2);
-      }
+  std::function<void(EpochNumber)> EventsOnEpochIsUpdated();
 
-      // Tick masstree's globalepoch so RCU can free retired leaves and
-      // DataItem* limbo once min_active_epoch() catches up. Workers
-      // release their epoch at tx/RPC boundaries via
-      // ReleaseMasstreeThreadEpoch; we only move the watermark here.
-      reaper_.Reap(updated_epoch);
-      Index::MasstreeAdvanceEpoch();
-    };
-  }
+  bool CreateTable(const std::string_view table_name);
 
-  bool CreateTable(const std::string_view table_name) {
-    return table_dictionary_.CreateTable(table_name, epoch_framework_, config_);
-  }
-
-  Pax::PaxStore *GetPaxStore(const std::string_view table_name) {
-    auto table = GetTable(table_name);
-    if (!table.has_value()) return nullptr;
-    return table.value()->GetPaxStore();
-  }
-
-  Database::PaxReadView AcquirePaxReadView(uint32_t fence_timeout_ms) {
-    Database::PaxReadView handle;
-    auto token = Pax::VersionStore::Global().BeginCapture();
-    if (!token.valid) {
-      handle.error =
-          "columnar read view rejected: the active capture generation is "
-          "poisoned";
-      return handle;
-    }
-    // Fence order (do not reorder): arm the capture flag (seq_cst
-    // increment in BeginCapture), then load the cut epoch. An install
-    // whose flag check missed the capture belongs to a commit with epoch
-    // <= cut, and a thread online in epoch e keeps the global epoch at or
-    // below e + 1; once the global epoch reaches cut + 2 those installs
-    // have drained. Refuse when the fence target would reach or cross
-    // the high-water mark, compared without addition to stay exact at
-    // the numeric limit.
-    const EpochNumber cut = epoch_framework_.GetGlobalEpoch();
-    if (cut >= EpochFramework::kEpochHighWater - 2) {
-      Pax::VersionStore::Global().EndCapture(token);
-      handle.error =
-          "columnar read view rejected: epoch space is near its wrap "
-          "high-water mark, restart the server";
-      return handle;
-    }
-    if (!epoch_framework_.WaitGlobalEpochAtLeast(
-            cut + 2, std::chrono::milliseconds(fence_timeout_ms))) {
-      Pax::VersionStore::Global().EndCapture(token);
-      handle.error =
-          "columnar read view fence timed out; a long-running transaction is "
-          "holding the epoch";
-      return handle;
-    }
-    // Test hook: holds the read view open between the fence and the scan.
-    LINEAIRDB_DEBUG_SYNC("pax_read_view.after_fence");
-    // A poison landing during acquisition must fail it here; callers
-    // treat a valid handle as a serviceable read view.
-    if (Pax::VersionStore::Global().Poisoned(token)) {
-      Pax::VersionStore::Global().EndCapture(token);
-      handle.error = "columnar read view poisoned during acquisition";
-      return handle;
-    }
-    handle.valid = true;
-    handle.cut_epoch = cut;
-    handle.token = token.id;
-    return handle;
-  }
-
-  void ReleasePaxReadView(const Database::PaxReadView &view) {
-    if (!view.valid) return;
-    Pax::VersionStore::ReadViewToken token;
-    token.id = view.token;
-    token.valid = true;
-    Pax::VersionStore::Global().EndCapture(token);
-  }
+  Pax::PaxStore *GetPaxStore(const std::string_view table_name);
+  Database::PaxReadView AcquirePaxReadView(uint32_t fence_timeout_ms);
+  void ReleasePaxReadView(const Database::PaxReadView &view);
 
   // Read view expiry, half the high-water margin. Enforces the wrap-free
   // window behind plain epoch comparisons: readers gate every attempt on
@@ -325,92 +107,38 @@ class Database::Impl {
   // epoch cycle takes years), keeping accepted results inside the bound.
   static constexpr EpochNumber kPaxReadViewEpochLifetime = 1u << 19;
 
-  bool PaxReadViewPoisoned(const Database::PaxReadView &view) const {
-    if (!view.valid) return true;
-    if (epoch_framework_.GetGlobalEpoch() - view.cut_epoch >=
-        kPaxReadViewEpochLifetime) {
-      return true;  // expired: comparisons could leave the wrap-free window
-    }
-    Pax::VersionStore::ReadViewToken token;
-    token.id = view.token;
-    token.valid = true;
-    return Pax::VersionStore::Global().Poisoned(token);
-  }
+  bool PaxReadViewPoisoned(const Database::PaxReadView &view) const;
 
   bool InstallPaxSchema(const std::string_view table_name,
                         const std::vector<uint32_t> &field_max_bytes,
                         const std::vector<uint8_t> &field_kind = {},
-                        const std::vector<int8_t> &field_scale = {}) {
-    if (!config_.enable_pax_storage) return false;
-    if (field_max_bytes.empty()) return false;
-    auto table = GetTable(table_name);
-    if (!table.has_value()) return false;
-    Pax::TableSchema schema;
-    schema.table_name = std::string(table_name);
-    schema.field_max_bytes = field_max_bytes;
-    // Typed cells only when the kinds vector matches the field count; otherwise
-    // every field stays UNTYPED (byte-identical to the untyped layout).
-    if (field_kind.size() == field_max_bytes.size()) {
-      schema.field_kind = field_kind;
-      if (field_scale.size() == field_max_bytes.size())
-        schema.field_scale = field_scale;
-      else
-        schema.field_scale.assign(field_max_bytes.size(), 0);
-    }
-    return table.value()->InstallPaxSchema(std::move(schema));
-  }
+                        const std::vector<int8_t> &field_scale = {});
 
   bool CreateSecondaryIndex(const std::string_view table_name,
                             const std::string_view index_name,
-                            const uint index_type) {
-    std::shared_lock<std::shared_mutex> lk(schema_mutex_);
-    auto it = GetTable(table_name);
-    if (!it.has_value()) {
-      return false;
-    }
-    return it.value()->CreateSecondaryIndex(
-        index_name,
-        Index::SecondaryIndexType::FromRaw(
-            static_cast<Index::SecondaryIndexType::RawType>(index_type)));
-  }
+                            const uint index_type);
 
   StatelessReadResult StatelessRead(
       const std::string_view table_name, const std::string_view key,
-      const std::vector<uint32_t> *selected_columns = nullptr) {
-    return Silo::Read(table_dictionary_, schema_mutex_, table_name, key,
-                      selected_columns);
-  }
+      const std::vector<uint32_t> *selected_columns = nullptr);
 
   std::vector<StatelessReadResult> StatelessBatchRead(
-      const std::vector<std::pair<std::string, std::string>> &keys) {
-    return Silo::BatchRead(table_dictionary_, schema_mutex_, keys);
-  }
+      const std::vector<std::pair<std::string, std::string>> &keys);
 
   StatelessRangeScanResult StatelessRangeScan(
       const std::string_view table_name, const std::string_view start_key,
       const std::string_view end_key, uint64_t row_limit, bool reverse_scan,
-      const std::vector<uint32_t> *selected_columns = nullptr) {
-    return Silo::RangeScan(table_dictionary_, schema_mutex_, table_name,
-                           start_key, end_key, row_limit, reverse_scan,
-                           selected_columns);
-  }
+      const std::vector<uint32_t> *selected_columns = nullptr);
 
   StatelessPaxRowRefScanResult StatelessPaxRowRefScan(
       const std::string_view table_name, const std::string_view start_key,
-      const std::string_view end_key, uint64_t row_limit, bool reverse_scan) {
-    return Silo::PaxRowRefScan(table_dictionary_, schema_mutex_, table_name,
-                               start_key, end_key, row_limit, reverse_scan);
-  }
+      const std::string_view end_key, uint64_t row_limit, bool reverse_scan);
 
   StatelessSecondaryRangeScanResult StatelessSecondaryRangeScan(
       const std::string_view table_name, const std::string_view index_name,
       const std::string_view start_key, const std::string_view end_key,
       uint64_t row_limit, bool reverse_scan,
-      const std::vector<uint32_t> *selected_columns = nullptr) {
-    return Silo::SecondaryRangeScan(table_dictionary_, schema_mutex_,
-                                    table_name, index_name, start_key, end_key,
-                                    row_limit, reverse_scan, selected_columns);
-  }
+      const std::vector<uint32_t> *selected_columns = nullptr);
 
   /**
    * @brief Compute exact NDV for each integer key-part prefix of one index.
@@ -421,146 +149,7 @@ class Database::Impl {
    */
   bool ComputeIndexNdvInt(const std::string_view table_name,
                           const std::string_view index_name, uint32_t num_parts,
-                          std::vector<uint64_t> &out_ndv) {
-    out_ndv.assign(num_parts, 0);
-    if (num_parts == 0) return false;
-
-    std::shared_lock<std::shared_mutex> lk(schema_mutex_);
-    auto table = GetTable(table_name);
-    if (!table.has_value()) return false;
-
-    bool ok = true;
-    bool first = true;
-    // Index scans are key-ordered, so one previous key is enough for NDV.
-    std::string prev_key;
-    std::vector<size_t> prev_part_ends(num_parts, 0);
-
-    // Split Helios integer key-parts: [marker][type][2-byte length][payload].
-    auto count_key = [&](std::string_view key) -> bool {
-      std::vector<size_t> part_ends(num_parts, 0);
-      size_t offset = 0;
-      for (uint32_t part = 0; part < num_parts; ++part) {
-        if (offset + 4 > key.size()) {
-          ok = false;
-          return true;
-        }
-        const auto marker = static_cast<unsigned char>(key[offset]);
-        const auto type = static_cast<unsigned char>(key[offset + 1]);
-        if (marker != 0x00 || type != 0x10) {
-          ok = false;
-          return true;
-        }
-        const size_t len =
-            (static_cast<size_t>(static_cast<unsigned char>(key[offset + 2]))
-             << 8) |
-            static_cast<unsigned char>(key[offset + 3]);
-        offset += 4 + len;
-        if (offset > key.size()) {
-          ok = false;
-          return true;
-        }
-        part_ends[part] = offset;
-      }
-
-      if (first) {
-        // The first live key starts one distinct prefix at every depth.
-        for (uint32_t part = 0; part < num_parts; ++part) out_ndv[part] = 1;
-        first = false;
-      } else {
-        // Count a new prefix whenever bytes up to that key-part boundary
-        // differ.
-        const std::string_view prev(prev_key);
-        for (uint32_t part = 0; part < num_parts; ++part) {
-          if (part_ends[part] != prev_part_ends[part] ||
-              key.substr(0, part_ends[part]) !=
-                  prev.substr(0, prev_part_ends[part])) {
-            ++out_ndv[part];
-          }
-        }
-      }
-
-      prev_key.assign(key.data(), key.size());
-      prev_part_ends = std::move(part_ends);
-      return false;
-    };
-
-    // Stable-read base liveness without copying the row payload.
-    auto stable_live_base = [](const DataItem &item) {
-      for (;;) {
-        TransactionId tid = item.transaction_id.load();
-        if (tid.tid & 1u) {
-          _mm_pause();
-          continue;
-        }
-
-        const bool live = item.IsPrimaryInitialized();
-        if (item.transaction_id.load() == tid) return live;
-      }
-    };
-
-    static const std::string kFullScanEnd(16, static_cast<char>(0xff));
-    auto &primary_index = table.value()->GetPrimaryIndex();
-
-    if (index_name.empty()) {
-      // Primary index entries are base rows, so count live rows directly.
-      primary_index.Scan(
-          std::string_view(), std::string_view(kFullScanEnd),
-          [&](std::string_view key, DataItem &item) -> bool {
-            if (!stable_live_base(item)) return false;
-            return count_key(key);
-          },
-          nullptr);
-    } else {
-      Index::SecondaryIndex *index =
-          table.value()->GetSecondaryIndex(index_name);
-      if (index == nullptr) return false;
-
-      // Pin the secondary primary-key list under one stable TID.
-      auto stable_live_secondary = [&](const DataItem &item) {
-        PackedPrimaryKeys::Ptr primary_keys;
-        for (;;) {
-          TransactionId tid = item.transaction_id.load();
-          if (tid.tid & 1u) {
-            _mm_pause();
-            continue;
-          }
-
-          auto snapshot = std::atomic_load(&item.primary_keys_);
-          const bool live = snapshot && snapshot->count != 0;
-          if (item.transaction_id.load() == tid) {
-            if (live) primary_keys = std::move(snapshot);
-            break;
-          }
-        }
-
-        // Secondary entries count only if one referenced base row is live.
-        for (std::string_view primary_key :
-             PackedPrimaryKeysView(primary_keys)) {
-          DataItem *base_item = primary_index.Get(primary_key);
-          if (base_item != nullptr && stable_live_base(*base_item)) return true;
-        }
-        return false;
-      };
-
-      index->Scan(
-          std::string_view(), std::string_view(kFullScanEnd),
-          [&](std::string_view key) -> bool {
-            DataItem *item = index->Get(key);
-            if (item == nullptr || !stable_live_secondary(*item)) {
-              return false;
-            }
-            return count_key(key);
-          },
-          nullptr);
-    }
-
-    if (!ok) {
-      // Fail closed: caller keeps the old optimizer estimate.
-      out_ndv.assign(num_parts, 0);
-      return false;
-    }
-    return true;
-  }
+                          std::vector<uint64_t> &out_ndv);
 
   /**
    * @brief Build an equi-depth histogram for one index's leading key part.
@@ -578,233 +167,23 @@ class Database::Impl {
                              const std::string_view index_name,
                              uint32_t buckets,
                              std::vector<std::string> &out_bounds,
-                             std::vector<uint64_t> &out_cum) {
-    out_bounds.clear();
-    out_cum.clear();
-    if (buckets == 0) return false;
-    std::shared_lock<std::shared_mutex> lk(schema_mutex_);
-    auto table = GetTable(table_name);
-    if (!table.has_value()) return false;
-
-    // Leading key-part layout: [marker][type][2-byte length][payload].
-    // Accept only fixed-layout encodings whose byte order matches value order.
-    auto leading_end = [](std::string_view key) -> size_t {
-      if (key.size() < 4) return 0;
-      if (static_cast<unsigned char>(key[0]) != 0x00) return 0;
-      const unsigned char type = static_cast<unsigned char>(key[1]);
-      if (type != 0x10 && type != 0x30) return 0;  // INT / DATETIME only
-      const size_t len =
-          (static_cast<size_t>(static_cast<unsigned char>(key[2])) << 8) |
-          static_cast<unsigned char>(key[3]);
-      const size_t end = 4 + len;
-      return (end <= key.size()) ? end : 0;
-    };
-
-    // Stable-read base-row liveness without copying the row payload.
-    const auto stable_live_base = [](DataItem &di) -> bool {
-      for (;;) {
-        TransactionId tid = di.transaction_id.load();
-        if (tid.tid & 1u) {
-          _mm_pause();
-          continue;
-        }
-        const bool live = di.IsPrimaryInitialized();
-        if (di.transaction_id.load() == tid) return live;
-      }
-    };
-
-    // Secondary scans visit one entry per key, but the histogram is over rows.
-    // Use the PK-list length as that key's row weight.
-    const auto stable_pk_count = [](DataItem &di) -> uint64_t {
-      for (;;) {
-        TransactionId tid = di.transaction_id.load();
-        if (tid.tid & 1u) {
-          _mm_pause();
-          continue;
-        }
-        const auto primary_keys = std::atomic_load(&di.primary_keys_);
-        const uint64_t n = primary_keys ? primary_keys->count : 0;
-        if (di.transaction_id.load() == tid) return n;
-      }
-    };
-    static const std::string kMaxEnd(16, '\xff');
-
-    // Walk one index in key order and expose each live key with its row weight.
-    bool malformed = false;
-    auto walk = [&](auto &&fn) {
-      if (index_name.empty()) {
-        table.value()->GetPrimaryIndex().Scan(
-            std::string_view(), std::string_view(kMaxEnd),
-            [&](std::string_view key, DataItem &di) -> bool {
-              if (stable_live_base(di))
-                return fn(key, static_cast<uint64_t>(1));
-              return false;
-            },
-            nullptr);
-      } else {
-        Index::SecondaryIndex *index =
-            table.value()->GetSecondaryIndex(index_name);
-        if (index == nullptr) {
-          malformed = true;
-          return;
-        }
-        index->Scan(
-            std::string_view(), std::string_view(kMaxEnd),
-            [&](std::string_view key) -> bool {
-              DataItem *item = index->Get(key);
-              if (item == nullptr) return false;
-              const uint64_t w = stable_pk_count(*item);
-              if (w == 0) return false;  // dead/empty secondary entry
-              return fn(key, w);
-            },
-            nullptr);
-      }
-    };
-
-    // Pass 1: count total rows represented by the index.
-    uint64_t total = 0;
-    walk([&](std::string_view key, uint64_t w) -> bool {
-      if (leading_end(key) == 0) {
-        malformed = true;
-        return true;
-      }
-      total += w;
-      return false;
-    });
-    if (malformed || total == 0) return false;
-
-    // Pass 2: record a boundary at each stride-th row.
-    const uint64_t stride = std::max<uint64_t>(1, total / buckets);
-    uint64_t seen = 0;
-    uint64_t next = stride;
-    std::string last_key;
-    walk([&](std::string_view key, uint64_t w) -> bool {
-      const size_t end = leading_end(key);
-      if (end == 0) {
-        malformed = true;
-        return true;
-      }
-      seen += w;
-      last_key.assign(key.data(), end);
-      if (seen >= next) {
-        out_bounds.emplace_back(key.substr(0, end));
-        out_cum.push_back(seen);
-        while (seen >= next) next += stride;
-      }
-      return false;
-    });
-    if (malformed) {
-      out_bounds.clear();
-      out_cum.clear();
-      return false;
-    }
-    if (out_bounds.empty() || out_cum.back() != total) {
-      // Close the histogram at the max key so the high end is exact.
-      out_bounds.push_back(last_key);
-      out_cum.push_back(total);
-    }
-    return !out_bounds.empty();
-  }
+                             std::vector<uint64_t> &out_cum);
 
   bool ValidateAndCommit(
       const std::vector<ExternalReadEntry> &reads,
       const std::vector<ExternalWriteEntry> &writes,
       const std::vector<ExternalSecondaryIndexEntry> &secondary_index_ops,
       const std::vector<ExternalRangeReadEntry> &range_reads,
-      std::string *abort_reason = nullptr) {
-    const Silo::CommitPayload payload{reads, writes, secondary_index_ops,
-                                      range_reads};
-    return Silo::Commit(table_dictionary_, schema_mutex_, epoch_framework_,
-                        reaper_, logger_, payload, GetCommitDurability(),
-                        abort_reason);
-  }
+      std::string *abort_reason = nullptr);
 
-  std::optional<Table *> GetTable(const std::string_view table_name) {
-    return table_dictionary_.GetTable(table_name);
-  }
+  std::optional<Table *> GetTable(const std::string_view table_name);
 
-  bool WriteCheckpointImage(uint64_t *out_version_retries) {
-    Recovery::EpochScanCheckpoint::Stats stats;
-    const bool published = scan_checkpoint_.RunOnce(&stats);
-    if (out_version_retries != nullptr) *out_version_retries = stats.retries;
-    return published;
-  }
+  bool WriteCheckpointImage(uint64_t *out_version_retries);
 
  private:
   void RegisterDeferredPurge(const Snapshot &snapshot,
-                             TransactionId delete_commit_tid) {
-    reaper_.Enqueue(snapshot, delete_commit_tid);
-  }
-
-  void Recovery() {
-    SPDLOG_INFO("Start recovery process");
-    auto recovered = logger_.Recover();
-    if (recovered.status != Recovery::Logger::RecoveryStatus::Ok) {
-      SPDLOG_CRITICAL(
-          "Recovery failed: the write-ahead log could not be read; refusing to "
-          "start with an unknown durable state");
-      exit(EXIT_FAILURE);
-    }
-
-    const EpochNumber durable_epoch = recovered.frontier;
-    EpochNumber highest_epoch = std::max<EpochNumber>(1, durable_epoch);
-    SPDLOG_DEBUG("  Durable epoch is resumed from {0}", durable_epoch);
-
-    epoch_framework_.MakeMeOnline();
-    epoch_framework_.SetMyThreadLocalEpochForRecovery(durable_epoch);
-
-    auto &&recovery_sets = std::move(recovered.recovery_set);
-
-    for (auto &recovery_set : recovery_sets) {
-      // Skip deleted entries.
-      const bool live = recovery_set.index_name.empty()
-                            ? recovery_set.data_item_copy.IsPrimaryInitialized()
-                            : recovery_set.data_item_copy.IsInitialized();
-      if (!live) continue;
-      CreateTable(recovery_set.table_name);
-      auto table = GetTable(recovery_set.table_name);
-      if (!table.has_value()) {
-        SPDLOG_CRITICAL(
-            "Recovery failed: Table {0} could not be found or created.",
-            recovery_set.table_name);
-        exit(EXIT_FAILURE);
-      }
-
-      highest_epoch =
-          std::max(highest_epoch,
-                   recovery_set.data_item_copy.transaction_id.load().epoch);
-
-      if (recovery_set.index_name.empty()) {
-        // Primary Index recovery
-        table.value()->GetPrimaryIndex().Put(
-            recovery_set.key, std::move(recovery_set.data_item_copy));
-      } else {
-        // Secondary Index recovery
-        Index::SecondaryIndex *idx = nullptr;
-        table.value()->GetOrCreateSecondaryIndex(recovery_set.index_name,
-                                                 recovery_set.index_type, &idx);
-        if (idx != nullptr) {
-          SPDLOG_DEBUG(
-              "  Recovery: Secondary index '{0}' restoring key '{1}' with {2} "
-              "primary keys",
-              recovery_set.index_name, recovery_set.key,
-              recovery_set.data_item_copy.primary_keys_view().size());
-          idx->Put(recovery_set.key, std::move(recovery_set.data_item_copy));
-        } else {
-          SPDLOG_ERROR(
-              "Recovery failed: Could not create secondary index {0} for "
-              "table {1}",
-              recovery_set.index_name, recovery_set.table_name);
-        }
-      }
-    }
-    epoch_framework_.MakeMeOffline();
-
-    const EpochNumber resumed_epoch = ResumeEpochAbove(highest_epoch);
-    SPDLOG_DEBUG("  Global epoch is resumed from {0}", resumed_epoch);
-    epoch_framework_.SetGlobalEpoch(resumed_epoch);
-    SPDLOG_INFO("Finish recovery process");
-  }
+                             TransactionId delete_commit_tid);
+  void Recovery();
 
  private:
   Config config_;

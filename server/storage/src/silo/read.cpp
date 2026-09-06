@@ -24,11 +24,10 @@ StatelessReadResult Read(TableDictionary &tables,
   DataItem *item = table.value()->GetPrimaryIndex().Get(key);
   if (item == nullptr) return {};
 
-  auto row =
-      selected_columns != nullptr
-          ? ConcurrencyControl::StableReadValueMasked(
-                *item, selected_columns->data(), selected_columns->size())
-          : ConcurrencyControl::StableReadValue(*item);
+  auto row = selected_columns != nullptr
+                 ? StableReadValueMasked(*item, selected_columns->data(),
+                                         selected_columns->size())
+                 : StableReadValue(*item);
   return {row.found, std::move(row.value), PackTransactionId(row.tid)};
 }
 
@@ -61,11 +60,10 @@ StatelessRangeScanResult RangeScan(
   // The value-yielding Scan/ScanReverse overloads pass the DataItem the leaf
   // walk already resolved, so read it directly instead of re-fetching by key.
   auto append_scan_entry = [&](std::string_view key, DataItem &item_ref) {
-    auto row =
-        selected_columns != nullptr
-            ? ConcurrencyControl::StableReadValueMasked(
-                  item_ref, selected_columns->data(), selected_columns->size())
-            : ConcurrencyControl::StableReadValue(item_ref);
+    auto row = selected_columns != nullptr
+                   ? StableReadValueMasked(item_ref, selected_columns->data(),
+                                           selected_columns->size())
+                   : StableReadValue(item_ref);
     if (row.found) {
       result.rows.push_back({std::string(key), std::move(row.value),
                              PackTransactionId(row.tid), true});
@@ -182,11 +180,10 @@ StatelessSecondaryRangeScanResult SecondaryRangeScan(
       return false;
     }
 
-    auto row =
-        selected_columns != nullptr
-            ? ConcurrencyControl::StableReadValueMasked(
-                  *item, selected_columns->data(), selected_columns->size())
-            : ConcurrencyControl::StableReadValue(*item);
+    auto row = selected_columns != nullptr
+                   ? StableReadValueMasked(*item, selected_columns->data(),
+                                           selected_columns->size())
+                   : StableReadValue(*item);
     if (row.found) {
       result.rows.push_back({std::string(secondary_key),
                              std::string(primary_key), std::move(row.value),
@@ -203,7 +200,7 @@ StatelessSecondaryRangeScanResult SecondaryRangeScan(
       return false;
     }
 
-    auto slot = ConcurrencyControl::StableReadPrimaryKeys(*item);
+    auto slot = StableReadPrimaryKeys(*item);
     for (std::string_view primary_key : slot.primary_keys_view()) {
       if (append_base_row(secondary_key, primary_key)) return true;
     }

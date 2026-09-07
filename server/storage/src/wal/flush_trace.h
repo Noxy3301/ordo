@@ -70,7 +70,7 @@ class FlushTrace {
    * because the flusher still publishes the target it was given; an analysis
    * that reads write or sync durations has to drop those rows.
    *
-   * The interval between `encode_end` and `write_begin` holds the capacity
+   * The interval between `pack_end` and `write_begin` holds the capacity
    * check, which extends and initialises the log when it is outgrown; that work
    * is deliberately outside every named phase so that `write` means the group's
    * own write and nothing else.
@@ -79,12 +79,12 @@ class FlushTrace {
     uint64_t seq;
     EpochNumber durable_before;
     EpochNumber target;
-    uint64_t encoded_bytes;
+    uint64_t packed_bytes;
     uint32_t epoch_count;
     int64_t collect_begin;
     int64_t collect_end;
-    int64_t encode_begin;
-    int64_t encode_end;
+    int64_t pack_begin;
+    int64_t pack_end;
     int64_t write_begin;
     int64_t write_end;
     int64_t sync_begin;
@@ -151,12 +151,11 @@ class FlushTrace {
     current_.collect_end = Now();
   }
 
-  void GroupEncode(int64_t begin, int64_t end, uint64_t bytes,
-                   uint32_t epochs) {
+  void GroupPack(int64_t begin, int64_t end, uint64_t bytes, uint32_t epochs) {
     if (!enabled_) return;
-    current_.encode_begin = begin;
-    current_.encode_end = end;
-    current_.encoded_bytes = bytes;
+    current_.pack_begin = begin;
+    current_.pack_end = end;
+    current_.packed_bytes = bytes;
     current_.epoch_count = epochs;
   }
 

@@ -713,30 +713,30 @@ WalScanResult Wal::ScanAndRepair(EpochNumber min_epoch) {
       continue;
     }
 
-    LogRecords decoded;
+    LogRecords unpacked;
     try {
       size_t consumed = 0;
       auto handle =
           msgpack::unpack(reinterpret_cast<const char *>(payload.data()),
                           payload.size(), consumed);
-      handle.get().convert(decoded);
+      handle.get().convert(unpacked);
       if (consumed != payload.size()) {
         return Corrupt("frame payload has trailing bytes");
       }
     } catch (const std::exception &e) {
-      return Corrupt(std::string("frame payload does not decode: ") + e.what());
+      return Corrupt(std::string("frame payload does not unpack: ") + e.what());
     } catch (...) {
-      return Corrupt("frame payload does not decode");
+      return Corrupt("frame payload does not unpack");
     }
-    if (decoded.empty()) return Corrupt("frame carries no record");
-    for (const auto &record : decoded) {
+    if (unpacked.empty()) return Corrupt("frame carries no record");
+    for (const auto &record : unpacked) {
       if (record.epoch != epoch) {
         return Corrupt("record epoch disagrees with its frame");
       }
     }
 
-    records.insert(records.end(), std::make_move_iterator(decoded.begin()),
-                   std::make_move_iterator(decoded.end()));
+    records.insert(records.end(), std::make_move_iterator(unpacked.begin()),
+                   std::make_move_iterator(unpacked.end()));
     frontier = epoch;
     have_frame = true;
     offset = static_cast<off_t>(frame_end);
@@ -815,13 +815,13 @@ WalAppendResult Wal::AppendGroup(
 
   auto &trace = FlushTrace::Instance();
   const bool traced = trace.Enabled();
-  const int64_t encode_begin = traced ? FlushTrace::Now() : 0;
-  uint32_t encoded_epochs = 0;
+  const int64_t pack_begin = traced ? FlushTrace::Now() : 0;
+  uint32_t packed_epochs = 0;
   std::vector<uint8_t> group;
-  EpochNumber last_encoded = frontier_;
+  EpochNumber last_packed = frontier_;
   for (const auto &[epoch, records] : buckets) {
     if (epoch > target) break;
-    ++encoded_epochs;
+    ++packed_epochs;
     // A bucket the scan would reject is refused before anything is
     // written, which leaves the log's end known and this instance usable.
     if (records.empty() || epoch == 0) return {false, EINVAL};
@@ -829,7 +829,7 @@ WalAppendResult Wal::AppendGroup(
     for (const auto &record : records) {
       if (record.epoch != epoch) return {false, EINVAL};
     }
-    last_encoded = epoch;
+    last_packed = epoch;
 
     msgpack::sbuffer payload;
     msgpack::pack(payload, records);
@@ -855,8 +855,7 @@ WalAppendResult Wal::AppendGroup(
   }
 
   if (traced) {
-    trace.GroupEncode(encode_begin, FlushTrace::Now(), group.size(),
-                      encoded_epochs);
+    trace.GroupPack(pack_begin, FlushTrace::Now(), group.size(), packed_epochs);
   }
 
   if (group.empty()) return {true, 0};
@@ -899,7 +898,7 @@ WalAppendResult Wal::AppendGroup(
   write_offset_ += static_cast<off_t>(group.size());
   // Without preallocation the group carried the file's size with it.
   initialised_size_ = std::max(initialised_size_, write_offset_);
-  frontier_ = last_encoded;
+  frontier_ = last_packed;
   return {true, 0};
 }
 

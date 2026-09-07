@@ -646,10 +646,10 @@ EpochScanCheckpoint::Image EpochScanCheckpoint::Load(
       return unusable("the image payload has trailing bytes");
     }
   } catch (const std::exception &e) {
-    return unusable(std::string("the image payload does not decode: ") +
+    return unusable(std::string("the image payload does not unpack: ") +
                     e.what());
   } catch (...) {
-    return unusable("the image payload does not decode");
+    return unusable("the image payload does not unpack");
   }
 
   image.status = Image::Status::Ok;

@@ -45,9 +45,9 @@ class IndexTest : public ::testing::Test {
     ASSERT_TRUE(db_->CreateTable(kTable));
 
     ASSERT_TRUE(TestHelper::CommitWrites(
-        *db_, {{kTable, "alice", TestHelper::Encode<int>(1), false, false},
-               {kTable, "bob", TestHelper::Encode<int>(2), false, false},
-               {kTable, "carol", TestHelper::Encode<int>(3), false, false}}));
+        *db_, {{kTable, "alice", TestHelper::Pack<int>(1), false, false},
+               {kTable, "bob", TestHelper::Pack<int>(2), false, false},
+               {kTable, "carol", TestHelper::Pack<int>(3), false, false}}));
   }
 };
 

@@ -32,9 +32,9 @@ class ScanDeleteVisibilityTest : public ::testing::Test {
 
 TEST_F(ScanDeleteVisibilityTest, ScanShouldExcludeDeletedKeys) {
   ASSERT_TRUE(TestHelper::CommitWrites(
-      *db_, {{kTable, "alice", TestHelper::Encode<int>(1), false, false},
-             {kTable, "bob", TestHelper::Encode<int>(2), false, false},
-             {kTable, "carol", TestHelper::Encode<int>(3), false, false}}));
+      *db_, {{kTable, "alice", TestHelper::Pack<int>(1), false, false},
+             {kTable, "bob", TestHelper::Pack<int>(2), false, false},
+             {kTable, "carol", TestHelper::Pack<int>(3), false, false}}));
 
   ASSERT_TRUE(TestHelper::Delete(*db_, kTable, "bob"));
 
@@ -42,5 +42,5 @@ TEST_F(ScanDeleteVisibilityTest, ScanShouldExcludeDeletedKeys) {
   // bob is deleted and carol is the exclusive upper bound.
   ASSERT_EQ(rows.size(), size_t(1));
   EXPECT_EQ(rows[0].first, "alice");
-  EXPECT_EQ(TestHelper::Decode<int>(rows[0].second), 1);
+  EXPECT_EQ(TestHelper::Unpack<int>(rows[0].second), 1);
 }

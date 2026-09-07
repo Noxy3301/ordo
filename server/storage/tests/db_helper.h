@@ -27,21 +27,21 @@ namespace TestHelper {
 // Sorts above any key a test writes, for scans that mean "to the end".
 inline const std::string kMaxKey = "\xff\xff\xff\xff";
 
-// Raw little-endian bytes, the shape the row path stores scalars in.
+// The host bytes of a scalar, as a test row payload.
 template <typename T>
-std::string Encode(const T &value) {
+std::string Pack(const T &value) {
   static_assert(std::is_trivially_copyable<T>::value,
-                "LineairDB stores trivially copyable types");
-  std::string encoded(sizeof(T), '\0');
-  std::memcpy(encoded.data(), &value, sizeof(T));
-  return encoded;
+                "Helios stores trivially copyable types");
+  std::string buf(sizeof(T), '\0');
+  std::memcpy(buf.data(), &value, sizeof(T));
+  return buf;
 }
 
 template <typename T>
-T Decode(const std::string &value) {
-  T decoded{};
-  std::memcpy(&decoded, value.data(), sizeof(T));
-  return decoded;
+T Unpack(const std::string &value) {
+  T buf{};
+  std::memcpy(&buf, value.data(), sizeof(T));
+  return buf;
 }
 
 inline bool Commit(
@@ -75,7 +75,7 @@ inline bool Write(helios::storage::Database &db, const std::string &table,
 template <typename T>
 bool Write(helios::storage::Database &db, const std::string &table,
            const std::string &key, const T &value) {
-  return Write(db, table, key, Encode<T>(value));
+  return Write(db, table, key, Pack<T>(value));
 }
 
 inline bool Delete(helios::storage::Database &db, const std::string &table,
@@ -97,7 +97,7 @@ std::optional<T> Read(helios::storage::Database &db, const std::string &table,
                       const std::string &key) {
   auto value = Read(db, table, key);
   if (!value.has_value() || value->size() < sizeof(T)) return std::nullopt;
-  return Decode<T>(*value);
+  return Unpack<T>(*value);
 }
 
 // Rows a primary-index range scan returned, in scan order.

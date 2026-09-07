@@ -152,9 +152,9 @@ void ThreadLocalLogger::FlusherLoop() {
       if (nothing_to_do) continue;
     }
 
-    // Serialization and file I/O run without state_mutex_; a committing
-    // thread contends only for its own node's short buffer lock, never
-    // behind serialization or fdatasync.
+    // Packing and file I/O run without state_mutex_; a committing thread
+    // contends only for its own node's short buffer lock, never behind
+    // packing or fdatasync.
     WalAppendResult result;
     try {
       result = FlushThrough(target);

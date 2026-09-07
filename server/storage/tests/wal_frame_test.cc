@@ -677,7 +677,7 @@ TEST_F(WalFrameTest, AFrameForgedInsideAPayloadIsFailedOn) {
   EXPECT_FALSE(result.tail_truncated);
 }
 
-TEST_F(WalFrameTest, AFramePayloadThatDoesNotDecodeFailsWithoutRepairing) {
+TEST_F(WalFrameTest, AFramePayloadThatDoesNotUnpackFailsWithoutRepairing) {
   AppendEpochs({1});
   const off_t log_end = EndOfLog();
   // Checksum-valid, but the payload is not a record list. The reject fires

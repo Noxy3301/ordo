@@ -102,14 +102,14 @@ void RecordAndDump() {
 
   trace.GroupCollectBegin(/*durable_before=*/0);
   trace.GroupCollectEnd();
-  trace.GroupEncode(/*begin=*/1, /*end=*/2, /*bytes=*/128, /*epochs=*/1);
+  trace.GroupPack(/*begin=*/1, /*end=*/2, /*bytes=*/128, /*epochs=*/1);
   trace.GroupWrite(/*begin=*/2, /*end=*/3);
   trace.GroupSync(/*begin=*/3, /*end=*/4);
   trace.GroupPublish(/*target=*/1, /*enter=*/4, /*exit=*/5);
 
   trace.GroupCollectBegin(/*durable_before=*/1);
   trace.GroupCollectEnd();
-  trace.GroupEncode(/*begin=*/5, /*end=*/6, /*bytes=*/64, /*epochs=*/1);
+  trace.GroupPack(/*begin=*/5, /*end=*/6, /*bytes=*/64, /*epochs=*/1);
   trace.GroupWrite(/*begin=*/6, /*end=*/7);
   trace.GroupSync(/*begin=*/7, /*end=*/8);
   trace.GroupPublish(/*target=*/2, /*enter=*/8, /*exit=*/9);

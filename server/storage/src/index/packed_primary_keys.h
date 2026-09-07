@@ -49,7 +49,7 @@ struct PackedPrimaryKeys {
   static Ptr FromSortedDeduped(const std::vector<std::string> &keys) {
     size_t payload_bytes = 0;
     for (const auto &key : keys) {
-      payload_bytes += EncodedRecordSize(key);
+      payload_bytes += PackedRecordSize(key);
       CheckFitsUint32(payload_bytes, "packed primary-key list bytes");
     }
 
@@ -84,7 +84,7 @@ struct PackedPrimaryKeys {
     const char *insert_pos = src_end;
 
     for (const char *cursor = src_begin; cursor != src_end;) {
-      const Record record = DecodeRecord(cursor, src_end);
+      const Record record = UnpackRecord(cursor, src_end);
       const std::string_view value(record.value, record.length);
       if (value == key) return keys;
       if (!(value < key)) {
@@ -94,7 +94,7 @@ struct PackedPrimaryKeys {
       cursor = record.next;
     }
 
-    const size_t added_bytes = EncodedRecordSize(key);
+    const size_t added_bytes = PackedRecordSize(key);
     const size_t new_bytes = static_cast<size_t>(keys->bytes) + added_bytes;
     auto next = AllocateMutable(
         CheckFitsUint32(static_cast<size_t>(keys->count) + 1,
@@ -132,7 +132,7 @@ struct PackedPrimaryKeys {
     const char *const src_end = src_begin + keys->bytes;
 
     for (const char *cursor = src_begin; cursor != src_end;) {
-      const Record record = DecodeRecord(cursor, src_end);
+      const Record record = UnpackRecord(cursor, src_end);
       const std::string_view value(record.value, record.length);
       if (value == key) {
         const size_t removed_bytes =
@@ -206,7 +206,7 @@ struct PackedPrimaryKeys {
   }
 
   static Ptr FromOne(std::string_view key) {
-    const size_t payload_bytes = EncodedRecordSize(key);
+    const size_t payload_bytes = PackedRecordSize(key);
     auto packed = AllocateMutable(
         1, CheckFitsUint32(payload_bytes, "packed primary-key list bytes"));
     [[maybe_unused]] char *out = WriteRecord(packed->MutableRecords(), key);
@@ -230,7 +230,7 @@ struct PackedPrimaryKeys {
     return size;
   }
 
-  static size_t EncodedRecordSize(std::string_view key) {
+  static size_t PackedRecordSize(std::string_view key) {
     return VarintSize(key.size()) + key.size();
   }
 
@@ -252,14 +252,14 @@ struct PackedPrimaryKeys {
     return out;
   }
 
-  // Only this class writes the list, so a record that does not decode is a
+  // Only this class writes the list, so a record that does not unpack is a
   // corrupt allocation, and any key returned would reach past it.
   [[noreturn]] static void RecordCorrupt() {
     std::fputs("corrupt packed primary-key list\n", stderr);
     std::abort();
   }
 
-  static Record DecodeRecord(const char *start, const char *limit) {
+  static Record UnpackRecord(const char *start, const char *limit) {
     const char *cursor = start;
     size_t length = 0;
     unsigned shift = 0;
@@ -309,7 +309,7 @@ class PackedPrimaryKeysView {
      * @return `std::string_view` into the viewed primary-key list.
      */
     reference operator*() const {
-      const auto record = PackedPrimaryKeys::DecodeRecord(cursor_, limit_);
+      const auto record = PackedPrimaryKeys::UnpackRecord(cursor_, limit_);
       return std::string_view(record.value, record.length);
     }
 
@@ -319,7 +319,7 @@ class PackedPrimaryKeysView {
      */
     iterator &operator++() {
       assert(remaining_ != 0);
-      const auto record = PackedPrimaryKeys::DecodeRecord(cursor_, limit_);
+      const auto record = PackedPrimaryKeys::UnpackRecord(cursor_, limit_);
       cursor_ = record.next;
       --remaining_;
       return *this;

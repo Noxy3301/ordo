@@ -124,7 +124,7 @@ struct WalIo {
  *
  * The checksum covers the header up to but excluding the crc field, plus
  * the payload, so a bit flip in the epoch or length is detected too. The
- * payload is the msgpack encoding of a non-empty record list carrying the
+ * payload is the msgpack packing of a non-empty record list carrying the
  * frame's epoch, and frame epochs are non-decreasing. No frame ever carries
  * an empty record list; the caller keeps empty buckets out of AppendGroup,
  * which refuses them rather than skipping them.

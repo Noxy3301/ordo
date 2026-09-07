@@ -67,17 +67,17 @@ TEST_F(DatabaseTest, LargeSizeBuffer) {
 
 TEST_F(DatabaseTest, Scan) {
   ASSERT_TRUE(TestHelper::CommitWrites(
-      *db_, {{kTable, "alice", TestHelper::Encode<int>(1), false, false},
-             {kTable, "bob", TestHelper::Encode<int>(2), false, false},
-             {kTable, "carol", TestHelper::Encode<int>(3), false, false}}));
+      *db_, {{kTable, "alice", TestHelper::Pack<int>(1), false, false},
+             {kTable, "bob", TestHelper::Pack<int>(2), false, false},
+             {kTable, "carol", TestHelper::Pack<int>(3), false, false}}));
 
   // Half-open: carol is the exclusive upper bound.
   const auto rows = TestHelper::Scan(*db_, kTable, "alice", "carol");
   ASSERT_EQ(rows.size(), size_t(2));
   EXPECT_EQ(rows[0].first, "alice");
-  EXPECT_EQ(TestHelper::Decode<int>(rows[0].second), 1);
+  EXPECT_EQ(TestHelper::Unpack<int>(rows[0].second), 1);
   EXPECT_EQ(rows[1].first, "bob");
-  EXPECT_EQ(TestHelper::Decode<int>(rows[1].second), 2);
+  EXPECT_EQ(TestHelper::Unpack<int>(rows[1].second), 2);
 
   const auto capped = TestHelper::Scan(*db_, kTable, "alice", "carol", 1);
   ASSERT_EQ(capped.size(), size_t(1));
@@ -103,7 +103,7 @@ TEST_F(DatabaseTest, ThreadSafetyInsertions) {
   std::vector<helios::storage::ExternalWriteEntry> writes;
   for (size_t idx = 0; idx < kKeys; idx++) {
     writes.push_back({kTable, "alice" + std::to_string(idx),
-                      TestHelper::Encode<int>(kValue), false, false});
+                      TestHelper::Pack<int>(kValue), false, false});
   }
 
   std::vector<std::thread> threads;

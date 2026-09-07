@@ -231,8 +231,8 @@ struct FieldRef {
  * @return Number of fields read, or `SIZE_MAX` when the input is malformed
  * or contains more than `max_fields` fields.
  */
-size_t ParseRow(const std::byte *row, size_t size, FieldRef *out,
-                size_t max_fields) {
+size_t UnpackRow(const std::byte *row, size_t size, FieldRef *out,
+                 size_t max_fields) {
   size_t off = 0;
   size_t n = 0;
   while (off < size) {
@@ -283,7 +283,7 @@ bool PaxGroup::ScatterRow(uint32_t slot, const std::byte *row, size_t size) {
   constexpr size_t kMaxFields = 512;
   if (fields > kMaxFields) return false;
   FieldRef refs[kMaxFields];
-  const size_t parsed = ParseRow(row, size, refs, fields);
+  const size_t parsed = UnpackRow(row, size, refs, fields);
   if (parsed != fields) return false;
   // Validate every field before any cell write. UNTYPED fields must fit their
   // cell width; typed non-null fields are parsed into a fixed-width LE binary

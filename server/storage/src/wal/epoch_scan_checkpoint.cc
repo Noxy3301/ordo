@@ -14,9 +14,9 @@
 #include <utility>
 #include <vector>
 
-#include "index/concurrent_table.h"
 #include "index/data_item.h"
 #include "index/masstree_index.h"
+#include "index/primary_index.h"
 #include "index/secondary_index.h"
 #include "table/table.h"
 #include "table/table_dictionary.h"

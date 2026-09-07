@@ -12,8 +12,8 @@
 #include <utility>
 #include <vector>
 
-#include "index/concurrent_table.h"
 #include "index/data_item.h"
+#include "index/primary_index.h"
 #include "index/reaper.h"
 #include "index/secondary_index.h"
 #include "pax/version_store.h"
@@ -46,7 +46,7 @@ struct Write {
   std::string value;
   bool is_delete = false;
   DataItem *item = nullptr;
-  index::ConcurrentTable *index = nullptr;
+  index::PrimaryIndex *index = nullptr;
   // Insert entry that is the first entry for its key in this request, so
   // the committed row is what decides whether the key is free.
   bool check_committed_row = false;
@@ -61,13 +61,13 @@ struct SiOp {
   bool is_delete = false;
   DataItem *item = nullptr;
   index::SecondaryIndex *index = nullptr;
-  index::SecondaryIndexType index_type;
+  index::IndexConstraint index_type;
 };
 
 // The index entry a locked item must still be reachable through.
 struct LockTarget {
   DataItem *item = nullptr;
-  index::ConcurrentTable *primary_index = nullptr;
+  index::PrimaryIndex *primary_index = nullptr;
   index::SecondaryIndex *secondary_index = nullptr;
   std::string key;
 };
@@ -151,7 +151,7 @@ bool Resolve(Ctx &c, std::shared_mutex &schema_mutex) {
 
   std::shared_lock<std::shared_mutex> lk(schema_mutex);
 
-  // Resolve point reads to the DataItem and version observed by proxy
+  // Resolve point reads to the DataItem and version the caller observed
   c.reads.reserve(c.payload.reads.size());
   for (const auto &read : c.payload.reads) {
     auto table = c.tables.GetTable(read.table_name);

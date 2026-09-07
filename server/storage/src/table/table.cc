@@ -5,7 +5,7 @@
 #include <tuple>
 #include <utility>
 
-#include "index/concurrent_table.h"
+#include "index/primary_index.h"
 #include "storage/config.h"
 #include "util/epoch_framework.h"
 // #include "index/secondary_index.h"  // now included from table.h
@@ -29,6 +29,6 @@ index::SecondaryIndex *Table::GetSecondaryIndex(
 }
 
 const std::string &Table::Name() const { return table_name_; }
-index::ConcurrentTable &Table::GetPrimaryIndex() { return primary_index_; }
+index::PrimaryIndex &Table::GetPrimaryIndex() { return primary_index_; }
 
 }  // namespace helios::storage

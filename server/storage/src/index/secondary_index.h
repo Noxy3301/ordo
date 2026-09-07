@@ -1,8 +1,8 @@
 #ifndef HELIOS_STORAGE_SRC_INDEX_SECONDARY_INDEX_H
 #define HELIOS_STORAGE_SRC_INDEX_SECONDARY_INDEX_H
 
+#include "index/index_constraint.h"
 #include "index/masstree_index.h"
-#include "index/secondary_index_type.h"
 #include "silo/snapshot.h"
 #include "silo/stable_read.h"
 #include "util/epoch_framework.h"
@@ -13,7 +13,7 @@ namespace index {
 class SecondaryIndex {
  public:
   SecondaryIndex(epoch::Framework &epoch_framework, Config config = Config(),
-                 SecondaryIndexType index_type = SecondaryIndexType(),
+                 IndexConstraint index_type = IndexConstraint(),
                  [[maybe_unused]] WriteSetType recovery_set = WriteSetType())
       : index_type_(index_type), secondary_index_(config, epoch_framework) {}
 
@@ -67,10 +67,10 @@ class SecondaryIndex {
 
   bool IsUnique() { return index_type_.IsUnique(); }
 
-  SecondaryIndexType GetIndexType() const { return index_type_; }
+  IndexConstraint GetIndexType() const { return index_type_; }
 
  private:
-  SecondaryIndexType index_type_;
+  IndexConstraint index_type_;
   MasstreeIndex secondary_index_;
 };
 }  // namespace index

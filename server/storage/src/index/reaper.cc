@@ -3,15 +3,15 @@
 #include <iterator>
 #include <utility>
 
-#include "index/concurrent_table.h"
 #include "index/masstree_index.h"
+#include "index/primary_index.h"
 #include "index/secondary_index.h"
 #include "util/spdlog.h"
 
 namespace helios::storage {
 namespace index {
 
-void Reaper::Enqueue(ConcurrentTable *primary_index,
+void Reaper::Enqueue(PrimaryIndex *primary_index,
                      SecondaryIndex *secondary_index, std::string_view key,
                      DataItem *item, TransactionId delete_commit_tid) {
   if (item == nullptr || delete_commit_tid.IsEmpty()) return;

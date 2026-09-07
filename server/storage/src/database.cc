@@ -73,8 +73,8 @@ bool Database::PaxViewPoisoned(const PaxReadView &view) const {
 
 bool Database::CreateSecondaryIndex(const std::string_view table_name,
                                     const std::string_view index_name,
-                                    const uint index_type) {
-  return db_pimpl_->CreateSecondaryIndex(table_name, index_name, index_type);
+                                    const uint constraints) {
+  return db_pimpl_->CreateSecondaryIndex(table_name, index_name, constraints);
 }
 
 bool Database::HasTable(const std::string_view table_name) {
@@ -120,17 +120,17 @@ ScanPaxResult Database::ScanPax(const std::string_view table_name,
 
 bool Database::IndexNdv(const std::string_view table_name,
                         const std::string_view index_name, uint32_t num_parts,
-                        std::vector<uint64_t> &out_ndv) {
-  return db_pimpl_->IndexNdv(table_name, index_name, num_parts, out_ndv);
+                        const KeyParts &parts, std::vector<uint64_t> &out_ndv) {
+  return db_pimpl_->IndexNdv(table_name, index_name, num_parts, parts, out_ndv);
 }
 
-bool Database::ComputeIndexHistogram(const std::string_view table_name,
-                                     const std::string_view index_name,
-                                     uint32_t buckets,
-                                     std::vector<std::string> &out_bounds,
-                                     std::vector<uint64_t> &out_cum) {
-  return db_pimpl_->ComputeIndexHistogram(table_name, index_name, buckets,
-                                          out_bounds, out_cum);
+bool Database::IndexHistogram(const std::string_view table_name,
+                              const std::string_view index_name,
+                              uint32_t buckets, const KeyParts &parts,
+                              std::vector<std::string> &out_bounds,
+                              std::vector<uint64_t> &out_cum) {
+  return db_pimpl_->IndexHistogram(table_name, index_name, buckets, parts,
+                                   out_bounds, out_cum);
 }
 
 bool Database::Commit(
@@ -257,8 +257,8 @@ bool Database::Impl::CreateTable(const std::string_view table_name) {
 
 bool Database::Impl::CreateSecondaryIndex(const std::string_view table_name,
                                           const std::string_view index_name,
-                                          const uint index_type) {
-  if (index_type > index::SecondaryIndexType::kUnique) return false;
+                                          const uint constraints) {
+  if (constraints > index::IndexConstraint::kUnique) return false;
   std::shared_lock<std::shared_mutex> lk(schema_mutex_);
   auto it = GetTable(table_name);
   if (!it.has_value()) {
@@ -266,8 +266,8 @@ bool Database::Impl::CreateSecondaryIndex(const std::string_view table_name,
   }
   return it.value()->CreateSecondaryIndex(
       index_name,
-      index::SecondaryIndexType::FromRaw(
-          static_cast<index::SecondaryIndexType::RawType>(index_type)));
+      index::IndexConstraint::FromRaw(
+          static_cast<index::IndexConstraint::RawType>(constraints)));
 }
 
 ReadResult Database::Impl::Read(const std::string_view table_name,

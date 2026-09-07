@@ -1,5 +1,5 @@
-#ifndef HELIOS_STORAGE_SRC_INDEX_SECONDARY_INDEX_TYPE_H
-#define HELIOS_STORAGE_SRC_INDEX_SECONDARY_INDEX_TYPE_H
+#ifndef HELIOS_STORAGE_SRC_INDEX_INDEX_CONSTRAINT_H
+#define HELIOS_STORAGE_SRC_INDEX_INDEX_CONSTRAINT_H
 
 #include <cstdint>
 
@@ -7,18 +7,18 @@ namespace helios::storage::index {
 
 // The declared kind of one secondary index. kNone and kUnique are the only
 // accepted values; CreateSecondaryIndex refuses anything else.
-class SecondaryIndexType {
+class IndexConstraint {
  public:
   using RawType = uint32_t;
 
   static constexpr RawType kNone = 0;
   static constexpr RawType kUnique = 1;
 
-  constexpr SecondaryIndexType() : raw_(kNone) {}
-  constexpr explicit SecondaryIndexType(RawType raw) : raw_(raw) {}
+  constexpr IndexConstraint() : raw_(kNone) {}
+  constexpr explicit IndexConstraint(RawType raw) : raw_(raw) {}
 
-  static constexpr SecondaryIndexType FromRaw(RawType raw) {
-    return SecondaryIndexType(raw);
+  static constexpr IndexConstraint FromRaw(RawType raw) {
+    return IndexConstraint(raw);
   }
 
   constexpr RawType Raw() const { return raw_; }
@@ -30,4 +30,4 @@ class SecondaryIndexType {
 
 }  // namespace helios::storage::index
 
-#endif  // HELIOS_STORAGE_SRC_INDEX_SECONDARY_INDEX_TYPE_H
+#endif  // HELIOS_STORAGE_SRC_INDEX_INDEX_CONSTRAINT_H

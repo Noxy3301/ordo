@@ -6,7 +6,7 @@
 #include <string>
 #include <unordered_map>
 
-#include "index/concurrent_table.h"
+#include "index/primary_index.h"
 #include "index/secondary_index.h"
 #include "pax/store.h"
 #include "storage/config.h"
@@ -23,7 +23,7 @@ class Table {
 
   bool CreateSecondaryIndex(
       const std::string_view index_name,
-      [[maybe_unused]] const index::SecondaryIndexType index_type) {
+      [[maybe_unused]] const index::IndexConstraint index_type) {
     std::unique_lock<std::shared_mutex> lk(table_lock_);
     if (secondary_indices_.count(std::string(index_name))) {
       return false;
@@ -59,7 +59,7 @@ class Table {
 
   const std::string &Name() const;
 
-  index::ConcurrentTable &GetPrimaryIndex();
+  index::PrimaryIndex &GetPrimaryIndex();
 
   index::SecondaryIndex *GetSecondaryIndex(const std::string_view index_name);
 
@@ -77,7 +77,7 @@ class Table {
   }
 
   bool GetOrCreateIndex(const std::string_view index_name,
-                        const index::SecondaryIndexType index_type,
+                        const index::IndexConstraint index_type,
                         index::SecondaryIndex **out_index) {
     std::unique_lock<std::shared_mutex> lk(table_lock_);
     auto it = secondary_indices_.find(std::string(index_name));
@@ -95,7 +95,7 @@ class Table {
  private:
   epoch::Framework &epoch_framework_;
   Config config_;
-  index::ConcurrentTable primary_index_;
+  index::PrimaryIndex primary_index_;
   std::unique_ptr<pax::PaxStore> pax_store_;
   mutable std::shared_mutex table_lock_;
   std::unordered_map<std::string, std::unique_ptr<index::SecondaryIndex>>

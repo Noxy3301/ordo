@@ -15,7 +15,7 @@
 namespace helios::storage {
 namespace index {
 
-class ConcurrentTable;
+class PrimaryIndex;
 class SecondaryIndex;
 
 /**
@@ -40,7 +40,7 @@ class Reaper {
    * no-op when `item` is null, `delete_commit_tid` is empty, or neither
    * index is given.
    */
-  void Enqueue(ConcurrentTable *primary_index, SecondaryIndex *secondary_index,
+  void Enqueue(PrimaryIndex *primary_index, SecondaryIndex *secondary_index,
                std::string_view key, DataItem *item,
                TransactionId delete_commit_tid);
 
@@ -68,7 +68,7 @@ class Reaper {
    */
   struct Candidate {
     DeferredPurgeIndexKind kind;
-    ConcurrentTable *primary_index = nullptr;
+    PrimaryIndex *primary_index = nullptr;
     SecondaryIndex *secondary_index = nullptr;
     std::string key;
     DataItem *item = nullptr;

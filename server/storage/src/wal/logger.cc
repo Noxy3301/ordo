@@ -165,7 +165,7 @@ void FoldPrimary(const KeyValuePair &kvp, WriteSetType &recovery_set,
       item.data_item_copy.Reset(value_ptr, kvp.buffer.size(), kvp.tid);
       item.table_name = kvp.table_name;
       item.index_name = kvp.index_name;
-      item.index_type = index::SecondaryIndexType::FromRaw(kvp.index_type);
+      item.index_type = index::IndexConstraint::FromRaw(kvp.index_type);
     }
     return;
   }
@@ -176,7 +176,7 @@ void FoldPrimary(const KeyValuePair &kvp, WriteSetType &recovery_set,
       kvp.key,           reinterpret_cast<const std::byte *>(kvp.buffer.data()),
       kvp.buffer.size(), nullptr,
       kvp.table_name,    kvp.index_name,
-      kvp.tid,           index::SecondaryIndexType::FromRaw(kvp.index_type),
+      kvp.tid,           index::IndexConstraint::FromRaw(kvp.index_type),
   };
   recovery_set.emplace_back(std::move(snapshot));
 }
@@ -202,15 +202,14 @@ void GroupSecondary(const SecondaryOps &ops, WriteSetType &recovery_set) {
     entry.primary_keys.erase(
         std::unique(entry.primary_keys.begin(), entry.primary_keys.end()),
         entry.primary_keys.end());
-    Snapshot snapshot = {
-        group_key.secondary_key,
-        nullptr,
-        0,
-        nullptr,
-        group_key.table_name,
-        group_key.index_name,
-        entry.max_tid,
-        index::SecondaryIndexType::FromRaw(group_key.index_type)};
+    Snapshot snapshot = {group_key.secondary_key,
+                         nullptr,
+                         0,
+                         nullptr,
+                         group_key.table_name,
+                         group_key.index_name,
+                         entry.max_tid,
+                         index::IndexConstraint::FromRaw(group_key.index_type)};
     snapshot.data_item_copy.SetPrimaryKeys(std::move(entry.primary_keys));
     snapshot.data_item_copy.Reset(nullptr, 0, entry.max_tid);
     recovery_set.emplace_back(std::move(snapshot));

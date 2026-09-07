@@ -94,7 +94,7 @@ class Database {
 
   bool CreateSecondaryIndex(const std::string_view table_name,
                             const std::string_view index_name,
-                            const uint index_type);
+                            const uint constraints);
 
   // True when the dictionary holds this table.
   bool HasTable(const std::string_view table_name);
@@ -298,17 +298,29 @@ class Database {
                         bool reverse_scan);
 
   /**
-   * @brief Compute per-key-part-prefix NDV for an integer encoded index.
+   * @brief Reports where the leading key parts of `key` end.
+   *
+   * @details The statistics count prefixes and compare bounds as bytes, so
+   * the key layout stays with the caller: it fills `ends[p]` with the offset
+   * just past key part `p`, for `p` in `[0, num_parts)`.
+   *
+   * @return false to leave this key out of the statistics, which is how a
+   * caller refuses a part whose bytes do not order like its values.
+   */
+  using KeyParts = std::function<bool(std::string_view key, uint32_t num_parts,
+                                      size_t *ends)>;
+
+  /**
+   * @brief Compute per-key-part-prefix NDV for one index.
    *
    * `out_ndv[d]` is the number of distinct prefixes covering key parts
    * `0..d` among live entries. `index_name == ""` selects the primary index.
-   * Returns false when the table/index is missing or any scanned key part is
-   * not in the Helios integer key encoding, leaving the caller to use its
-   * existing heuristic.
+   * Returns false when the table/index is missing or `parts` refused a
+   * scanned key, leaving the caller to use its existing heuristic.
    */
   bool IndexNdv(const std::string_view table_name,
                 const std::string_view index_name, uint32_t num_parts,
-                std::vector<uint64_t> &out_ndv);
+                const KeyParts &parts, std::vector<uint64_t> &out_ndv);
 
   /**
    * @brief Build an equi-depth histogram for one index's leading key part.
@@ -317,14 +329,14 @@ class Database {
    * bucket boundary, in ascending order. `out_cum[i]` is the cumulative row
    * count up to that boundary and is monotone; the last value is the total
    * counted rows. `index_name == ""` selects the primary index. Returns false
-   * when the table/index is missing, the index is empty, or a leading key part
-   * cannot be decoded safely.
+   * when the table/index is missing, the index is empty, or `parts` refused
+   * a scanned key. Only the leading part is asked for.
    */
-  bool ComputeIndexHistogram(const std::string_view table_name,
-                             const std::string_view index_name,
-                             uint32_t buckets,
-                             std::vector<std::string> &out_bounds,
-                             std::vector<uint64_t> &out_cum);
+  bool IndexHistogram(const std::string_view table_name,
+                      const std::string_view index_name, uint32_t buckets,
+                      const KeyParts &parts,
+                      std::vector<std::string> &out_bounds,
+                      std::vector<uint64_t> &out_cum);
 
   /**
    * @brief Validate caller-supplied read and write sets and install the

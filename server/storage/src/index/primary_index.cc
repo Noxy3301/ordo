@@ -14,7 +14,7 @@
  *   limitations under the License.
  */
 
-#include "index/concurrent_table.h"
+#include "index/primary_index.h"
 
 #include <functional>
 
@@ -26,8 +26,8 @@
 namespace helios::storage {
 namespace index {
 
-ConcurrentTable::ConcurrentTable(epoch::Framework &epoch_framework,
-                                 Config config, WriteSetType recovery_set)
+PrimaryIndex::PrimaryIndex(epoch::Framework &epoch_framework, Config config,
+                           WriteSetType recovery_set)
     : index_(config, epoch_framework), epoch_manager_ref_(epoch_framework) {
   if (recovery_set.empty()) return;
   for (auto &entry : recovery_set) {
@@ -35,11 +35,11 @@ ConcurrentTable::ConcurrentTable(epoch::Framework &epoch_framework,
   }
 }
 
-DataItem *ConcurrentTable::Get(const std::string_view key) {
+DataItem *PrimaryIndex::Get(const std::string_view key) {
   return index_.Get(key);
 }
 
-DataItem *ConcurrentTable::GetOrInsert(const std::string_view key) {
+DataItem *PrimaryIndex::GetOrInsert(const std::string_view key) {
   auto *item = index_.Get(key);
   if (item == nullptr) {
     index_.PutBlank(key);
@@ -50,34 +50,34 @@ DataItem *ConcurrentTable::GetOrInsert(const std::string_view key) {
 }
 
 // return false if a corresponding entry already exists
-bool ConcurrentTable::Put(const std::string_view key, DataItem &&rhs) {
+bool PrimaryIndex::Put(const std::string_view key, DataItem &&rhs) {
   return index_.Put(key, std::forward<decltype(rhs)>(rhs));
 }
 
-void ConcurrentTable::ForEach(
+void PrimaryIndex::ForEach(
     std::function<bool(std::string_view, DataItem &)> f) {
   index_.ForEach(f);
 }
 
-size_t ConcurrentTable::Scan(const std::string_view begin,
-                             const std::optional<std::string_view> end,
-                             std::function<bool(std::string_view)> operation) {
+size_t PrimaryIndex::Scan(const std::string_view begin,
+                          const std::optional<std::string_view> end,
+                          std::function<bool(std::string_view)> operation) {
   return index_.Scan(begin, end, operation);
 }
 
-size_t ConcurrentTable::Scan(
+size_t PrimaryIndex::Scan(
     const std::string_view begin, const std::string_view end,
     std::function<bool(std::string_view, DataItem &)> operation) {
   return index_.Scan(begin, end, operation);
 }
 
-size_t ConcurrentTable::ScanReverse(
+size_t PrimaryIndex::ScanReverse(
     const std::string_view begin, const std::optional<std::string_view> end,
     std::function<bool(std::string_view)> operation) {
   return index_.ScanReverse(begin, end, operation);
 }
 
-size_t ConcurrentTable::ScanReverse(
+size_t PrimaryIndex::ScanReverse(
     const std::string_view begin, const std::string_view end,
     std::function<bool(std::string_view, DataItem &)> operation) {
   return index_.ScanReverse(begin, end, operation);

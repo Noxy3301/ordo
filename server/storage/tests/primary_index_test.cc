@@ -14,7 +14,7 @@
  *   limitations under the License.
  */
 
-#include "index/concurrent_table.h"
+#include "index/primary_index.h"
 
 #include <thread>
 
@@ -23,40 +23,40 @@
 #include "util/epoch_framework.h"
 #include "util/spdlog.h"
 
-TEST(ConcurrentTableTest, Instantiate) {
+TEST(PrimaryIndexTest, Instantiate) {
   helios::storage::epoch::Framework epoch;
   epoch.Start();
-  ASSERT_NO_THROW(helios::storage::index::ConcurrentTable table(epoch));
+  ASSERT_NO_THROW(helios::storage::index::PrimaryIndex table(epoch));
 }
 
-TEST(ConcurrentTableTest, Put) {
+TEST(PrimaryIndexTest, Put) {
   helios::storage::epoch::Framework epoch;
   epoch.Start();
-  helios::storage::index::ConcurrentTable table(epoch);
+  helios::storage::index::PrimaryIndex table(epoch);
   table.Put("alice", helios::storage::DataItem{});
 }
 
-TEST(ConcurrentTableTest, Get) {
+TEST(PrimaryIndexTest, Get) {
   helios::storage::epoch::Framework epoch;
   epoch.Start();
-  helios::storage::index::ConcurrentTable table(epoch);
+  helios::storage::index::PrimaryIndex table(epoch);
   ASSERT_EQ(nullptr, table.Get("alice"));
   table.Put("alice", {});
   ASSERT_NE(nullptr, table.Get("alice"));
 }
 
-TEST(ConcurrentTableTest, GetOrInsert) {
+TEST(PrimaryIndexTest, GetOrInsert) {
   helios::storage::epoch::Framework epoch;
   epoch.Start();
-  helios::storage::index::ConcurrentTable table(epoch);
+  helios::storage::index::PrimaryIndex table(epoch);
   ASSERT_NE(nullptr, table.GetOrInsert("alice"));
 }
 
-TEST(ConcurrentTableTest, ConcurrentInserting) {
+TEST(PrimaryIndexTest, ConcurrentInserting) {
   std::vector<std::thread> threads;
   helios::storage::epoch::Framework epoch;
   epoch.Start();
-  helios::storage::index::ConcurrentTable table(epoch);
+  helios::storage::index::PrimaryIndex table(epoch);
 
   for (size_t i = 0; i < 10; i++) {
     threads.emplace_back([&, i]() { table.Put(std::to_string(i), {}); });
@@ -69,12 +69,12 @@ TEST(ConcurrentTableTest, ConcurrentInserting) {
   }
 }
 
-TEST(ConcurrentTableTest, ConcurrentAndConflictedInserting) {
+TEST(PrimaryIndexTest, ConcurrentAndConflictedInserting) {
   std::vector<std::thread> threads;
   std::vector<helios::storage::DataItem> items(10);
   helios::storage::epoch::Framework epoch;
   epoch.Start();
-  helios::storage::index::ConcurrentTable table(epoch);
+  helios::storage::index::PrimaryIndex table(epoch);
 
   for (size_t i = 0; i < 10; i++) {
     threads.emplace_back([&]() { table.Put("alice", {}); });
@@ -91,11 +91,11 @@ TEST(ConcurrentTableTest, ConcurrentAndConflictedInserting) {
   ASSERT_TRUE(some_item_were_inserted);
 }
 
-TEST(ConcurrentTableTest, Scan) {
+TEST(PrimaryIndexTest, Scan) {
   helios::storage::util::InitLog();
   helios::storage::epoch::Framework epoch;
   epoch.Start();
-  helios::storage::index::ConcurrentTable table(epoch);
+  helios::storage::index::PrimaryIndex table(epoch);
   ASSERT_TRUE(table.Put("alice", {}));
   ASSERT_TRUE(table.Put("bob", {}));
   ASSERT_TRUE(table.Put("carol", {}));
@@ -110,12 +110,12 @@ TEST(ConcurrentTableTest, Scan) {
   ASSERT_EQ(size_t(1), table.Scan("alice", "carol", [](auto) { return true; }));
 }
 
-TEST(ConcurrentTableTest, TremendousPut) {
+TEST(PrimaryIndexTest, TremendousPut) {
   std::vector<std::thread> threads;
   std::vector<helios::storage::DataItem *> items;
   helios::storage::epoch::Framework epoch;
   epoch.Start();
-  helios::storage::index::ConcurrentTable table(epoch);
+  helios::storage::index::PrimaryIndex table(epoch);
 
   constexpr size_t working_set_size = 8192;
   for (size_t i = 0; i < 10; i++) {
@@ -131,12 +131,12 @@ TEST(ConcurrentTableTest, TremendousPut) {
   }
 }
 
-TEST(ConcurrentTableTest, TremendousGetAndPut) {
+TEST(PrimaryIndexTest, TremendousGetAndPut) {
   std::vector<std::thread> threads;
   std::vector<helios::storage::DataItem *> items;
   helios::storage::epoch::Framework epoch;
   epoch.Start();
-  helios::storage::index::ConcurrentTable table(epoch);
+  helios::storage::index::PrimaryIndex table(epoch);
 
   constexpr size_t working_set_size = 8192;
   for (size_t i = 0; i < 10; i++) {
@@ -153,13 +153,13 @@ TEST(ConcurrentTableTest, TremendousGetAndPut) {
   }
 }
 
-TEST(ConcurrentTableTest, ForEachIsSafeWithRehashing) {
+TEST(PrimaryIndexTest, ForEachIsSafeWithRehashing) {
   // Test scenario: #Rehash and #ForEach are concurrently executed.
   std::vector<std::thread> threads;
   std::vector<helios::storage::DataItem *> items;
   helios::storage::epoch::Framework epoch(1);
   epoch.Start();
-  helios::storage::index::ConcurrentTable table(epoch);
+  helios::storage::index::PrimaryIndex table(epoch);
 
   constexpr size_t working_set_size = 8192;
   for (size_t i = 0; i < 5; i++) {

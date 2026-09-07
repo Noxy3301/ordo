@@ -100,7 +100,7 @@ class Database::Impl {
 
   bool CreateSecondaryIndex(const std::string_view table_name,
                             const std::string_view index_name,
-                            const uint index_type);
+                            const uint constraints);
 
   ReadResult Read(const std::string_view table_name, const std::string_view key,
                   const std::vector<uint32_t> *selected_columns = nullptr);
@@ -128,31 +128,30 @@ class Database::Impl {
   /**
    * @brief Compute exact NDV for each integer key-part prefix of one index.
    *
-   * @details The proxy uses this to set MySQL `rec_per_key`. The scan counts
-   * live index entries only. If any live key cannot be split as Helios integer
-   * key parts, the method returns false so the proxy keeps its old estimate.
+   * @details The query layer uses this to set MySQL `rec_per_key`. The scan
+   * counts live index entries only. If `parts` refuses a live key, the method
+   * returns false so the caller keeps its old estimate.
    */
   bool IndexNdv(const std::string_view table_name,
                 const std::string_view index_name, uint32_t num_parts,
-                std::vector<uint64_t> &out_ndv);
+                const KeyParts &parts, std::vector<uint64_t> &out_ndv);
 
   /**
    * @brief Build an equi-depth histogram for one index's leading key part.
    *
-   * @details The proxy uses the returned boundaries to estimate one-column
-   * range cardinality locally. The scan is independent of NDV/rec_per_key:
-   * pass 1 counts row weight, and pass 2 records the leading-key prefix at
-   * each bucket boundary. Secondary-index entries are weighted by their PK
-   * list size so bucket depth tracks rows, not distinct secondary keys.
-   *
-   * Only order-preserving fixed-layout leading parts are accepted. Unsupported
-   * or malformed encodings return false, letting the proxy keep its heuristic.
+   * @details The query layer uses the returned boundaries to estimate
+   * one-column range cardinality locally. The scan is independent of
+   * NDV/rec_per_key: pass 1 counts row weight, and pass 2 records the
+   * leading-key prefix at each bucket boundary. Secondary-index entries are
+   * weighted by their PK list size so bucket depth tracks rows, not distinct
+   * secondary keys. A key `parts` refuses returns false, letting the caller
+   * keep its heuristic.
    */
-  bool ComputeIndexHistogram(const std::string_view table_name,
-                             const std::string_view index_name,
-                             uint32_t buckets,
-                             std::vector<std::string> &out_bounds,
-                             std::vector<uint64_t> &out_cum);
+  bool IndexHistogram(const std::string_view table_name,
+                      const std::string_view index_name, uint32_t buckets,
+                      const KeyParts &parts,
+                      std::vector<std::string> &out_bounds,
+                      std::vector<uint64_t> &out_cum);
 
   bool Commit(
       const std::vector<ExternalReadEntry> &reads,

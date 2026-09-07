@@ -18,6 +18,10 @@ namespace helios::storage {
 
 namespace {
 
+// Exclusive end of a whole-index scan: a stored key opens with the null
+// marker of its first part, never with 0xFF.
+const std::string kScanEnd(16, '\xff');
+
 // Stable-read base-row liveness without copying the row payload.
 bool StableLive(const DataItem &item) {
   for (;;) {
@@ -36,7 +40,7 @@ bool StableLive(const DataItem &item) {
 
 bool Database::Impl::IndexNdv(const std::string_view table_name,
                               const std::string_view index_name,
-                              uint32_t num_parts,
+                              uint32_t num_parts, const KeyParts &parts,
                               std::vector<uint64_t> &out_ndv) {
   out_ndv.assign(num_parts, 0);
   if (num_parts == 0) return false;
@@ -51,31 +55,12 @@ bool Database::Impl::IndexNdv(const std::string_view table_name,
   std::string prev_key;
   std::vector<size_t> prev_part_ends(num_parts, 0);
 
-  // Split Helios integer key-parts: [marker][type][2-byte length][payload].
+  // NDV counts prefixes, so only a key the caller accepts counts.
   auto count_key = [&](std::string_view key) -> bool {
     std::vector<size_t> part_ends(num_parts, 0);
-    size_t offset = 0;
-    for (uint32_t part = 0; part < num_parts; ++part) {
-      if (offset + 4 > key.size()) {
-        ok = false;
-        return true;
-      }
-      const auto marker = static_cast<unsigned char>(key[offset]);
-      const auto type = static_cast<unsigned char>(key[offset + 1]);
-      if (marker != 0x00 || type != 0x10) {
-        ok = false;
-        return true;
-      }
-      const size_t len =
-          (static_cast<size_t>(static_cast<unsigned char>(key[offset + 2]))
-           << 8) |
-          static_cast<unsigned char>(key[offset + 3]);
-      offset += 4 + len;
-      if (offset > key.size()) {
-        ok = false;
-        return true;
-      }
-      part_ends[part] = offset;
+    if (!parts(key, num_parts, part_ends.data())) {
+      ok = false;
+      return true;
     }
 
     if (first) {
@@ -100,12 +85,11 @@ bool Database::Impl::IndexNdv(const std::string_view table_name,
     return false;
   };
 
-  static const std::string kFullScanEnd(16, static_cast<char>(0xff));
   auto &primary_index = table.value()->GetPrimaryIndex();
 
   if (index_name.empty()) {
     // Primary index entries are base rows, so count live rows directly.
-    primary_index.Scan(std::string_view(), std::string_view(kFullScanEnd),
+    primary_index.Scan(std::string_view(), std::string_view(kScanEnd),
                        [&](std::string_view key, DataItem &item) -> bool {
                          if (!StableLive(item)) return false;
                          return count_key(key);
@@ -140,7 +124,7 @@ bool Database::Impl::IndexNdv(const std::string_view table_name,
       return false;
     };
 
-    index->Scan(std::string_view(), std::string_view(kFullScanEnd),
+    index->Scan(std::string_view(), std::string_view(kScanEnd),
                 [&](std::string_view key) -> bool {
                   DataItem *item = index->Get(key);
                   if (item == nullptr || !stable_live_secondary(*item)) {
@@ -158,11 +142,11 @@ bool Database::Impl::IndexNdv(const std::string_view table_name,
   return true;
 }
 
-bool Database::Impl::ComputeIndexHistogram(const std::string_view table_name,
-                                           const std::string_view index_name,
-                                           uint32_t buckets,
-                                           std::vector<std::string> &out_bounds,
-                                           std::vector<uint64_t> &out_cum) {
+bool Database::Impl::IndexHistogram(const std::string_view table_name,
+                                    const std::string_view index_name,
+                                    uint32_t buckets, const KeyParts &parts,
+                                    std::vector<std::string> &out_bounds,
+                                    std::vector<uint64_t> &out_cum) {
   out_bounds.clear();
   out_cum.clear();
   if (buckets == 0) return false;
@@ -170,18 +154,11 @@ bool Database::Impl::ComputeIndexHistogram(const std::string_view table_name,
   auto table = GetTable(table_name);
   if (!table.has_value()) return false;
 
-  // Leading key-part layout: [marker][type][2-byte length][payload].
-  // Accept only fixed-layout encodings whose byte order matches value order.
-  auto leading_end = [](std::string_view key) -> size_t {
-    if (key.size() < 4) return 0;
-    if (static_cast<unsigned char>(key[0]) != 0x00) return 0;
-    const unsigned char type = static_cast<unsigned char>(key[1]);
-    if (type != 0x10 && type != 0x30) return 0;  // INT / DATETIME only
-    const size_t len =
-        (static_cast<size_t>(static_cast<unsigned char>(key[2])) << 8) |
-        static_cast<unsigned char>(key[3]);
-    const size_t end = 4 + len;
-    return (end <= key.size()) ? end : 0;
+  // Histogram bounds are compared as bytes, so a key the caller refuses ends
+  // the pass.
+  auto leading_end = [&parts](std::string_view key) -> size_t {
+    size_t end = 0;
+    return parts(key, 1, &end) ? end : 0;
   };
 
   // Secondary scans visit one entry per key, but the histogram is over rows.
@@ -198,14 +175,12 @@ bool Database::Impl::ComputeIndexHistogram(const std::string_view table_name,
       if (di.transaction_id.load() == tid) return n;
     }
   };
-  static const std::string kMaxEnd(16, '\xff');
-
   // Walk one index in key order and expose each live key with its row weight.
   bool malformed = false;
   auto walk = [&](auto &&fn) {
     if (index_name.empty()) {
       table.value()->GetPrimaryIndex().Scan(
-          std::string_view(), std::string_view(kMaxEnd),
+          std::string_view(), std::string_view(kScanEnd),
           [&](std::string_view key, DataItem &di) -> bool {
             if (StableLive(di)) return fn(key, static_cast<uint64_t>(1));
             return false;
@@ -217,7 +192,7 @@ bool Database::Impl::ComputeIndexHistogram(const std::string_view table_name,
         malformed = true;
         return;
       }
-      index->Scan(std::string_view(), std::string_view(kMaxEnd),
+      index->Scan(std::string_view(), std::string_view(kScanEnd),
                   [&](std::string_view key) -> bool {
                     DataItem *item = index->Get(key);
                     if (item == nullptr) return false;

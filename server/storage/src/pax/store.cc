@@ -198,7 +198,7 @@ void FormatTyped(uint8_t kind, int scale, const std::byte *cell, uint32_t width,
   }
 }
 
-// Proxy row marker for an empty/no-value field.
+// Row format marker for an empty/no-value field.
 constexpr std::byte kNoValue{0xFF};
 
 /**
@@ -214,16 +214,16 @@ inline uint32_t LengthPrefixBytes(uint32_t len) {
   return n;
 }
 
-// Reference to one decoded field payload inside a proxy row.
+// Reference to one decoded field payload inside a row.
 struct FieldRef {
   const std::byte *payload;
   uint32_t len;
 };
 
 /**
- * @brief Parses proxy row bytes into per-field payload references.
+ * @brief Parses row bytes into per-field payload references.
  *
- * @param row Proxy row payload bytes.
+ * @param row Row bytes.
  * @param size Number of bytes in `row`.
  * @param out Destination array for decoded field references.
  * @param max_fields Maximum number of entries available in `out`.

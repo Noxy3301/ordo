@@ -18,7 +18,7 @@ constexpr const char *kIndex = "idx";
 using helios::storage::wal::Wal;
 using helios::storage::wal::WalScanResult;
 
-// The commit path is what query-layer traffic takes, and what it writes
+// The commit path is what query layer traffic takes, and what it writes
 // to the log is only observable after the instance that wrote it is gone:
 // the log is held under an exclusive lock while a Database is open.
 class RecoveryTest : public ::testing::Test {

@@ -14,8 +14,8 @@
  *   limitations under the License.
  */
 
-#ifndef HELIOS_STORAGE_SRC_INDEX_CONCURRENT_TABLE_H
-#define HELIOS_STORAGE_SRC_INDEX_CONCURRENT_TABLE_H
+#ifndef HELIOS_STORAGE_SRC_INDEX_PRIMARY_INDEX_H
+#define HELIOS_STORAGE_SRC_INDEX_PRIMARY_INDEX_H
 
 #include <functional>
 #include <memory>
@@ -32,10 +32,10 @@
 namespace helios::storage {
 namespace index {
 
-class ConcurrentTable {
+class PrimaryIndex {
  public:
-  ConcurrentTable(epoch::Framework &epoch_framework, Config config = Config(),
-                  WriteSetType recovery_set = WriteSetType());
+  PrimaryIndex(epoch::Framework &epoch_framework, Config config = Config(),
+               WriteSetType recovery_set = WriteSetType());
 
   /**
    * @brief Routes future primary-row placeholders through `store`.
@@ -70,4 +70,4 @@ class ConcurrentTable {
 }  // namespace index
 }  // namespace helios::storage
 
-#endif  // HELIOS_STORAGE_SRC_INDEX_CONCURRENT_TABLE_H
+#endif  // HELIOS_STORAGE_SRC_INDEX_PRIMARY_INDEX_H

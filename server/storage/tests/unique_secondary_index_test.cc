@@ -4,13 +4,14 @@
 
 #include "db_helper.h"
 #include "gtest/gtest.h"
+#include "index/index_constraint.h"
 #include "storage/config.h"
 #include "storage/database.h"
 
 namespace {
 
-constexpr uint kUnique = static_cast<uint>(
-    helios::storage::SecondaryIndexOption::Constraint::UNIQUE);
+constexpr uint kUnique =
+    static_cast<uint>(helios::storage::index::IndexConstraint::kUnique);
 
 bool WriteSecondary(helios::storage::Database &db,
                     const std::string &table_name,
@@ -52,7 +53,7 @@ TEST_F(UniqueSecondaryIndexTest, DictUniqueFlagRejectsDuplicateSecondaryKey) {
 }
 
 TEST_F(UniqueSecondaryIndexTest,
-       RecoveryRestoresUniqueSecondaryIndexTypeFromLogs) {
+       RecoveryRestoresUniqueIndexConstraintFromLogs) {
   config_.enable_recovery = true;
 
   {

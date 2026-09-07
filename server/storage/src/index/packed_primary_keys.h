@@ -11,6 +11,8 @@
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <iterator>
 #include <limits>
@@ -250,6 +252,13 @@ struct PackedPrimaryKeys {
     return out;
   }
 
+  // Only this class writes the list, so a record that does not decode is a
+  // corrupt allocation, and any key returned would reach past it.
+  [[noreturn]] static void RecordCorrupt() {
+    std::fputs("corrupt packed primary-key list\n", stderr);
+    std::abort();
+  }
+
   static Record DecodeRecord(const char *start, const char *limit) {
     const char *cursor = start;
     size_t length = 0;
@@ -258,14 +267,13 @@ struct PackedPrimaryKeys {
       const unsigned char byte = static_cast<unsigned char>(*cursor++);
       length |= static_cast<size_t>(byte & 0x7f) << shift;
       if ((byte & 0x80) == 0) {
-        assert(static_cast<size_t>(limit - cursor) >= length);
+        if (static_cast<size_t>(limit - cursor) < length) RecordCorrupt();
         return Record{start, cursor, cursor + length, length};
       }
       shift += 7;
-      assert(shift < sizeof(size_t) * 8);
+      if (shift >= sizeof(size_t) * 8) RecordCorrupt();
     }
-    assert(false && "truncated packed primary-key list varint");
-    return Record{start, limit, limit, 0};
+    RecordCorrupt();
   }
 
   char *MutableRecords() {

@@ -1,97 +1,27 @@
-## LineairDB
+# Helios storage
 
-<p>
-  <img alt="Version" src="https://img.shields.io/badge/version-0.1.0-blue.svg?cacheSeconds=2592000" />
-  <a href="#Documentation" target="_blank">
-    <img alt="Documentation" src="https://img.shields.io/badge/documentation-yes-brightgreen.svg" />
-  </a>
-  <a href="https://www.apache.org/licenses/LICENSE-2.0" target="_blank">
-    <img alt="License: Apache--2.0" src="https://img.shields.io/badge/License-Apache--2.0-yellow.svg" />
-  </a>
-  <img alt="CI" src="https://github.com/LineairDB/LineairDB/workflows/C/C++ CI/badge.svg" />
+The storage layer of Helios: an embedded transactional key-value engine with
+strict serializability, linked into the storage server one directory up. One
+process runs one of these, and the query layers reach it only through the RPC
+the server exposes.
 
-</p>
+## Building
 
-**LineairDB is a fast transactional key-value storage library. It provides transaction processing for multiple keys with strict serializability.**
-
-### Features
-
----
-
-- Keys and values are arbitrary byte arrays.
-- The basic operations are Read(table, key), the range scans, and ValidateAndCommit(reads, writes).
-- Changes in a transaction for multiple key-value pairs are made with atomicity and durability.
-- Concurrent transactions are processed with strict serializability.
-- In contended write-heavy workloads, high scalability for many-core CPUs is provided.
-
-### Notes
-
----
-
-- LineairDB is not an SQL (Relational) database.
-- There is no client-server support in the library (i.e., LineairDB is an embedded database).
-
-### Usage
-
-```c++
-
-#include <storage/database.h>
-
-int main() {
-  helios::storage::Database db;
-  db.CreateTable("accounts");
-
-  // Read: the returned tid is the evidence the commit is validated against.
-  auto alice = db.Read("accounts", "alice");
-
-  // Commit: hand back what was read and what to install. The read set is
-  // revalidated and the writes are installed atomically, or nothing is.
-  const std::vector<helios::storage::ExternalReadEntry> reads = {
-      {"accounts", "alice", alice.tid, alice.found}};
-  const std::vector<helios::storage::ExternalWriteEntry> writes = {
-      {"accounts", "bob", "1"}};
-  const bool committed =
-      db.ValidateAndCommit(reads, writes, {}, {}, helios::storage::CommitPolicy::Sync);
-}
+```bash
+cmake -S server/storage -B build/storage -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=ON
+cmake --build build/storage
+ctest --test-dir build/storage -j1
 ```
 
-### Getting the Source
+The tests share one working directory and run serially.
 
-```
-git clone --recurse-submodules https://github.com/lineairdb/lineairdb.git
-```
+## Provenance
 
-### Building
+Derived from [LineairDB](https://github.com/LineairDB/LineairDB) (Apache-2.0,
+Nippon Telegraph and Telephone Corporation), by way of the frozen fork at
+<https://github.com/Noxy3301/LineairDB> (commit 66288a1e). `LICENSE`,
+`LICENSE-3RD-PARTY.md` and `NOTICE` are kept here. The research paper the
+engine grew out of is at <https://arxiv.org/abs/1904.08119>.
 
-Quick start:
-
-```
-mkdir -p build && cd build
-cmake -DBUILD_SHARED_LIBS=ON -DCMAKE_BUILD_TYPE=Release .. && make && sudo make install
-```
-
-Then you can use the engine by including the header `storage/database.h`.
-
-### Compatibility
-
-We have been tested LineairDB in the following environments:
-
-- Apple clang version 11.0.3
-- Clang >= 6 on Linux
-- GCC >= 7.5
-
-### Documentation
-
-[The LineairDB library documentation](https://lineairdb.github.io/LineairDB/) is available.
-
-The research paper LineairDB grew out of is available [at this link](https://arxiv.org/abs/1904.08119).
-
-### Contributing
-
-This project welcomes contributions, issues, suggestions, and feature requests.
-<br />Feel free to check [issues page](/issues).
-
-### Question & Discussion
-
-If you have any questions, please feel free to ask on slack.
-[Join to slack](https://join.slack.com/t/lineairdb/shared_invite/zt-dvf52aoi-45skLlXcdi7IuQcIM8ARKw)
+This tree is an independently pruned derivative, not LineairDB itself. The
+upstream API and documentation do not describe this code.

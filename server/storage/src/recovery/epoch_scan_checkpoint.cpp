@@ -255,7 +255,7 @@ EpochScanCheckpoint::EpochScanCheckpoint(const Config &config,
 EpochScanCheckpoint::~EpochScanCheckpoint() { Stop(); }
 
 bool EpochScanCheckpoint::Supported() const {
-  if (!config_.enable_logging) {
+  if (config_.durability != Config::Durability::Logged) {
     SPDLOG_WARN(
         "No checkpoint image is written: an image is merged with the log at "
         "recovery, and this durability contract writes no log");
@@ -488,7 +488,7 @@ bool EpochScanCheckpoint::Publish(const LogRecords &records, Stats *stats) {
   // observed would let a version come back without its transaction. The wait
   // precedes the header build, which embeds the frontier read once it returns.
   const auto gate_begin = Clock::now();
-  if (config_.enable_logging) {
+  if (config_.durability == Config::Durability::Logged) {
     const auto result = logger_.WaitUntilDurable(
         stats->end_epoch, Clock::now() + kDurabilityWait);
     if (result != Logger::WaitResult::Durable) {

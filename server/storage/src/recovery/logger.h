@@ -121,15 +121,8 @@ class Logger {
    */
   WaitResult WaitUntilDurable(EpochNumber commit_epoch, Deadline deadline);
 
-  /**
-   * @brief Publishes the acknowledgement policy that commits capture from
-   * GetCommitDurability() after this returns.
-   * @note Ordering across the switch is the caller's: this only publishes.
-   * Database::SetCommitDurability is what pairs it with a durable barrier.
-   */
-  void SetCommitDurability(Config::CommitDurability mode);
-
-  Config::CommitDurability GetCommitDurability() const;
+  /** True when this logger writes records at all. */
+  bool logging() const { return logging_; }
 
   /**
    * @brief Returns once the transaction that committed in `commit_epoch` may
@@ -179,8 +172,7 @@ class Logger {
   void PublishStopped();
 
   const std::string work_dir_;
-  // Switchable at run time; see SetCommitDurability.
-  std::atomic<Config::CommitDurability> durability_;
+  const bool logging_;
   // Whether this instance replays what it reads, which is what decides
   // whether a checkpoint image is read at all.
   const bool replays_;

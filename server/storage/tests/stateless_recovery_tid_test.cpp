@@ -14,7 +14,7 @@ LineairDB::Config MakeConfig() {
   LineairDB::Config config;
   config.epoch_duration_ms = 10;
   config.enable_recovery = true;
-  config.commit_durability = LineairDB::Config::CommitDurability::Async;
+  config.durability = LineairDB::Config::Durability::Logged;
   config.work_dir = "./lineairdb_stateless_recovery_tid_test_logs";
   return config;
 }
@@ -31,8 +31,9 @@ TEST(StatelessRecoveryTidTest, ARecoveredKeyAcceptsTheNextWrite) {
     LineairDB::Database db(config);
     db.CreateTable(kTable);
     std::string reason;
-    const bool committed = db.ValidateAndCommit(
-        {}, {{kTable, "alice", "v1", false}}, {}, {}, &reason);
+    const bool committed =
+        db.ValidateAndCommit({}, {{kTable, "alice", "v1", false}}, {}, {},
+                             LineairDB::CommitPolicy::Sync, &reason);
     db.ReleaseMasstreeThreadEpoch();
     ASSERT_TRUE(committed) << reason;
   }
@@ -48,8 +49,9 @@ TEST(StatelessRecoveryTidTest, ARecoveredKeyAcceptsTheNextWrite) {
         << "the recovered TID still carries the lock bit";
 
     std::string reason;
-    const bool committed = db.ValidateAndCommit(
-        {}, {{kTable, "alice", "v2", false}}, {}, {}, &reason);
+    const bool committed =
+        db.ValidateAndCommit({}, {{kTable, "alice", "v2", false}}, {}, {},
+                             LineairDB::CommitPolicy::Sync, &reason);
     db.ReleaseMasstreeThreadEpoch();
     EXPECT_TRUE(committed) << reason;
   }

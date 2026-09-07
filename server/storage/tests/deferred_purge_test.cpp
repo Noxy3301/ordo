@@ -17,7 +17,7 @@ LineairDB::Config MakeConfig(size_t epoch_duration_ms) {
   LineairDB::Config config;
   config.epoch_duration_ms = epoch_duration_ms;
   config.enable_recovery = false;
-  config.commit_durability = LineairDB::Config::CommitDurability::Volatile;
+  config.durability = LineairDB::Config::Durability::Volatile;
   config.work_dir = "./lineairdb_deferred_purge_test_logs";
   std::filesystem::remove_all(config.work_dir);
   return config;
@@ -26,15 +26,17 @@ LineairDB::Config MakeConfig(size_t epoch_duration_ms) {
 bool CommitWrite(LineairDB::Database &db, const std::string &key,
                  const std::string &value, std::string *reason = nullptr) {
   const bool committed =
-      db.ValidateAndCommit({}, {{kTable, key, value, false}}, {}, {}, reason);
+      db.ValidateAndCommit({}, {{kTable, key, value, false}}, {}, {},
+                           LineairDB::CommitPolicy::Sync, reason);
   db.ReleaseMasstreeThreadEpoch();
   return committed;
 }
 
 bool CommitInsert(LineairDB::Database &db, const std::string &key,
                   const std::string &value, std::string *reason = nullptr) {
-  const bool committed = db.ValidateAndCommit(
-      {}, {{kTable, key, value, false, true}}, {}, {}, reason);
+  const bool committed =
+      db.ValidateAndCommit({}, {{kTable, key, value, false, true}}, {}, {},
+                           LineairDB::CommitPolicy::Sync, reason);
   db.ReleaseMasstreeThreadEpoch();
   return committed;
 }
@@ -42,7 +44,8 @@ bool CommitInsert(LineairDB::Database &db, const std::string &key,
 bool CommitDelete(LineairDB::Database &db, const std::string &key,
                   std::string *reason = nullptr) {
   const bool committed =
-      db.ValidateAndCommit({}, {{kTable, key, "", true}}, {}, {}, reason);
+      db.ValidateAndCommit({}, {{kTable, key, "", true}}, {}, {},
+                           LineairDB::CommitPolicy::Sync, reason);
   db.ReleaseMasstreeThreadEpoch();
   return committed;
 }
@@ -57,8 +60,9 @@ LineairDB::StatelessReadResult Read(LineairDB::Database &db,
 bool ValidateRead(LineairDB::Database &db,
                   const LineairDB::StatelessReadResult &read,
                   const std::string &key, std::string *reason) {
-  const bool committed = db.ValidateAndCommit(
-      {{kTable, key, read.tid, read.found}}, {}, {}, {}, reason);
+  const bool committed =
+      db.ValidateAndCommit({{kTable, key, read.tid, read.found}}, {}, {}, {},
+                           LineairDB::CommitPolicy::Sync, reason);
   db.ReleaseMasstreeThreadEpoch();
   return committed;
 }
@@ -172,7 +176,7 @@ TEST(DeferredPurgeTest, TwoInsertsOfOneKeyInARequestAreRefused) {
   std::string reason;
   EXPECT_FALSE(db.ValidateAndCommit(
       {}, {{kTable, key, "v1", false, true}, {kTable, key, "v2", false, true}},
-      {}, {}, &reason));
+      {}, {}, LineairDB::CommitPolicy::Sync, &reason));
   db.ReleaseMasstreeThreadEpoch();
   EXPECT_EQ(reason, LineairDB::kDuplicateKeyAbortReason);
   EXPECT_FALSE(Read(db, key).found);
@@ -183,7 +187,8 @@ TEST(DeferredPurgeTest, TwoInsertsOfOneKeyInARequestAreRefused) {
                                    {{kTable, key, "v1", false, true},
                                     {kTable, key, "", true, false},
                                     {kTable, key, "v2", false, true}},
-                                   {}, {}, &reason));
+                                   {}, {}, LineairDB::CommitPolicy::Sync,
+                                   &reason));
   db.ReleaseMasstreeThreadEpoch();
   const auto live = Read(db, key);
   EXPECT_TRUE(live.found);

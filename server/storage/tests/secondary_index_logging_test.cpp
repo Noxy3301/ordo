@@ -122,7 +122,7 @@ class SecondaryIndexLoggingTest : public ::testing::Test {
   void SetUp() override {
     spdlog::set_level(spdlog::level::info);
     std::filesystem::remove_all("lineairdb_logs");
-    config_.commit_durability = LineairDB::Config::CommitDurability::Async;
+    config_.durability = LineairDB::Config::Durability::Logged;
     config_.enable_recovery = true;
     db_ = std::make_unique<LineairDB::Database>(config_);
     db_->CreateTable("users");
@@ -133,7 +133,7 @@ class SecondaryIndexLoggingTest : public ::testing::Test {
 TEST_F(SecondaryIndexLoggingTest,
        SecondaryIndexDeltaLoggingAvoidsFullPrimaryKeyList) {
   LineairDB::Config config = db_->GetConfig();
-  config.commit_durability = LineairDB::Config::CommitDurability::Async;
+  config.durability = LineairDB::Config::Durability::Logged;
   config.enable_recovery = false;
 
   db_.reset(nullptr);
@@ -201,7 +201,7 @@ TEST_F(SecondaryIndexLoggingTest,
 
 TEST_F(SecondaryIndexLoggingTest, RecoveryWithSecondaryIndexWithoutCheckpoint) {
   LineairDB::Config config = db_->GetConfig();
-  config.commit_durability = LineairDB::Config::CommitDurability::Async;
+  config.durability = LineairDB::Config::Durability::Logged;
   config.enable_recovery = true;
 
   db_.reset(nullptr);
@@ -243,7 +243,7 @@ TEST_F(SecondaryIndexLoggingTest, RecoveryWithSecondaryIndexWithoutCheckpoint) {
 
 TEST_F(SecondaryIndexLoggingTest, SecondaryIndexAddTimingRecorded) {
   LineairDB::Config config = db_->GetConfig();
-  config.commit_durability = LineairDB::Config::CommitDurability::Async;
+  config.durability = LineairDB::Config::Durability::Logged;
   config.enable_recovery = false;
   // What this test reports per transaction is how many bytes of log one
   // secondary-index write costs, and it reads that from the file's size. A
@@ -293,7 +293,8 @@ TEST_F(SecondaryIndexLoggingTest, SecondaryIndexAddTimingRecorded) {
     const auto start = std::chrono::steady_clock::now();
     const bool committed = db_->ValidateAndCommit(
         {}, {{table_name, primary_key, value, false, false}},
-        {{table_name, index_name, index_key, primary_key, false}}, {});
+        {{table_name, index_name, index_key, primary_key, false}}, {},
+        LineairDB::CommitPolicy::Sync);
     const auto end = std::chrono::steady_clock::now();
     db_->ReleaseMasstreeThreadEpoch();
     ASSERT_TRUE(committed);

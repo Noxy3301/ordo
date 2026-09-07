@@ -37,7 +37,7 @@ class UniqueSecondaryIndexTest : public ::testing::Test {
 };
 
 TEST_F(UniqueSecondaryIndexTest, DictUniqueFlagRejectsDuplicateSecondaryKey) {
-  config_.commit_durability = LineairDB::Config::CommitDurability::Volatile;
+  config_.durability = LineairDB::Config::Durability::Volatile;
   config_.enable_recovery = false;
 
   LineairDB::Database db(config_);
@@ -52,7 +52,7 @@ TEST_F(UniqueSecondaryIndexTest, DictUniqueFlagRejectsDuplicateSecondaryKey) {
 
 TEST_F(UniqueSecondaryIndexTest,
        RecoveryRestoresUniqueSecondaryIndexTypeFromLogs) {
-  config_.commit_durability = LineairDB::Config::CommitDurability::Async;
+  config_.durability = LineairDB::Config::Durability::Logged;
   config_.enable_recovery = true;
 
   {

@@ -14,7 +14,7 @@ constexpr const char *kTable = "range_validation_test";
 LineairDB::Config MakeConfig() {
   LineairDB::Config config;
   config.enable_recovery = false;
-  config.commit_durability = LineairDB::Config::CommitDurability::Volatile;
+  config.durability = LineairDB::Config::Durability::Volatile;
   config.work_dir = "./lineairdb_stateless_range_validation_test_logs";
   std::filesystem::remove_all(config.work_dir);
   return config;
@@ -22,15 +22,15 @@ LineairDB::Config MakeConfig() {
 
 bool CommitWrite(LineairDB::Database &db, const std::string &key,
                  const std::string &value) {
-  const bool committed =
-      db.ValidateAndCommit({}, {{kTable, key, value, false}}, {});
+  const bool committed = db.ValidateAndCommit(
+      {}, {{kTable, key, value, false}}, {}, {}, LineairDB::CommitPolicy::Sync);
   db.ReleaseMasstreeThreadEpoch();
   return committed;
 }
 
 bool CommitDelete(LineairDB::Database &db, const std::string &key) {
-  const bool committed =
-      db.ValidateAndCommit({}, {{kTable, key, "", true}}, {});
+  const bool committed = db.ValidateAndCommit(
+      {}, {{kTable, key, "", true}}, {}, {}, LineairDB::CommitPolicy::Sync);
   db.ReleaseMasstreeThreadEpoch();
   return committed;
 }
@@ -60,7 +60,8 @@ LineairDB::ExternalRangeReadEntry ScanRange(LineairDB::Database &db,
 bool Revalidate(LineairDB::Database &db,
                 const LineairDB::ExternalRangeReadEntry &range,
                 std::string *reason) {
-  const bool committed = db.ValidateAndCommit({}, {}, {}, {range}, reason);
+  const bool committed = db.ValidateAndCommit(
+      {}, {}, {}, {range}, LineairDB::CommitPolicy::Sync, reason);
   db.ReleaseMasstreeThreadEpoch();
   return committed;
 }
@@ -76,7 +77,8 @@ void SeedRows(LineairDB::Database &db) {
 void LeaveBlankSlot(LineairDB::Database &db, const std::string &key) {
   std::string reason;
   const bool committed = db.ValidateAndCommit(
-      {{kTable, "k1", 0, true}}, {{kTable, key, "v", false}}, {}, {}, &reason);
+      {{kTable, "k1", 0, true}}, {{kTable, key, "v", false}}, {}, {},
+      LineairDB::CommitPolicy::Sync, &reason);
   db.ReleaseMasstreeThreadEpoch();
   ASSERT_FALSE(committed) << "the write was supposed to abort";
 }

@@ -41,13 +41,6 @@ const Config Database::GetConfig() const noexcept {
   return db_pimpl_->GetConfig();
 }
 
-bool Database::SetCommitDurability(Config::CommitDurability mode,
-                                   std::chrono::milliseconds barrier_timeout) {
-  return db_pimpl_->SetCommitDurability(mode, barrier_timeout);
-}
-Config::CommitDurability Database::GetCommitDurability() const {
-  return db_pimpl_->GetCommitDurability();
-}
 void Database::ReleaseMasstreeThreadEpoch() {
   Index::MasstreeReleaseThreadEpoch();
 }
@@ -142,10 +135,10 @@ bool Database::ValidateAndCommit(
     const std::vector<ExternalReadEntry> &reads,
     const std::vector<ExternalWriteEntry> &writes,
     const std::vector<ExternalSecondaryIndexEntry> &secondary_index_ops,
-    const std::vector<ExternalRangeReadEntry> &range_reads,
+    const std::vector<ExternalRangeReadEntry> &range_reads, CommitPolicy policy,
     std::string *abort_reason) {
   return db_pimpl_->ValidateAndCommit(reads, writes, secondary_index_ops,
-                                      range_reads, abort_reason);
+                                      range_reads, policy, abort_reason);
 }
 
 bool Database::WriteCheckpointImage(uint64_t *out_version_retries) {
@@ -163,15 +156,8 @@ EpochNumber Database::Impl::ResumeEpochAbove(EpochNumber frontier) {
   return frontier + 1;
 }
 
-Config Database::Impl::NormalizeAndValidateConfig(Config config) {
-  config.enable_logging =
-      config.commit_durability != Config::CommitDurability::Volatile;
-
-  return config;
-}
-
 Database::Impl::Impl(const Config &c)
-    : config_(NormalizeAndValidateConfig(c)),
+    : config_(c),
       logger_(config_),
       epoch_framework_(config_.epoch_duration_ms, EventsOnEpochIsUpdated()),
       scan_checkpoint_(config_, table_dictionary_, epoch_framework_, logger_) {
@@ -205,7 +191,7 @@ Database::Impl::Impl(const Config &c)
   }
   // Armed after recovery, which reports its own failures by refusing to
   // start, and before the flusher that can raise one at run time.
-  if (config_.enable_logging) logger_.EnableProcessFailStop();
+  if (logging()) logger_.EnableProcessFailStop();
   // Built before any thread records, so its storage and its dump signal are
   // in place rather than raised by whichever path happens to reach it first.
   Recovery::FlushTrace::Instance();
@@ -249,7 +235,7 @@ std::function<void(EpochNumber)> Database::Impl::EventsOnEpochIsUpdated() {
     // still be online in U-1, so U-2 is the newest epoch that is certainly
     // closed and safe to write. Handing the target to the logger's own
     // flusher keeps the durability fdatasync off this pool.
-    if (config_.enable_logging && updated_epoch >= 3) {
+    if (logging() && updated_epoch >= 3) {
       logger_.ScheduleFlush(updated_epoch - 2);
     }
 
@@ -322,13 +308,12 @@ bool Database::Impl::ValidateAndCommit(
     const std::vector<ExternalReadEntry> &reads,
     const std::vector<ExternalWriteEntry> &writes,
     const std::vector<ExternalSecondaryIndexEntry> &secondary_index_ops,
-    const std::vector<ExternalRangeReadEntry> &range_reads,
+    const std::vector<ExternalRangeReadEntry> &range_reads, CommitPolicy policy,
     std::string *abort_reason) {
   const Silo::CommitPayload payload{reads, writes, secondary_index_ops,
                                     range_reads};
   return Silo::Commit(table_dictionary_, schema_mutex_, epoch_framework_,
-                      reaper_, logger_, payload, GetCommitDurability(),
-                      abort_reason);
+                      reaper_, logger_, payload, policy, abort_reason);
 }
 
 std::optional<Table *> Database::Impl::GetTable(

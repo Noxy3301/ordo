@@ -64,25 +64,11 @@ class Database::Impl {
    */
   static EpochNumber ResumeEpochAbove(EpochNumber frontier);
 
-  /**
-   * @brief The configuration this instance runs with: derived settings are
-   * resolved here, and unsupported combinations stop startup.
-   * @details Logging is decided by commit_durability. enable_logging is
-   * overwritten from it before any component reads it, so a caller that sets
-   * only commit_durability and a caller that sets both agree.
-   */
-  static Config NormalizeAndValidateConfig(Config config);
-
  public:
   Impl(const Config &c = Config());
   ~Impl();
 
   EpochNumber GetMyThreadLocalEpoch();
-
-  /** See Database::SetCommitDurability. */
-  bool SetCommitDurability(Config::CommitDurability mode,
-                           std::chrono::milliseconds barrier_timeout);
-  Config::CommitDurability GetCommitDurability() const;
 
   // The two clocks the durable barrier reasons about.
   EpochNumber GetDurableEpoch() const;
@@ -174,9 +160,14 @@ class Database::Impl {
       const std::vector<ExternalWriteEntry> &writes,
       const std::vector<ExternalSecondaryIndexEntry> &secondary_index_ops,
       const std::vector<ExternalRangeReadEntry> &range_reads,
-      std::string *abort_reason = nullptr);
+      CommitPolicy policy, std::string *abort_reason = nullptr);
 
   std::optional<Table *> GetTable(const std::string_view table_name);
+
+  /** True when this database writes a log at all. */
+  bool logging() const {
+    return config_.durability == Config::Durability::Logged;
+  }
 
   bool WriteCheckpointImage(uint64_t *out_version_retries);
 
@@ -188,7 +179,6 @@ class Database::Impl {
   Recovery::Logger logger_;
   EpochFramework epoch_framework_;
   TableDictionary table_dictionary_;
-  std::timed_mutex durability_switch_mtx_;
   Recovery::EpochScanCheckpoint scan_checkpoint_;
   mutable std::shared_mutex schema_mutex_;
   Index::Reaper reaper_;

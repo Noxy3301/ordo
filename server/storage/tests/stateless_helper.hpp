@@ -46,7 +46,8 @@ inline bool Commit(
     const std::vector<LineairDB::ExternalRangeReadEntry> &ranges = {},
     std::string *abort_reason = nullptr) {
   const bool committed =
-      db.ValidateAndCommit(reads, writes, index_ops, ranges, abort_reason);
+      db.ValidateAndCommit(reads, writes, index_ops, ranges,
+                           LineairDB::CommitPolicy::Sync, abort_reason);
   db.ReleaseMasstreeThreadEpoch();
   return committed;
 }

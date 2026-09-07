@@ -69,42 +69,6 @@ class Database {
   const Config GetConfig() const noexcept;
 
   /**
-   * @brief Switches the commit acknowledgement policy of a running database
-   * between CommitDurability::Async and CommitDurability::Sync. Thread-safe.
-   *
-   * A switch to Sync returns only once every transaction that was already
-   * acknowledged under Async is on the device, so from this call's return the
-   * database is indistinguishable from one that ran Sync from the start, and
-   * no earlier acknowledgement can be lost by a later crash. A switch to
-   * Async publishes the new policy and returns; commits that capture it
-   * afterwards stop waiting.
-   *
-   * @param mode CommitDurability::Async or CommitDurability::Sync.
-   * CommitDurability::Volatile is structural, decided at construction, and is
-   * rejected here in both directions.
-   * @param barrier_timeout Bound on the whole call: waiting out a concurrent
-   * switch, the durable barrier itself, and the store come out of it together.
-   * It is checked last immediately before the store, so only a preemption
-   * between that check and the store itself falls outside it.
-   * @return false with nothing changed for a database constructed Volatile,
-   * for a Volatile `mode`, for a calling thread that still has a transaction
-   * in progress, and when the timeout expires while another switch is running.
-   * @return false from a switch to Sync that did publish the policy means the
-   * barrier was not confirmed inside `barrier_timeout`: the policy is Sync from
-   * then on, which is the stricter of the two, but transactions acknowledged
-   * before the call are not known to be durable. Calling again is well defined
-   * and is how a caller confirms them.
-   * @note The policy in force after a false return is whatever was published
-   * last, which GetCommitDurability() reports. It does not say which call
-   * published it: a concurrent call for the same mode may have gone first.
-   */
-  bool SetCommitDurability(Config::CommitDurability mode,
-                           std::chrono::milliseconds barrier_timeout);
-
-  /** @brief The policy commits are currently acknowledged under. */
-  Config::CommitDurability GetCommitDurability() const;
-
-  /**
    * @brief End the calling thread's masstree RCU critical section, drain
    * the now-eligible entries from its limbo list, and drop it from the
    * `min_active_epoch()` participant set.
@@ -379,6 +343,8 @@ class Database {
    * @param secondary_index_ops Secondary-index adds/removes to install.
    * @param range_reads Range reads assembled by the caller from earlier
    *                    scans.
+   * @param policy When this commit is acknowledged, relative to its record
+   *                    reaching the device. Ignored by a Volatile database.
    * @param abort_reason Optional out parameter. Set only when the function
    *                    returns false.
    * @return true on commit; false on validation failure or schema mismatch.
@@ -387,8 +353,8 @@ class Database {
       const std::vector<ExternalReadEntry> &reads,
       const std::vector<ExternalWriteEntry> &writes,
       const std::vector<ExternalSecondaryIndexEntry> &secondary_index_ops,
-      const std::vector<ExternalRangeReadEntry> &range_reads = {},
-      std::string *abort_reason = nullptr);
+      const std::vector<ExternalRangeReadEntry> &range_reads,
+      CommitPolicy policy, std::string *abort_reason = nullptr);
 
   /**
    * @brief Writes one image of the live rows, on the calling thread.

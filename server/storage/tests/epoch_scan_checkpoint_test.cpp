@@ -111,7 +111,7 @@ class EpochScanCheckpointTest : public ::testing::Test {
   LineairDB::Config MakeConfig(bool enable_recovery) const {
     LineairDB::Config config;
     config.epoch_duration_ms = 10;
-    config.commit_durability = LineairDB::Config::CommitDurability::Sync;
+    config.durability = LineairDB::Config::Durability::Logged;
     config.enable_recovery = enable_recovery;
     config.work_dir = work_dir_;
     config.wal_initial_capacity_bytes = 1ull << 20;
@@ -121,14 +121,15 @@ class EpochScanCheckpointTest : public ::testing::Test {
   static bool CommitWrite(LineairDB::Database &db, const std::string &key,
                           const std::string &value) {
     const bool committed =
-        db.ValidateAndCommit({}, {{kTable, key, value, false}}, {}, {});
+        db.ValidateAndCommit({}, {{kTable, key, value, false}}, {}, {},
+                             LineairDB::CommitPolicy::Sync);
     db.ReleaseMasstreeThreadEpoch();
     return committed;
   }
 
   static bool CommitDelete(LineairDB::Database &db, const std::string &key) {
-    const bool committed =
-        db.ValidateAndCommit({}, {{kTable, key, "", true}}, {}, {});
+    const bool committed = db.ValidateAndCommit(
+        {}, {{kTable, key, "", true}}, {}, {}, LineairDB::CommitPolicy::Sync);
     db.ReleaseMasstreeThreadEpoch();
     return committed;
   }
@@ -139,7 +140,8 @@ class EpochScanCheckpointTest : public ::testing::Test {
                                  const std::string &secondary_key) {
     const bool committed =
         db.ValidateAndCommit({}, {{kTable, key, value, false}},
-                             {{kTable, kIndex, secondary_key, key, false}}, {});
+                             {{kTable, kIndex, secondary_key, key, false}}, {},
+                             LineairDB::CommitPolicy::Sync);
     db.ReleaseMasstreeThreadEpoch();
     return committed;
   }
@@ -526,7 +528,7 @@ TEST_F(EpochScanCheckpointTest, ARowLockedDuringTheScanIsRetried) {
         db.ValidateAndCommit({},
                              {{kTable, "alice", std::string(64, 'b'), false},
                               {kTable, "bob", std::string(64, 'b'), false}},
-                             {}, {});
+                             {}, {}, LineairDB::CommitPolicy::Sync);
     db.ReleaseMasstreeThreadEpoch();
     return committed;
   });

@@ -153,6 +153,21 @@ inline constexpr char kDuplicateKeyAbortReason[] = "duplicate_primary_key";
 inline constexpr char kDuplicateSecondaryKeyAbortPrefix[] = "unique_si_";
 
 /**
+ * @brief When a commit is acknowledged, relative to its record reaching the
+ * device. Carried per commit; a Volatile database writes no log and ignores
+ * it.
+ *
+ * The equivalent settings elsewhere, to keep Async from being read as a
+ * faster Sync: Sync is PostgreSQL's synchronous_commit=on, SQL Server's full
+ * durability, Oracle's COMMIT WAIT; Async is synchronous_commit=off, delayed
+ * durability, COMMIT NOWAIT.
+ */
+enum class CommitPolicy {
+  Sync,   ///< Acknowledged once the committer's own epoch is durable.
+  Async,  ///< Acknowledged at precommit; a crash can lose it.
+};
+
+/**
  * @brief Secondary-index add or remove to install during ValidateAndCommit.
  */
 struct ExternalSecondaryIndexEntry {

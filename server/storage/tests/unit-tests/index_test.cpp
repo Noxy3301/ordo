@@ -32,7 +32,7 @@ class IndexTest : public ::testing::Test {
   std::unique_ptr<LineairDB::Database> db_;
   virtual void SetUp() {
     config_.enable_recovery = false;
-    config_.commit_durability = LineairDB::Config::CommitDurability::Volatile;
+    config_.durability = LineairDB::Config::Durability::Volatile;
     db_.reset(nullptr);
     db_ = std::make_unique<LineairDB::Database>(config_);
     ASSERT_TRUE(db_->CreateTable(kTable));

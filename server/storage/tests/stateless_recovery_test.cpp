@@ -42,7 +42,7 @@ class StatelessRecoveryTest : public ::testing::Test {
   LineairDB::Config MakeConfig(bool enable_recovery) const {
     LineairDB::Config config;
     config.epoch_duration_ms = 10;
-    config.commit_durability = LineairDB::Config::CommitDurability::Sync;
+    config.durability = LineairDB::Config::Durability::Logged;
     config.enable_recovery = enable_recovery;
     config.work_dir = work_dir_;
     config.wal_initial_capacity_bytes = 1ull << 20;
@@ -52,7 +52,8 @@ class StatelessRecoveryTest : public ::testing::Test {
   static bool CommitWrite(LineairDB::Database &db, const std::string &key,
                           const std::string &value) {
     const bool committed =
-        db.ValidateAndCommit({}, {{kTable, key, value, false}}, {}, {});
+        db.ValidateAndCommit({}, {{kTable, key, value, false}}, {}, {},
+                             LineairDB::CommitPolicy::Sync);
     db.ReleaseMasstreeThreadEpoch();
     return committed;
   }
@@ -63,7 +64,8 @@ class StatelessRecoveryTest : public ::testing::Test {
                                         const std::string &secondary_key) {
     const bool committed =
         db.ValidateAndCommit({}, {{kTable, key, value, false}},
-                             {{kTable, kIndex, secondary_key, key, false}}, {});
+                             {{kTable, kIndex, secondary_key, key, false}}, {},
+                             LineairDB::CommitPolicy::Sync);
     db.ReleaseMasstreeThreadEpoch();
     return committed;
   }

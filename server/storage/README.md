@@ -50,7 +50,8 @@ int main() {
       {"accounts", "alice", alice.tid, alice.found}};
   const std::vector<LineairDB::ExternalWriteEntry> writes = {
       {"accounts", "bob", "1"}};
-  const bool committed = db.ValidateAndCommit(reads, writes, {}, {});
+  const bool committed =
+      db.ValidateAndCommit(reads, writes, {}, {}, LineairDB::CommitPolicy::Sync);
 }
 ```
 

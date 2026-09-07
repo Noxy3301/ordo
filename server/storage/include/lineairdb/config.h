@@ -63,42 +63,24 @@ struct Config {
 
   /**
    * @brief
-   * When a committing transaction is told that it has committed, relative to
-   * when its log record is durable.
+   * Whether the database writes a write-ahead log at all.
    *
    * - Volatile
-   *   - No logging at all. A commit is acknowledged once it passes
-   *     validation; nothing is written and nothing is recoverable.
-   * - Async
-   *   - Logging, acknowledged at precommit. The record becomes durable
-   *     behind the committer, so an acknowledged transaction can be lost by
-   *     a crash that happens before its epoch is written.
-   * - Sync
-   *   - Logging, acknowledged only after the committer's own epoch is
-   *     durable.
+   *   - No logging. A commit is acknowledged once it passes validation;
+   *     nothing is written and nothing is recoverable. No production
+   *     equivalent; it is the logging-disabled research baseline.
+   * - Logged
+   *   - Every commit writes a record. When the acknowledgement happens
+   *     relative to the record reaching the device is not decided here: each
+   *     commit carries its own CommitPolicy.
    *
-   * The equivalent names elsewhere, to keep Async from being read as a faster
-   * Sync:
-   * - Sync
-   *   - SQL Server: full durability
-   *   - PostgreSQL: synchronous_commit=on
-   *   - Oracle: COMMIT WAIT
-   * - Async
-   *   - SQL Server: delayed durability
-   *   - PostgreSQL: synchronous_commit=off
-   *   - Oracle: COMMIT NOWAIT
-   * - Volatile
-   *   - No production equivalent; it is the logging-disabled research
-   *     baseline.
-   *
-   * Default: Async
+   * Default: Logged
    */
-  enum class CommitDurability {
+  enum class Durability {
     Volatile,
-    Async,
-    Sync,
+    Logged,
   };
-  CommitDurability commit_durability = CommitDurability::Async;
+  Durability durability = Durability::Logged;
 
   /**
    * @brief
@@ -124,17 +106,6 @@ struct Config {
    * Default: 64 MiB
    */
   uint64_t wal_initial_capacity_bytes = 64ull * 1024ull * 1024ull;
-
-  /**
-   * @brief
-   * True while LineairDB performs logging for recovery.
-   *
-   * @deprecated Derived from commit_durability, which is the setting that
-   * decides logging. The Database ignores the value set here and derives its
-   * own stored copy from commit_durability. The field remains so that
-   * existing code that reads it keeps compiling.
-   */
-  bool enable_logging = true;
 
   /**
    * @brief

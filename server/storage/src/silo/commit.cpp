@@ -583,9 +583,9 @@ void Install(Ctx &c) {
 
 // Phase 3.2: build the log snapshot before unlock so a later transaction
 // cannot overwrite the values we just logged.
-WriteSetType BuildLog(Ctx &c, Config::CommitDurability policy) {
+WriteSetType BuildLog(Ctx &c, bool logging) {
   WriteSetType log_set;
-  if (policy == Config::CommitDurability::Volatile) return log_set;
+  if (!logging) return log_set;
 
   log_set.reserve(c.writes.size() + c.si_ops.size());
   for (const auto &write : c.writes) {
@@ -660,17 +660,14 @@ void Publish(Ctx &c, Index::Reaper &reaper, WriteSetType &log_set) {
 }
 
 /**
- * @brief Phase 3.5: enqueue the log set and read the durability contract.
+ * @brief Phase 3.5: enqueue the log set.
  *
- * @return true when the caller must wait for the device. The contract is read
- * here, while the committing thread is online at its commit epoch, because
- * SetCommitDurability's barrier argument rests on that read point.
+ * @return true when the caller must wait for the device.
  */
 bool Enqueue(Recovery::Logger &logger, WriteSetType &log_set,
-             EpochNumber commit_epoch) {
+             EpochNumber commit_epoch, CommitPolicy policy) {
   if (log_set.empty()) return false;
-  return logger.Enqueue(log_set, commit_epoch) &&
-         logger.GetCommitDurability() == Config::CommitDurability::Sync;
+  return logger.Enqueue(log_set, commit_epoch) && policy == CommitPolicy::Sync;
 }
 
 }  // namespace
@@ -678,7 +675,7 @@ bool Enqueue(Recovery::Logger &logger, WriteSetType &log_set,
 bool Commit(TableDictionary &tables, std::shared_mutex &schema_mutex,
             EpochFramework &epoch_framework, Index::Reaper &reaper,
             Recovery::Logger &logger, const CommitPayload &payload,
-            Config::CommitDurability policy, std::string *abort_reason) {
+            CommitPolicy policy, std::string *abort_reason) {
   Ctx c{tables, epoch_framework, payload, abort_reason};
 
   // Epoch join.
@@ -722,9 +719,10 @@ bool Commit(TableDictionary &tables, std::shared_mutex &schema_mutex,
   if (!ValidateUnique(c)) return false;
 
   Install(c);
-  WriteSetType log_set = BuildLog(c, policy);
+  WriteSetType log_set = BuildLog(c, logger.logging());
   Publish(c, reaper, log_set);
-  const bool awaits_durability = Enqueue(logger, log_set, c.commit_epoch);
+  const bool awaits_durability =
+      Enqueue(logger, log_set, c.commit_epoch, policy);
 
   LINEAIRDB_DEBUG_SYNC("silo_commit.before_offline");
   epoch_framework.MakeMeOffline();

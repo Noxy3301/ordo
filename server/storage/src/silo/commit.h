@@ -76,11 +76,9 @@ struct CommitPayload {
  * per-transaction state that could pin such a pointer across the RPC
  * boundary, so its lifetime cannot be guaranteed.
  *
- * @param policy The durability contract this commit is written under.
- * Volatile writes no log. Whether an acknowledgement waits for the device
- * is still read from the logger at step 3.5, while the committing thread
- * is online at its commit epoch, because SetCommitDurability's barrier
- * argument rests on that read point.
+ * @param policy Whether this commit's acknowledgement waits for its epoch
+ * to reach the device. A logger that writes no records ignores it: step 3.5
+ * has nothing to wait for.
  * @param[out] abort_reason When non-null and the attempt aborts,
  * receives a short label naming the failed check, such as
  * `exact_read_tid_moved`, `primary_range_result_changed`,
@@ -91,7 +89,7 @@ struct CommitPayload {
 bool Commit(TableDictionary &tables, std::shared_mutex &schema_mutex,
             EpochFramework &epoch_framework, Index::Reaper &reaper,
             Recovery::Logger &logger, const CommitPayload &payload,
-            Config::CommitDurability policy, std::string *abort_reason);
+            CommitPolicy policy, std::string *abort_reason);
 
 }  // namespace Silo
 }  // namespace LineairDB

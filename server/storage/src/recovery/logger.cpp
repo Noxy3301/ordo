@@ -254,7 +254,7 @@ WriteSetType BuildRecoverySet(const LogRecords &image, const LogRecords &tail) {
 
 Logger::Logger(const Config &config, WalIo io)
     : work_dir_(config.work_dir),
-      durability_(config.commit_durability),
+      logging_(config.durability == Config::Durability::Logged),
       replays_(config.enable_recovery) {
   LineairDB::Util::SetUpSPDLog();
   logger_ = std::make_unique<ThreadLocalLogger>(
@@ -430,14 +430,6 @@ Logger::WaitResult Logger::WaitUntilDurable(EpochNumber commit_epoch,
     return WaitResult::Durable;
   }
   return state_ == State::Stopped ? WaitResult::Stopped : WaitResult::Failed;
-}
-
-void Logger::SetCommitDurability(Config::CommitDurability mode) {
-  durability_.store(mode, std::memory_order_seq_cst);
-}
-
-Config::CommitDurability Logger::GetCommitDurability() const {
-  return durability_.load(std::memory_order_seq_cst);
 }
 
 void Logger::AwaitCommitDurability(EpochNumber commit_epoch,

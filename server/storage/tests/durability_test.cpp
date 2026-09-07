@@ -17,6 +17,7 @@
 #include <lineairdb/config.h>
 #include <lineairdb/database.h>
 
+#include <chrono>
 #include <filesystem>
 #include <memory>
 #include <string>
@@ -37,7 +38,7 @@ class DurabilityTest : public ::testing::Test {
   std::unique_ptr<LineairDB::Database> db_;
   virtual void SetUp() {
     std::filesystem::remove_all("lineairdb_logs");
-    config_.commit_durability = LineairDB::Config::CommitDurability::Async;
+    config_.durability = LineairDB::Config::Durability::Logged;
     config_.enable_recovery = true;
     db_ = std::make_unique<LineairDB::Database>(config_);
     db_->CreateTable(kTable);
@@ -47,7 +48,7 @@ class DurabilityTest : public ::testing::Test {
 TEST_F(DurabilityTest, Recovery) {
   // We expect LineairDB enables recovery logging by default.
   const LineairDB::Config config = db_->GetConfig();
-  ASSERT_TRUE(config.enable_logging);
+  ASSERT_EQ(config.durability, LineairDB::Config::Durability::Logged);
 
   int initial_value = 1;
   ASSERT_TRUE(TestHelper::Write<int>(*db_, kTable, "alice", initial_value));
@@ -70,7 +71,7 @@ TEST_F(DurabilityTest, Recovery) {
 TEST_F(DurabilityTest, RecoveryKeepsDeletedKeysAbsent) {
   // We expect LineairDB enables recovery logging by default.
   const LineairDB::Config config = db_->GetConfig();
-  ASSERT_TRUE(config.enable_logging);
+  ASSERT_EQ(config.durability, LineairDB::Config::Durability::Logged);
 
   int initial_value = 1;
   ASSERT_TRUE(TestHelper::Write<int>(*db_, kTable, "alice", initial_value));
@@ -100,7 +101,7 @@ TEST_F(DurabilityTest, RecoveryLargeObject) {
 TEST_F(DurabilityTest, RecoveryInContendedWorkload) {
   // We expect LineairDB enables recovery logging by default.
   const LineairDB::Config config = db_->GetConfig();
-  ASSERT_TRUE(config.enable_logging);
+  ASSERT_EQ(config.durability, LineairDB::Config::Durability::Logged);
 
   const int value = 0xBEEF;
   std::vector<std::thread> writers;
@@ -138,4 +139,48 @@ TEST_F(DurabilityTest, RecoveryWithNamedTable) {
   auto data = TestHelper::Read<int>(*db_, table_name, key);
   ASSERT_TRUE(data.has_value());
   ASSERT_EQ(data.value(), value);
+}
+
+// A commit that asked for Async is acknowledged at precommit, so it returns
+// without the epoch it committed in having reached the device. The epoch
+// window is the clock here: an epoch this long cannot close, let alone be
+// flushed, inside the time an Async commit is allowed to take, so a return
+// that fast is proof it did not wait. The Sync commit beside it does wait,
+// which is what makes the comparison a contract and not a stopwatch reading.
+TEST(CommitPolicyTest, AsyncDoesNotWaitForTheDevice) {
+  constexpr size_t kEpochMs = 1000;
+  LineairDB::Config config;
+  config.work_dir = "./lineairdb_commit_policy_test_logs";
+  std::filesystem::remove_all(config.work_dir);
+  config.durability = LineairDB::Config::Durability::Logged;
+  config.enable_recovery = false;
+  config.epoch_duration_ms = kEpochMs;
+
+  LineairDB::Database db(config);
+  ASSERT_TRUE(db.CreateTable(kTable));
+
+  const auto commit = [&db](const std::string &key,
+                            LineairDB::CommitPolicy policy) {
+    const auto started = std::chrono::steady_clock::now();
+    const bool committed = db.ValidateAndCommit({}, {{kTable, key, "v", false}},
+                                                {}, {}, policy, nullptr);
+    db.ReleaseMasstreeThreadEpoch();
+    EXPECT_TRUE(committed);
+    return std::chrono::duration_cast<std::chrono::milliseconds>(
+               std::chrono::steady_clock::now() - started)
+        .count();
+  };
+
+  const auto async_ms = commit("async_key", LineairDB::CommitPolicy::Async);
+  EXPECT_LT(async_ms, static_cast<long>(kEpochMs))
+      << "an Async commit waited for its epoch to become durable";
+
+  const auto sync_ms = commit("sync_key", LineairDB::CommitPolicy::Sync);
+  EXPECT_GE(sync_ms, 1)
+      << "a Sync commit returned before any epoch could close";
+  EXPECT_LT(async_ms, sync_ms)
+      << "Async did not return sooner than Sync (async " << async_ms
+      << " ms, sync " << sync_ms << " ms)";
+
+  std::filesystem::remove_all(config.work_dir);
 }

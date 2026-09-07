@@ -1,11 +1,13 @@
-#include "crc32c.h"
+#include "recovery/crc32c.h"
 
 #include <array>
 #include <cstring>
+#include <string_view>
+
+#include "recovery/crc32c_internal.h"
 
 #if defined(__x86_64__)
 #include <nmmintrin.h>
-#define HELIOS_CRC32C_X86_SSE42 1
 #endif
 
 namespace helios::storage {
@@ -29,20 +31,46 @@ constexpr std::array<uint32_t, 256> MakeTable() {
 
 constexpr std::array<uint32_t, 256> kTable = MakeTable();
 
-uint32_t UpdateWithTable(uint32_t state, const uint8_t *bytes, size_t size) {
+// The table loop over a literal, so the table is checked when it is built.
+constexpr uint32_t Crc32cOf(std::string_view text) {
+  uint32_t state = 0xffffffffu;
+  for (const char c : text) {
+    state = kTable[(state ^ static_cast<uint8_t>(c)) & 0xffu] ^ (state >> 8);
+  }
+  return state ^ 0xffffffffu;
+}
+
+static_assert(Crc32cOf("123456789") == 0xe3069283u,
+              "the table does not compute CRC-32C");
+
+}  // namespace
+
+namespace internal {
+
+uint32_t UpdateWithTable(uint32_t state, const void *data, size_t size) {
+  const auto *bytes = static_cast<const uint8_t *>(data);
   for (size_t i = 0; i < size; ++i) {
     state = kTable[(state ^ bytes[i]) & 0xffu] ^ (state >> 8);
   }
   return state;
 }
 
-#if HELIOS_CRC32C_X86_SSE42
+bool HasSse42() {
+#if defined(__x86_64__)
+  static const bool has_sse42 = __builtin_cpu_supports("sse4.2");
+  return has_sse42;
+#else
+  return false;
+#endif
+}
 
+#if defined(__x86_64__)
 // Compiled via the target attribute, not -msse4.2/-march=native, so it builds
 // in every configuration; HasSse42() is what keeps it off CPUs without it.
 __attribute__((target("sse4.2"))) uint32_t UpdateWithSse42(uint32_t state,
-                                                           const uint8_t *bytes,
+                                                           const void *data,
                                                            size_t size) {
+  const auto *bytes = static_cast<const uint8_t *>(data);
   uint64_t crc = state;
   while (size >= sizeof(uint64_t)) {
     uint64_t chunk;
@@ -58,54 +86,18 @@ __attribute__((target("sse4.2"))) uint32_t UpdateWithSse42(uint32_t state,
   }
   return static_cast<uint32_t>(crc);
 }
+#endif
 
-bool HasSse42() {
-  static const bool has_sse42 = __builtin_cpu_supports("sse4.2");
-  return has_sse42;
-}
-
-#endif  // HELIOS_CRC32C_X86_SSE42
-
-}  // namespace
+}  // namespace internal
 
 void Crc32c::Update(const void *data, size_t size) {
-  const auto *bytes = static_cast<const uint8_t *>(data);
-#if HELIOS_CRC32C_X86_SSE42
-  if (HasSse42()) {
-    state_ = UpdateWithSse42(state_, bytes, size);
+#if defined(__x86_64__)
+  if (internal::HasSse42()) {
+    state_ = internal::UpdateWithSse42(state_, data, size);
     return;
   }
 #endif
-  state_ = UpdateWithTable(state_, bytes, size);
-}
-
-uint32_t ComputeCrc32c(const void *data, size_t size) {
-  Crc32c crc;
-  crc.Update(data, size);
-  return crc.Finish();
-}
-
-uint32_t UpdateWithTableForTesting(uint32_t state, const void *data,
-                                   size_t size) {
-  return UpdateWithTable(state, static_cast<const uint8_t *>(data), size);
-}
-
-uint32_t UpdateWithSse42ForTesting(uint32_t state, const void *data,
-                                   size_t size) {
-#if HELIOS_CRC32C_X86_SSE42
-  if (HasSse42()) {
-    return UpdateWithSse42(state, static_cast<const uint8_t *>(data), size);
-  }
-#endif
-  return UpdateWithTable(state, static_cast<const uint8_t *>(data), size);
-}
-
-bool HasSse42ForTesting() {
-#if HELIOS_CRC32C_X86_SSE42
-  return HasSse42();
-#else
-  return false;
-#endif
+  state_ = internal::UpdateWithTable(state_, data, size);
 }
 
 }  // namespace wal

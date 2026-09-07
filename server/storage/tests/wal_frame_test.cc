@@ -17,7 +17,6 @@
 namespace {
 
 using helios::storage::EpochNumber;
-using helios::storage::wal::ComputeCrc32c;
 using helios::storage::wal::Crc32c;
 using helios::storage::wal::LogRecord;
 using helios::storage::wal::LogRecords;
@@ -224,10 +223,6 @@ class WalFrameTest : public ::testing::Test {
   std::string root_;
   std::string work_dir_;
 };
-
-TEST_F(WalFrameTest, Crc32cKnownVector) {
-  EXPECT_EQ(ComputeCrc32c("123456789", 9), 0xE3069283u);
-}
 
 TEST_F(WalFrameTest, ScanOfAFreshLogHasNoFrontier) {
   Wal wal(work_dir_, helios::storage::wal::WalIo::Posix(), kCapacity);

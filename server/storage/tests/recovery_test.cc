@@ -8,7 +8,7 @@
 #include "recovery/wal.h"
 #include "storage/config.h"
 #include "storage/database.h"
-#include "storage/stateless.h"
+#include "storage/read.h"
 
 namespace {
 
@@ -18,14 +18,14 @@ constexpr const char *kIndex = "idx";
 using helios::storage::wal::Wal;
 using helios::storage::wal::WalScanResult;
 
-// The stateless commit path is what proxy traffic takes, and what it writes
+// The commit path is what query-layer traffic takes, and what it writes
 // to the log is only observable after the instance that wrote it is gone:
 // the log is held under an exclusive lock while a Database is open.
-class StatelessRecoveryTest : public ::testing::Test {
+class RecoveryTest : public ::testing::Test {
  protected:
   void SetUp() override {
     std::string pattern =
-        (std::filesystem::temp_directory_path() / "helios_stateless_XXXXXX")
+        (std::filesystem::temp_directory_path() / "helios_recovery_XXXXXX")
             .string();
     std::vector<char> buffer(pattern.begin(), pattern.end());
     buffer.push_back('\0');
@@ -68,8 +68,8 @@ class StatelessRecoveryTest : public ::testing::Test {
     return committed;
   }
 
-  static helios::storage::StatelessReadResult Read(
-      helios::storage::Database &db, const std::string &key) {
+  static helios::storage::ReadResult Read(helios::storage::Database &db,
+                                          const std::string &key) {
     auto result = db.Read(kTable, key);
     db.ReleaseThreadEpoch();
     return result;
@@ -79,7 +79,7 @@ class StatelessRecoveryTest : public ::testing::Test {
   std::string work_dir_;
 };
 
-TEST_F(StatelessRecoveryTest, ALoggedWriteCarriesTheUnlockedTid) {
+TEST_F(RecoveryTest, ALoggedWriteCarriesTheUnlockedTid) {
   {
     auto config = MakeConfig(false);
     helios::storage::Database db(config);
@@ -119,7 +119,7 @@ TEST_F(StatelessRecoveryTest, ALoggedWriteCarriesTheUnlockedTid) {
   EXPECT_TRUE(seen_index_entry);
 }
 
-TEST_F(StatelessRecoveryTest, ARecoveredKeyAcceptsAFurtherWrite) {
+TEST_F(RecoveryTest, ARecoveredKeyAcceptsAFurtherWrite) {
   {
     auto config = MakeConfig(false);
     helios::storage::Database db(config);

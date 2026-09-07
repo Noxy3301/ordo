@@ -1,5 +1,5 @@
-#ifndef HELIOS_STORAGE_INCLUDE_STORAGE_STATELESS_H
-#define HELIOS_STORAGE_INCLUDE_STORAGE_STATELESS_H
+#ifndef HELIOS_STORAGE_INCLUDE_STORAGE_READ_H
+#define HELIOS_STORAGE_INCLUDE_STORAGE_READ_H
 
 #include <cstdint>
 #include <string>
@@ -8,8 +8,9 @@
 namespace helios::storage {
 
 /**
- * @file stateless.h
- * @brief Types for the stateless read / validate-and-commit API.
+ * @file server/storage/include/storage/read.h
+ * @brief Result types of the reads and scans, the commit entries and the
+ * commit policy.
  */
 
 // ---------------------------------------------------------------------
@@ -23,7 +24,7 @@ namespace helios::storage {
  * Resubmit the same `tid` through Commit inside an
  * ExternalReadEntry to assert that the row did not move before commit.
  */
-struct StatelessReadResult {
+struct ReadResult {
   bool found = false;  ///< True when the key existed and was non-empty.
   std::string value;   ///< Row payload, valid only when @ref found is true.
   uint64_t tid = 0;    ///< Packed (epoch | tid) version observed at read time.
@@ -32,7 +33,7 @@ struct StatelessReadResult {
 /**
  * @brief One row from a primary-index range scan.
  */
-struct StatelessScanRow {
+struct ScanRow {
   std::string key;
   std::string value;
   uint64_t tid = 0;    ///< Packed version observed for this row.
@@ -46,7 +47,7 @@ struct StatelessScanRow {
  * `secondary_key` is the indexed key, `primary_key` is the base-table key
  * reached through it, and `value` is the corresponding base-table row.
  */
-struct StatelessSecondaryScanRow {
+struct ScanIndexRow {
   std::string secondary_key;
   std::string primary_key;
   std::string value;
@@ -61,9 +62,9 @@ struct StatelessSecondaryScanRow {
  * table does not exist, or the exclusive end bound is empty. On
  * `ok == false` the caller should abort the logical transaction.
  */
-struct StatelessRangeScanResult {
+struct ScanResult {
   bool ok = false;
-  std::vector<StatelessScanRow> rows;
+  std::vector<ScanRow> rows;
 };
 
 /**
@@ -74,7 +75,7 @@ struct StatelessRangeScanResult {
  * Callers read the cells they need, then call CurrentTid() and compare
  * the result with `tid` to reject torn reads.
  */
-struct StatelessPaxRowRef {
+struct ScanPaxRow {
   std::string key;
   const void *group = nullptr;
   uint32_t slot = 0;
@@ -91,9 +92,9 @@ struct StatelessPaxRowRef {
  * the table is missing, it has no PAX store, or it contains heap-fallback
  * rows.
  */
-struct StatelessPaxRowRefScanResult {
+struct ScanPaxResult {
   bool ok = false;
-  std::vector<StatelessPaxRowRef> rows;
+  std::vector<ScanPaxRow> rows;
 };
 
 /**
@@ -101,14 +102,14 @@ struct StatelessPaxRowRefScanResult {
  *
  * @param row Row reference returned by Database::ScanPax.
  */
-uint64_t CurrentTid(const StatelessPaxRowRef &row);
+uint64_t CurrentTid(const ScanPaxRow &row);
 
 /**
  * @brief Outcome of Database::ScanIndex.
  */
-struct StatelessSecondaryRangeScanResult {
+struct ScanIndexResult {
   bool ok = false;
-  std::vector<StatelessSecondaryScanRow> rows;
+  std::vector<ScanIndexRow> rows;
 };
 
 // ---------------------------------------------------------------------
@@ -201,4 +202,4 @@ struct ExternalRangeReadEntry {
 
 }  // namespace helios::storage
 
-#endif  // HELIOS_STORAGE_INCLUDE_STORAGE_STATELESS_H
+#endif  // HELIOS_STORAGE_INCLUDE_STORAGE_READ_H

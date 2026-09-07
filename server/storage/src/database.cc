@@ -81,26 +81,27 @@ bool Database::HasTable(const std::string_view table_name) {
   return db_pimpl_->GetTable(table_name).has_value();
 }
 
-StatelessReadResult Database::Read(
-    const std::string_view table_name, const std::string_view key,
-    const std::vector<uint32_t> *selected_columns) {
+ReadResult Database::Read(const std::string_view table_name,
+                          const std::string_view key,
+                          const std::vector<uint32_t> *selected_columns) {
   return db_pimpl_->Read(table_name, key, selected_columns);
 }
 
-std::vector<StatelessReadResult> Database::BatchRead(
+std::vector<ReadResult> Database::BatchRead(
     const std::vector<std::pair<std::string, std::string>> &keys) {
   return db_pimpl_->BatchRead(keys);
 }
 
-StatelessRangeScanResult Database::Scan(
-    const std::string_view table_name, const std::string_view start_key,
-    const std::string_view end_key, uint64_t row_limit, bool reverse_scan,
-    const std::vector<uint32_t> *selected_columns) {
+ScanResult Database::Scan(const std::string_view table_name,
+                          const std::string_view start_key,
+                          const std::string_view end_key, uint64_t row_limit,
+                          bool reverse_scan,
+                          const std::vector<uint32_t> *selected_columns) {
   return db_pimpl_->Scan(table_name, start_key, end_key, row_limit,
                          reverse_scan, selected_columns);
 }
 
-StatelessSecondaryRangeScanResult Database::ScanIndex(
+ScanIndexResult Database::ScanIndex(
     const std::string_view table_name, const std::string_view index_name,
     const std::string_view start_key, const std::string_view end_key,
     uint64_t row_limit, bool reverse_scan,
@@ -109,9 +110,10 @@ StatelessSecondaryRangeScanResult Database::ScanIndex(
                               row_limit, reverse_scan, selected_columns);
 }
 
-StatelessPaxRowRefScanResult Database::ScanPax(
-    const std::string_view table_name, const std::string_view start_key,
-    const std::string_view end_key, uint64_t row_limit, bool reverse_scan) {
+ScanPaxResult Database::ScanPax(const std::string_view table_name,
+                                const std::string_view start_key,
+                                const std::string_view end_key,
+                                uint64_t row_limit, bool reverse_scan) {
   return db_pimpl_->ScanPax(table_name, start_key, end_key, row_limit,
                             reverse_scan);
 }
@@ -268,27 +270,28 @@ bool Database::Impl::CreateSecondaryIndex(const std::string_view table_name,
           static_cast<index::SecondaryIndexType::RawType>(index_type)));
 }
 
-StatelessReadResult Database::Impl::Read(
-    const std::string_view table_name, const std::string_view key,
-    const std::vector<uint32_t> *selected_columns) {
+ReadResult Database::Impl::Read(const std::string_view table_name,
+                                const std::string_view key,
+                                const std::vector<uint32_t> *selected_columns) {
   return silo::Read(table_dictionary_, schema_mutex_, table_name, key,
                     selected_columns);
 }
 
-std::vector<StatelessReadResult> Database::Impl::BatchRead(
+std::vector<ReadResult> Database::Impl::BatchRead(
     const std::vector<std::pair<std::string, std::string>> &keys) {
   return silo::BatchRead(table_dictionary_, schema_mutex_, keys);
 }
 
-StatelessRangeScanResult Database::Impl::Scan(
-    const std::string_view table_name, const std::string_view start_key,
-    const std::string_view end_key, uint64_t row_limit, bool reverse_scan,
-    const std::vector<uint32_t> *selected_columns) {
+ScanResult Database::Impl::Scan(const std::string_view table_name,
+                                const std::string_view start_key,
+                                const std::string_view end_key,
+                                uint64_t row_limit, bool reverse_scan,
+                                const std::vector<uint32_t> *selected_columns) {
   return silo::Scan(table_dictionary_, schema_mutex_, table_name, start_key,
                     end_key, row_limit, reverse_scan, selected_columns);
 }
 
-StatelessSecondaryRangeScanResult Database::Impl::ScanIndex(
+ScanIndexResult Database::Impl::ScanIndex(
     const std::string_view table_name, const std::string_view index_name,
     const std::string_view start_key, const std::string_view end_key,
     uint64_t row_limit, bool reverse_scan,
@@ -298,9 +301,10 @@ StatelessSecondaryRangeScanResult Database::Impl::ScanIndex(
                          reverse_scan, selected_columns);
 }
 
-StatelessPaxRowRefScanResult Database::Impl::ScanPax(
-    const std::string_view table_name, const std::string_view start_key,
-    const std::string_view end_key, uint64_t row_limit, bool reverse_scan) {
+ScanPaxResult Database::Impl::ScanPax(const std::string_view table_name,
+                                      const std::string_view start_key,
+                                      const std::string_view end_key,
+                                      uint64_t row_limit, bool reverse_scan) {
   return silo::ScanPax(table_dictionary_, schema_mutex_, table_name, start_key,
                        end_key, row_limit, reverse_scan);
 }

@@ -6,7 +6,7 @@
 #include <string>
 #include <vector>
 
-#include "../stateless_helper.h"
+#include "../db_helper.h"
 #include "gtest/gtest.h"
 
 namespace {

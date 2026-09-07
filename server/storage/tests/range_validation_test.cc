@@ -5,7 +5,7 @@
 #include "gtest/gtest.h"
 #include "storage/config.h"
 #include "storage/database.h"
-#include "storage/stateless.h"
+#include "storage/read.h"
 
 namespace {
 
@@ -14,7 +14,7 @@ constexpr const char *kTable = "range_validation_test";
 helios::storage::Config MakeConfig() {
   helios::storage::Config config;
   config.enable_recovery = false;
-  config.work_dir = "./helios_stateless_range_validation_test_logs";
+  config.work_dir = "./helios_range_validation_test_logs";
   std::filesystem::remove_all(config.work_dir);
   return config;
 }
@@ -84,7 +84,7 @@ void LeaveBlankSlot(helios::storage::Database &db, const std::string &key) {
 
 }  // namespace
 
-TEST(StatelessRangeValidationTest, AnUnchangedRangeCommits) {
+TEST(RangeValidationTest, AnUnchangedRangeCommits) {
   auto config = MakeConfig();
   helios::storage::Database db(config);
   ASSERT_TRUE(db.CreateTable(kTable));
@@ -98,7 +98,7 @@ TEST(StatelessRangeValidationTest, AnUnchangedRangeCommits) {
   EXPECT_TRUE(Revalidate(db, range, &reason)) << reason;
 }
 
-TEST(StatelessRangeValidationTest, ARowDeletedInsideTheRangeAborts) {
+TEST(RangeValidationTest, ARowDeletedInsideTheRangeAborts) {
   auto config = MakeConfig();
   helios::storage::Database db(config);
   ASSERT_TRUE(db.CreateTable(kTable));
@@ -112,7 +112,7 @@ TEST(StatelessRangeValidationTest, ARowDeletedInsideTheRangeAborts) {
   EXPECT_EQ(reason, "primary_range_result_changed");
 }
 
-TEST(StatelessRangeValidationTest, ARowDeletedAtTheEndOfTheRangeAborts) {
+TEST(RangeValidationTest, ARowDeletedAtTheEndOfTheRangeAborts) {
   // The replay is a strict prefix of the evidence, so nothing diverges
   // positionally and only the length check rejects it.
   auto config = MakeConfig();
@@ -128,7 +128,7 @@ TEST(StatelessRangeValidationTest, ARowDeletedAtTheEndOfTheRangeAborts) {
   EXPECT_EQ(reason, "primary_range_result_changed");
 }
 
-TEST(StatelessRangeValidationTest, ARowInsertedInsideTheRangeAborts) {
+TEST(RangeValidationTest, ARowInsertedInsideTheRangeAborts) {
   auto config = MakeConfig();
   helios::storage::Database db(config);
   ASSERT_TRUE(db.CreateTable(kTable));
@@ -142,7 +142,7 @@ TEST(StatelessRangeValidationTest, ARowInsertedInsideTheRangeAborts) {
   EXPECT_EQ(reason, "primary_range_result_changed");
 }
 
-TEST(StatelessRangeValidationTest, ARowInsertedAtTheEndOfTheRangeAborts) {
+TEST(RangeValidationTest, ARowInsertedAtTheEndOfTheRangeAborts) {
   // The evidence is a strict prefix of the replay, so the divergence is the
   // first live row past the evidence.
   auto config = MakeConfig();
@@ -158,7 +158,7 @@ TEST(StatelessRangeValidationTest, ARowInsertedAtTheEndOfTheRangeAborts) {
   EXPECT_EQ(reason, "primary_range_result_changed");
 }
 
-TEST(StatelessRangeValidationTest, ALimitedRangeIgnoresChangesPastItsCap) {
+TEST(RangeValidationTest, ALimitedRangeIgnoresChangesPastItsCap) {
   auto config = MakeConfig();
   helios::storage::Database db(config);
   ASSERT_TRUE(db.CreateTable(kTable));
@@ -172,7 +172,7 @@ TEST(StatelessRangeValidationTest, ALimitedRangeIgnoresChangesPastItsCap) {
   EXPECT_TRUE(Revalidate(db, range, &reason)) << reason;
 }
 
-TEST(StatelessRangeValidationTest, ANonLiveSlotDoesNotConsumeTheCap) {
+TEST(RangeValidationTest, ANonLiveSlotDoesNotConsumeTheCap) {
   // The cap counts live rows. A blank slot between the first two of them must
   // leave the replay room to reach the second.
   auto config = MakeConfig();
@@ -188,7 +188,7 @@ TEST(StatelessRangeValidationTest, ANonLiveSlotDoesNotConsumeTheCap) {
   EXPECT_TRUE(Revalidate(db, range, &reason)) << reason;
 }
 
-TEST(StatelessRangeValidationTest, AnEmptyRangeCommits) {
+TEST(RangeValidationTest, AnEmptyRangeCommits) {
   auto config = MakeConfig();
   helios::storage::Database db(config);
   ASSERT_TRUE(db.CreateTable(kTable));
@@ -201,7 +201,7 @@ TEST(StatelessRangeValidationTest, AnEmptyRangeCommits) {
   EXPECT_TRUE(Revalidate(db, range, &reason)) << reason;
 }
 
-TEST(StatelessRangeValidationTest, ARowAppearingInAnEmptyRangeAborts) {
+TEST(RangeValidationTest, ARowAppearingInAnEmptyRangeAborts) {
   auto config = MakeConfig();
   helios::storage::Database db(config);
   ASSERT_TRUE(db.CreateTable(kTable));
@@ -216,7 +216,7 @@ TEST(StatelessRangeValidationTest, ARowAppearingInAnEmptyRangeAborts) {
   EXPECT_EQ(reason, "primary_range_result_changed");
 }
 
-TEST(StatelessRangeValidationTest, EvidenceRepeatingAKeyAborts) {
+TEST(RangeValidationTest, EvidenceRepeatingAKeyAborts) {
   // A primary index cannot return the same key twice, so evidence that does
   // is rejected rather than matched by the positional walk.
   auto config = MakeConfig();
@@ -232,7 +232,7 @@ TEST(StatelessRangeValidationTest, EvidenceRepeatingAKeyAborts) {
   EXPECT_EQ(reason, "primary_range_result_changed");
 }
 
-TEST(StatelessRangeValidationTest, AReverseRangeAbortsOnTheSameChange) {
+TEST(RangeValidationTest, AReverseRangeAbortsOnTheSameChange) {
   auto config = MakeConfig();
   helios::storage::Database db(config);
   ASSERT_TRUE(db.CreateTable(kTable));

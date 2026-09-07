@@ -12,11 +12,9 @@
 namespace helios::storage {
 namespace silo {
 
-StatelessReadResult Read(TableDictionary &tables,
-                         std::shared_mutex &schema_mutex,
-                         const std::string_view table_name,
-                         const std::string_view key,
-                         const std::vector<uint32_t> *selected_columns) {
+ReadResult Read(TableDictionary &tables, std::shared_mutex &schema_mutex,
+                const std::string_view table_name, const std::string_view key,
+                const std::vector<uint32_t> *selected_columns) {
   std::shared_lock<std::shared_mutex> lk(schema_mutex);
   auto table = tables.GetTable(table_name);
   if (!table.has_value()) return {};
@@ -31,10 +29,10 @@ StatelessReadResult Read(TableDictionary &tables,
   return {row.found, std::move(row.value), PackTransactionId(row.tid)};
 }
 
-std::vector<StatelessReadResult> BatchRead(
+std::vector<ReadResult> BatchRead(
     TableDictionary &tables, std::shared_mutex &schema_mutex,
     const std::vector<std::pair<std::string, std::string>> &keys) {
-  std::vector<StatelessReadResult> results;
+  std::vector<ReadResult> results;
   results.reserve(keys.size());
   for (const auto &key : keys) {
     results.emplace_back(Read(tables, schema_mutex, key.first, key.second));
@@ -42,14 +40,13 @@ std::vector<StatelessReadResult> BatchRead(
   return results;
 }
 
-StatelessRangeScanResult Scan(TableDictionary &tables,
-                              std::shared_mutex &schema_mutex,
-                              const std::string_view table_name,
-                              const std::string_view start_key,
-                              const std::string_view end_key,
-                              uint64_t row_limit, bool reverse_scan,
-                              const std::vector<uint32_t> *selected_columns) {
-  StatelessRangeScanResult result;
+ScanResult Scan(TableDictionary &tables, std::shared_mutex &schema_mutex,
+                const std::string_view table_name,
+                const std::string_view start_key,
+                const std::string_view end_key, uint64_t row_limit,
+                bool reverse_scan,
+                const std::vector<uint32_t> *selected_columns) {
+  ScanResult result;
   if (end_key.empty()) return result;
 
   std::shared_lock<std::shared_mutex> lk(schema_mutex);
@@ -88,20 +85,22 @@ StatelessRangeScanResult Scan(TableDictionary &tables,
 
 }  // namespace silo
 
-uint64_t CurrentTid(const StatelessPaxRowRef &row) {
+uint64_t CurrentTid(const ScanPaxRow &row) {
   const auto *item = static_cast<const DataItem *>(row.item);
   return silo::PackTransactionId(item->transaction_id.load());
 }
 
 namespace silo {
 
-StatelessSecondaryRangeScanResult ScanIndex(
-    TableDictionary &tables, std::shared_mutex &schema_mutex,
-    const std::string_view table_name, const std::string_view index_name,
-    const std::string_view start_key, const std::string_view end_key,
-    uint64_t row_limit, bool reverse_scan,
-    const std::vector<uint32_t> *selected_columns) {
-  StatelessSecondaryRangeScanResult result;
+ScanIndexResult ScanIndex(TableDictionary &tables,
+                          std::shared_mutex &schema_mutex,
+                          const std::string_view table_name,
+                          const std::string_view index_name,
+                          const std::string_view start_key,
+                          const std::string_view end_key, uint64_t row_limit,
+                          bool reverse_scan,
+                          const std::vector<uint32_t> *selected_columns) {
+  ScanIndexResult result;
   if (end_key.empty()) return result;
 
   std::shared_lock<std::shared_mutex> lk(schema_mutex);
@@ -156,13 +155,12 @@ StatelessSecondaryRangeScanResult ScanIndex(
   return result;
 }
 
-StatelessPaxRowRefScanResult ScanPax(TableDictionary &tables,
-                                     std::shared_mutex &schema_mutex,
-                                     const std::string_view table_name,
-                                     const std::string_view start_key,
-                                     const std::string_view end_key,
-                                     uint64_t row_limit, bool reverse_scan) {
-  StatelessPaxRowRefScanResult result;
+ScanPaxResult ScanPax(TableDictionary &tables, std::shared_mutex &schema_mutex,
+                      const std::string_view table_name,
+                      const std::string_view start_key,
+                      const std::string_view end_key, uint64_t row_limit,
+                      bool reverse_scan) {
+  ScanPaxResult result;
   if (end_key.empty()) return result;
 
   std::shared_lock<std::shared_mutex> lk(schema_mutex);

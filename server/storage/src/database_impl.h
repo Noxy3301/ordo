@@ -103,28 +103,28 @@ class Database::Impl {
                             const std::string_view index_name,
                             const uint index_type);
 
-  StatelessReadResult Read(
-      const std::string_view table_name, const std::string_view key,
-      const std::vector<uint32_t> *selected_columns = nullptr);
+  ReadResult Read(const std::string_view table_name, const std::string_view key,
+                  const std::vector<uint32_t> *selected_columns = nullptr);
 
-  std::vector<StatelessReadResult> BatchRead(
+  std::vector<ReadResult> BatchRead(
       const std::vector<std::pair<std::string, std::string>> &keys);
 
-  StatelessRangeScanResult Scan(
-      const std::string_view table_name, const std::string_view start_key,
-      const std::string_view end_key, uint64_t row_limit, bool reverse_scan,
-      const std::vector<uint32_t> *selected_columns = nullptr);
+  ScanResult Scan(const std::string_view table_name,
+                  const std::string_view start_key,
+                  const std::string_view end_key, uint64_t row_limit,
+                  bool reverse_scan,
+                  const std::vector<uint32_t> *selected_columns = nullptr);
 
-  StatelessSecondaryRangeScanResult ScanIndex(
+  ScanIndexResult ScanIndex(
       const std::string_view table_name, const std::string_view index_name,
       const std::string_view start_key, const std::string_view end_key,
       uint64_t row_limit, bool reverse_scan,
       const std::vector<uint32_t> *selected_columns = nullptr);
 
-  StatelessPaxRowRefScanResult ScanPax(const std::string_view table_name,
-                                       const std::string_view start_key,
-                                       const std::string_view end_key,
-                                       uint64_t row_limit, bool reverse_scan);
+  ScanPaxResult ScanPax(const std::string_view table_name,
+                        const std::string_view start_key,
+                        const std::string_view end_key, uint64_t row_limit,
+                        bool reverse_scan);
 
   /**
    * @brief Compute exact NDV for each integer key-part prefix of one index.

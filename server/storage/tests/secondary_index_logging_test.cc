@@ -30,11 +30,11 @@
 #include <string>
 #include <vector>
 
+#include "db_helper.h"
 #include "gtest/gtest.h"
 #include "recovery/logger.h"
 #include "recovery/wal.h"
 #include "spdlog/spdlog.h"
-#include "stateless_helper.h"
 
 namespace {
 

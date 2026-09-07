@@ -17,7 +17,7 @@
 #include "recovery/wal.h"
 #include "storage/config.h"
 #include "storage/database.h"
-#include "storage/stateless.h"
+#include "storage/read.h"
 
 namespace {
 
@@ -145,8 +145,8 @@ class EpochScanCheckpointTest : public ::testing::Test {
     return committed;
   }
 
-  static helios::storage::StatelessReadResult Read(
-      helios::storage::Database &db, const std::string &key) {
+  static helios::storage::ReadResult Read(helios::storage::Database &db,
+                                          const std::string &key) {
     auto result = db.Read(kTable, key);
     db.ReleaseThreadEpoch();
     return result;

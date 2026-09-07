@@ -19,8 +19,8 @@
 #include <memory>
 #include <thread>
 
+#include "db_helper.h"
 #include "gtest/gtest.h"
-#include "stateless_helper.h"
 #include "storage/config.h"
 #include "storage/database.h"
 

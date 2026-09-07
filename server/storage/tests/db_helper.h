@@ -1,8 +1,8 @@
-#ifndef HELIOS_STORAGE_TESTS_STATELESS_HELPER_H
-#define HELIOS_STORAGE_TESTS_STATELESS_HELPER_H
+#ifndef HELIOS_STORAGE_TESTS_DB_HELPER_H
+#define HELIOS_STORAGE_TESTS_DB_HELPER_H
 
 #include <storage/database.h>
-#include <storage/stateless.h>
+#include <storage/read.h>
 
 #include <cstring>
 #include <optional>
@@ -13,7 +13,7 @@
 
 #include "gtest/gtest.h"
 
-/// Drives the stateless API the way the query layer does: observe, then submit
+/// Drives the API the way the query layer does: observe, then submit
 /// the observations as evidence along with the writes. Every call hands the
 /// thread's masstree epoch back, as an RPC handler does.
 namespace TestHelper {
@@ -141,4 +141,4 @@ inline std::vector<std::string> ReadSecondaryIndex(
 }
 
 }  // namespace TestHelper
-#endif  // HELIOS_STORAGE_TESTS_STATELESS_HELPER_H
+#endif  // HELIOS_STORAGE_TESTS_DB_HELPER_H

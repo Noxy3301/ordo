@@ -468,7 +468,7 @@ bool ReplayIndexRange(Ctx &c, const ExternalRangeReadEntry &range) {
 
 // Phase 2.2: replay each range scan and compare the key lists. This is the
 // phantom check Silo performs with Masstree node versions (physical
-// validation), done by value because a stateless caller cannot hold node
+// validation), done by value because the caller cannot hold node
 // pointers across the RPC boundary. The comparison is membership only; row
 // TIDs are validated at 2.1.
 bool ValidateRanges(Ctx &c) {

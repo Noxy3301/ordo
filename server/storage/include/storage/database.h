@@ -18,7 +18,7 @@
 #define HELIOS_STORAGE_INCLUDE_STORAGE_DATABASE_H
 
 #include <storage/config.h>
-#include <storage/stateless.h>
+#include <storage/read.h>
 
 #include <chrono>
 #include <functional>
@@ -186,14 +186,14 @@ class Database {
   bool PaxViewPoisoned(const PaxReadView &view) const;
 
   // ----------------------------------------------------------------------
-  // Stateless read / validate-and-commit API.
+  // Reads, scans and the commit.
   //
   // The methods below hold no state between calls. Each returns the snapshot
   // the caller needs (value, packed TID) so that the caller can keep its own
   // read set across independent RPCs. The collected snapshot is replayed
   // through Commit when the logical transaction is ready to
   // commit.
-  // See @ref stateless.h for the supporting types.
+  // See @ref read.h for the supporting types.
   // ----------------------------------------------------------------------
 
   /**
@@ -212,9 +212,8 @@ class Database {
    * @return Result with `found` set when the key exists and was non-empty.
    *         When the table does not exist, `found` is false and `tid` is 0.
    */
-  StatelessReadResult Read(
-      const std::string_view table_name, const std::string_view key,
-      const std::vector<uint32_t> *selected_columns = nullptr);
+  ReadResult Read(const std::string_view table_name, const std::string_view key,
+                  const std::vector<uint32_t> *selected_columns = nullptr);
 
   /**
    * @brief Read several rows in one call.
@@ -224,9 +223,9 @@ class Database {
    * optimization on top of repeated Read calls.
    *
    * @param keys (table_name, key) pairs to look up.
-   * @return One StatelessReadResult per input, in the same order.
+   * @return One ReadResult per input, in the same order.
    */
-  std::vector<StatelessReadResult> BatchRead(
+  std::vector<ReadResult> BatchRead(
       const std::vector<std::pair<std::string, std::string>> &keys);
 
   /**
@@ -248,10 +247,11 @@ class Database {
    * @return Result with `ok == false` if the table is missing or `end_key`
    *         is empty. Callers should treat `!ok` as an abort signal.
    */
-  StatelessRangeScanResult Scan(
-      const std::string_view table_name, const std::string_view start_key,
-      const std::string_view end_key, uint64_t row_limit, bool reverse_scan,
-      const std::vector<uint32_t> *selected_columns = nullptr);
+  ScanResult Scan(const std::string_view table_name,
+                  const std::string_view start_key,
+                  const std::string_view end_key, uint64_t row_limit,
+                  bool reverse_scan,
+                  const std::vector<uint32_t> *selected_columns = nullptr);
 
   /**
    * @brief Range-scan a secondary index and resolve each hit to its base row.
@@ -275,7 +275,7 @@ class Database {
    * @return Result with `ok == false` if the table or the index is missing,
    *         or `end_key` is empty.
    */
-  StatelessSecondaryRangeScanResult ScanIndex(
+  ScanIndexResult ScanIndex(
       const std::string_view table_name, const std::string_view index_name,
       const std::string_view start_key, const std::string_view end_key,
       uint64_t row_limit, bool reverse_scan,
@@ -293,10 +293,10 @@ class Database {
    * @param row_limit Maximum live rows to return. 0 means no cap.
    * @param reverse_scan When true, iterate in reverse key order.
    */
-  StatelessPaxRowRefScanResult ScanPax(const std::string_view table_name,
-                                       const std::string_view start_key,
-                                       const std::string_view end_key,
-                                       uint64_t row_limit, bool reverse_scan);
+  ScanPaxResult ScanPax(const std::string_view table_name,
+                        const std::string_view start_key,
+                        const std::string_view end_key, uint64_t row_limit,
+                        bool reverse_scan);
 
   /**
    * @brief Compute per-key-part-prefix NDV for an integer encoded index.

@@ -14,15 +14,15 @@ helios::storage::Config MakeConfig() {
   helios::storage::Config config;
   config.epoch_duration_ms = 10;
   config.enable_recovery = true;
-  config.work_dir = "./helios_stateless_recovery_tid_test_logs";
+  config.work_dir = "./helios_recovery_tid_test_logs";
   return config;
 }
 
-// A stateless write captures its log snapshot while the row lock is held.
+// A write captures its log snapshot while the row lock is held.
 // A snapshot persisted with the locked TID poisons recovery: the recovered
 // row looks locked by a transaction that no longer exists, and every later
 // access to the key spins or aborts forever.
-TEST(StatelessRecoveryTidTest, ARecoveredKeyAcceptsTheNextWrite) {
+TEST(RecoveryTidTest, ARecoveredKeyAcceptsTheNextWrite) {
   const auto config = MakeConfig();
   std::filesystem::remove_all(config.work_dir);
 

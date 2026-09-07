@@ -21,7 +21,7 @@ inline uint64_t PackTransactionId(const TransactionId &tid) {
 /**
  * @brief Inverse of PackTransactionId.
  *
- * The stateless API hands the packed value back through Commit,
+ * The caller hands the packed value back through Commit,
  * which unpacks it to compare with the live TransactionId on the DataItem.
  */
 inline TransactionId UnpackTransactionId(uint64_t packed) {

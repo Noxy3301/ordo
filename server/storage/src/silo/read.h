@@ -1,7 +1,7 @@
 #ifndef HELIOS_STORAGE_SRC_SILO_READ_H
 #define HELIOS_STORAGE_SRC_SILO_READ_H
 
-#include <storage/stateless.h>
+#include <storage/read.h>
 
 #include <cstdint>
 #include <shared_mutex>
@@ -15,7 +15,7 @@ namespace helios::storage {
 class TableDictionary;
 
 /**
- * Read side of the stateless API: point reads and range scans. The
+ * The read side of the engine: point reads and range scans. The
  * functions hold no state between calls, so they take the table dictionary
  * and the schema mutex from the caller instead of owning them. Every call
  * takes a shared lock on the schema, resolves index slots, and copies rows
@@ -33,10 +33,9 @@ namespace silo {
  * TID and only return it if it has not moved. The caller keeps the
  * returned `tid` and submits it through Commit later.
  */
-StatelessReadResult Read(
-    TableDictionary &tables, std::shared_mutex &schema_mutex,
-    std::string_view table_name, std::string_view key,
-    const std::vector<uint32_t> *selected_columns = nullptr);
+ReadResult Read(TableDictionary &tables, std::shared_mutex &schema_mutex,
+                std::string_view table_name, std::string_view key,
+                const std::vector<uint32_t> *selected_columns = nullptr);
 
 /**
  * @brief Read several rows in one call.
@@ -45,7 +44,7 @@ StatelessReadResult Read(
  * transport optimization that lets a caller fold N point reads into one
  * RPC.
  */
-std::vector<StatelessReadResult> BatchRead(
+std::vector<ReadResult> BatchRead(
     TableDictionary &tables, std::shared_mutex &schema_mutex,
     const std::vector<std::pair<std::string, std::string>> &keys);
 
@@ -63,11 +62,10 @@ std::vector<StatelessReadResult> BatchRead(
  * the table does not exist, or `end_key` is empty. Callers should treat
  * `!ok` as an abort signal.
  */
-StatelessRangeScanResult Scan(
-    TableDictionary &tables, std::shared_mutex &schema_mutex,
-    std::string_view table_name, std::string_view start_key,
-    std::string_view end_key, uint64_t row_limit, bool reverse_scan,
-    const std::vector<uint32_t> *selected_columns = nullptr);
+ScanResult Scan(TableDictionary &tables, std::shared_mutex &schema_mutex,
+                std::string_view table_name, std::string_view start_key,
+                std::string_view end_key, uint64_t row_limit, bool reverse_scan,
+                const std::vector<uint32_t> *selected_columns = nullptr);
 
 /**
  * @brief Range-scan a secondary index and resolve each hit to its base
@@ -79,7 +77,7 @@ StatelessRangeScanResult Scan(
  * ExternalRangeReadEntry from its own scan arguments and both returned
  * key lists. `ok == false` is the abort signal, as in the primary range read.
  */
-StatelessSecondaryRangeScanResult ScanIndex(
+ScanIndexResult ScanIndex(
     TableDictionary &tables, std::shared_mutex &schema_mutex,
     std::string_view table_name, std::string_view index_name,
     std::string_view start_key, std::string_view end_key, uint64_t row_limit,
@@ -92,12 +90,10 @@ StatelessSecondaryRangeScanResult ScanIndex(
  * after reading. `ok == false` means the caller should use the row-shaped
  * range read instead.
  */
-StatelessPaxRowRefScanResult ScanPax(TableDictionary &tables,
-                                     std::shared_mutex &schema_mutex,
-                                     std::string_view table_name,
-                                     std::string_view start_key,
-                                     std::string_view end_key,
-                                     uint64_t row_limit, bool reverse_scan);
+ScanPaxResult ScanPax(TableDictionary &tables, std::shared_mutex &schema_mutex,
+                      std::string_view table_name, std::string_view start_key,
+                      std::string_view end_key, uint64_t row_limit,
+                      bool reverse_scan);
 
 }  // namespace silo
 }  // namespace helios::storage

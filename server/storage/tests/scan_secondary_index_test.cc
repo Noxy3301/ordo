@@ -7,8 +7,8 @@
 #include <utility>
 #include <vector>
 
+#include "db_helper.h"
 #include "gtest/gtest.h"
-#include "stateless_helper.h"
 
 namespace {
 using Entries = std::vector<std::pair<std::string, std::string>>;

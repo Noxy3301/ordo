@@ -2,7 +2,7 @@
 #define HELIOS_STORAGE_SRC_SILO_COMMIT_H
 
 #include <storage/config.h>
-#include <storage/stateless.h>
+#include <storage/read.h>
 
 #include <shared_mutex>
 #include <string>
@@ -38,7 +38,7 @@ struct CommitPayload {
 
 /**
  * @brief Run the Silo commit protocol for a transaction whose read and
- * write sets were assembled by the caller through the stateless API.
+ * write sets were assembled by the caller through the read API.
  *
  * @details
  * The entries carry values only; nothing in them points into storage

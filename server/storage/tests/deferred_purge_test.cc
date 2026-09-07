@@ -7,7 +7,7 @@
 #include "gtest/gtest.h"
 #include "storage/config.h"
 #include "storage/database.h"
-#include "storage/stateless.h"
+#include "storage/read.h"
 
 namespace {
 
@@ -47,15 +47,15 @@ bool CommitDelete(helios::storage::Database &db, const std::string &key,
   return committed;
 }
 
-helios::storage::StatelessReadResult Read(helios::storage::Database &db,
-                                          const std::string &key) {
+helios::storage::ReadResult Read(helios::storage::Database &db,
+                                 const std::string &key) {
   auto result = db.Read(kTable, key);
   db.ReleaseThreadEpoch();
   return result;
 }
 
 bool ValidateRead(helios::storage::Database &db,
-                  const helios::storage::StatelessReadResult &read,
+                  const helios::storage::ReadResult &read,
                   const std::string &key, std::string *reason) {
   const bool committed =
       db.Commit({{kTable, key, read.tid, read.found}}, {}, {}, {},

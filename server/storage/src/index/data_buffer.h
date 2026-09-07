@@ -208,8 +208,8 @@ struct DataBuffer {
   }
 
   std::string toString() const {
+    if (size == 0) return {};  // no payload, and `value` may be null
     if (!is_pax()) return std::string(reinterpret_cast<char *>(value), size);
-    if (size == 0) return {};
     std::string out;
     out.resize(size);
     GatherInto(reinterpret_cast<std::byte *>(out.data()));

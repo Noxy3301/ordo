@@ -50,11 +50,11 @@ struct DataItem {
   // bytes); those callers must go through DataBuffer::GatherInto / copies.
   std::byte *value() {
     assert(!buffer.is_pax());
-    return &buffer.value[0];
+    return buffer.value;
   }
   const std::byte *value() const {
     assert(!buffer.is_pax());
-    return &buffer.value[0];
+    return buffer.value;
   }
   size_t size() const { return buffer.size; }
   bool IsInitialized() const {
@@ -65,12 +65,15 @@ struct DataItem {
   bool IsPrimaryInitialized() const { return buffer.size != 0; }
 
   PackedPrimaryKeysView primary_keys_view() const {
-    return PackedPrimaryKeysView(primary_keys_);
+    return PackedPrimaryKeysView(std::atomic_load(&primary_keys_));
   }
 
   std::vector<std::string> primary_keys_vector() const {
     std::vector<std::string> keys;
-    const auto view = primary_keys_view();
+    // Holds the list for the walk: the view is a pointer, and a writer may
+    // publish a replacement over the member at any point.
+    const auto primary_keys = std::atomic_load(&primary_keys_);
+    const PackedPrimaryKeysView view(primary_keys);
     keys.reserve(view.size());
     for (std::string_view key : view) {
       keys.emplace_back(key.data(), key.size());

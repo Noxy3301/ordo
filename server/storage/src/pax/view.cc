@@ -4,6 +4,8 @@
  */
 
 #include <chrono>
+#include <mutex>
+#include <shared_mutex>
 #include <string>
 #include <utility>
 
@@ -96,6 +98,9 @@ bool Database::Impl::InstallPaxSchema(
     const std::vector<int8_t> &field_scale) {
   if (!config_.enable_pax_storage) return false;
   if (field_max_bytes.empty()) return false;
+  // A definition change, like CreateSecondaryIndex: every request holds this
+  // lock shared, and the blank rows it creates read the store pointer.
+  std::unique_lock<std::shared_mutex> lk(schema_mutex_);
   auto table = GetTable(table_name);
   if (!table.has_value()) return false;
   pax::TableSchema schema;

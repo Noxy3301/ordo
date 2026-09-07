@@ -265,7 +265,9 @@ bool Database::Impl::CreateSecondaryIndex(const std::string_view table_name,
                                           const std::string_view index_name,
                                           const uint constraints) {
   if (constraints > index::IndexConstraint::kUnique) return false;
-  std::shared_lock<std::shared_mutex> lk(schema_mutex_);
+  // Exclusive: every reader of the definition holds this lock shared, so a
+  // shared one here would let a request resolve half of a schema change.
+  std::unique_lock<std::shared_mutex> lk(schema_mutex_);
   auto it = GetTable(table_name);
   if (!it.has_value()) {
     return false;

@@ -61,7 +61,10 @@ class Table {
   /**
    * @brief Returns the table's PAX store, or nullptr when PAX is disabled.
    */
-  pax::PaxStore *GetPaxStore() const { return pax_store_.get(); }
+  pax::PaxStore *GetPaxStore() const {
+    std::shared_lock<std::shared_mutex> lk(table_lock_);
+    return pax_store_.get();
+  }
 
   const std::string &Name() const;
 

@@ -33,6 +33,7 @@
 #include <unistd.h>
 
 #include <atomic>
+#include <cstdlib>
 #include <functional>
 #include <iostream>
 #include <mutex>
@@ -53,7 +54,9 @@ class ThreadKeyStorage {
   ThreadKeyStorage(int = 0) : head_node_(nullptr) {
     int err = ::pthread_key_create(&key_, nullptr);
     if (err != 0) {
+      // Every access below reads an uninitialized key otherwise.
       std::cerr << "::pthread_key_create failed: " << err << std::endl;
+      std::abort();
     }
   }
 

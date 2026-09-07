@@ -124,13 +124,9 @@ using SecondaryOps =
 using PrimaryPos = std::unordered_map<std::pair<std::string, std::string>,
                                       size_t, PrimaryKeyHash>;
 
-bool IsSecondary(const KeyValuePair &kvp) {
-  return !kvp.index_name.empty() ||
-         static_cast<SecondaryIndexOp>(kvp.secondary_op) !=
-             SecondaryIndexOp::None ||
-         !kvp.primary_keys.empty() || !kvp.secondary_primary_key.empty() ||
-         kvp.index_type != 0;
-}
+// The index name alone decides: a primary write carries an empty one, and
+// the other fields are written on both paths.
+bool IsSecondary(const KeyValuePair &kvp) { return !kvp.index_name.empty(); }
 
 // Keep the newest delta per (secondary key, primary key). A full entry
 // arrives as one add per primary key it holds.

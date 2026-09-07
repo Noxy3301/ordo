@@ -17,7 +17,6 @@ LineairDB::Config MakeConfig(size_t epoch_duration_ms) {
   LineairDB::Config config;
   config.epoch_duration_ms = epoch_duration_ms;
   config.enable_recovery = false;
-  config.durability = LineairDB::Config::Durability::Volatile;
   config.work_dir = "./lineairdb_deferred_purge_test_logs";
   std::filesystem::remove_all(config.work_dir);
   return config;

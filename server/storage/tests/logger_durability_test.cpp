@@ -42,7 +42,6 @@ class LoggerDurabilityTest : public ::testing::Test {
     ASSERT_NE(::mkdtemp(buffer.data()), nullptr);
     root_ = buffer.data();
     config_.work_dir = root_ + "/logs";
-    config_.durability = LineairDB::Config::Durability::Logged;
     // Every fixture writes out its capacity before its first group; these
     // logs hold a handful of frames.
     config_.wal_initial_capacity_bytes = 1ull << 20;
@@ -132,8 +131,6 @@ TEST_F(LoggerDurabilityTest, WaitersWakeAtEpochGranularity) {
 // fdatasync that would earn it is still running. Holding the syscall makes the
 // order observable rather than merely likely.
 TEST_F(LoggerDurabilityTest, SyncAcknowledgementFollowsTheFdatasync) {
-  config_.durability = LineairDB::Config::Durability::Logged;
-
   std::mutex mutex;
   std::condition_variable held;
   bool inside_fdatasync = false;
@@ -226,7 +223,6 @@ TEST_F(LoggerDurabilityTest, AsyncAndUnloggedCommitsDoNotWait) {
   // The log is held exclusively for as long as a logger owns it, so the
   // second contract gets its own scope rather than overlapping with the
   // first.
-  config_.durability = LineairDB::Config::Durability::Logged;
   Logger sync_logger(config_);
   ASSERT_EQ(sync_logger.Recover().status, Logger::RecoveryStatus::Ok);
   sync_logger.StartFlusher();

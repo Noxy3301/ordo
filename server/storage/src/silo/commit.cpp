@@ -583,9 +583,8 @@ void Install(Ctx &c) {
 
 // Phase 3.2: build the log snapshot before unlock so a later transaction
 // cannot overwrite the values we just logged.
-WriteSetType BuildLog(Ctx &c, bool logging) {
+WriteSetType BuildLog(Ctx &c) {
   WriteSetType log_set;
-  if (!logging) return log_set;
 
   log_set.reserve(c.writes.size() + c.si_ops.size());
   for (const auto &write : c.writes) {
@@ -719,7 +718,7 @@ bool Commit(TableDictionary &tables, std::shared_mutex &schema_mutex,
   if (!ValidateUnique(c)) return false;
 
   Install(c);
-  WriteSetType log_set = BuildLog(c, logger.logging());
+  WriteSetType log_set = BuildLog(c);
   Publish(c, reaper, log_set);
   const bool awaits_durability =
       Enqueue(logger, log_set, c.commit_epoch, policy);

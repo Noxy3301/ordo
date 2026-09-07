@@ -42,7 +42,6 @@ class StatelessRecoveryTest : public ::testing::Test {
   LineairDB::Config MakeConfig(bool enable_recovery) const {
     LineairDB::Config config;
     config.epoch_duration_ms = 10;
-    config.durability = LineairDB::Config::Durability::Logged;
     config.enable_recovery = enable_recovery;
     config.work_dir = work_dir_;
     config.wal_initial_capacity_bytes = 1ull << 20;

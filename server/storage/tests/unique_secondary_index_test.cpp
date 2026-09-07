@@ -37,7 +37,8 @@ class UniqueSecondaryIndexTest : public ::testing::Test {
 };
 
 TEST_F(UniqueSecondaryIndexTest, DictUniqueFlagRejectsDuplicateSecondaryKey) {
-  config_.durability = LineairDB::Config::Durability::Volatile;
+  config_.work_dir = "./lineairdb_unique_secondary_index_test_logs";
+  std::filesystem::remove_all(config_.work_dir);
   config_.enable_recovery = false;
 
   LineairDB::Database db(config_);
@@ -52,7 +53,6 @@ TEST_F(UniqueSecondaryIndexTest, DictUniqueFlagRejectsDuplicateSecondaryKey) {
 
 TEST_F(UniqueSecondaryIndexTest,
        RecoveryRestoresUniqueSecondaryIndexTypeFromLogs) {
-  config_.durability = LineairDB::Config::Durability::Logged;
   config_.enable_recovery = true;
 
   {

@@ -254,22 +254,11 @@ EpochScanCheckpoint::EpochScanCheckpoint(const Config &config,
 
 EpochScanCheckpoint::~EpochScanCheckpoint() { Stop(); }
 
-bool EpochScanCheckpoint::Supported() const {
-  if (config_.durability != Config::Durability::Logged) {
-    SPDLOG_WARN(
-        "No checkpoint image is written: an image is merged with the log at "
-        "recovery, and this durability contract writes no log");
-    return false;
-  }
-  return true;
-}
-
 void EpochScanCheckpoint::Start() {
   if (config_.checkpoint_interval_ms == 0 &&
       config_.checkpoint_once_after_ms == 0) {
     return;
   }
-  if (!Supported()) return;
   thread_ = std::thread([this]() { Loop(); });
 }
 
@@ -301,8 +290,6 @@ void EpochScanCheckpoint::Loop() {
 }
 
 bool EpochScanCheckpoint::RunOnce(Stats *out_stats) {
-  if (!Supported()) return false;
-
   std::unique_lock<std::mutex> capture(capture_mutex_, std::try_to_lock);
   if (!capture.owns_lock()) {
     SPDLOG_WARN("A checkpoint image is already being written");
@@ -488,21 +475,19 @@ bool EpochScanCheckpoint::Publish(const LogRecords &records, Stats *stats) {
   // observed would let a version come back without its transaction. The wait
   // precedes the header build, which embeds the frontier read once it returns.
   const auto gate_begin = Clock::now();
-  if (config_.durability == Config::Durability::Logged) {
-    const auto result = logger_.WaitUntilDurable(
-        stats->end_epoch, Clock::now() + kDurabilityWait);
-    if (result != Logger::WaitResult::Durable) {
-      // Nothing was written this round; drop any working file an earlier
-      // failed attempt left behind.
-      ::unlink(working_path_.c_str());
-      SPDLOG_WARN(
-          "Checkpoint {0} discarded: the log did not become durable through "
-          "epoch {1}",
-          stats->generation, stats->end_epoch);
-      return false;
-    }
-    stats->wal_frontier_at_publish = logger_.GetWalFrontier();
+  const auto result = logger_.WaitUntilDurable(stats->end_epoch,
+                                               Clock::now() + kDurabilityWait);
+  if (result != Logger::WaitResult::Durable) {
+    // Nothing was written this round; drop any working file an earlier
+    // failed attempt left behind.
+    ::unlink(working_path_.c_str());
+    SPDLOG_WARN(
+        "Checkpoint {0} discarded: the log did not become durable through "
+        "epoch {1}",
+        stats->generation, stats->end_epoch);
+    return false;
   }
+  stats->wal_frontier_at_publish = logger_.GetWalFrontier();
   stats->gate_ms = ElapsedMs(gate_begin);
 
   const auto write_begin = Clock::now();

@@ -126,9 +126,6 @@ class EpochScanCheckpoint {
   /** @brief What one attempt at one row produced. */
   enum class Capture { Taken, Skipped, Unstable };
 
-  /** @brief Whether this configuration can produce a usable image. */
-  bool Supported() const;
-
   static Capture CapturePrimaryRow(const std::string &table_name,
                                    std::string_view key, const DataItem &item,
                                    LogRecord::KeyValuePair *out,

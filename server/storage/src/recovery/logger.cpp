@@ -253,9 +253,7 @@ WriteSetType BuildRecoverySet(const LogRecords &image, const LogRecords &tail) {
 }  // namespace
 
 Logger::Logger(const Config &config, WalIo io)
-    : work_dir_(config.work_dir),
-      logging_(config.durability == Config::Durability::Logged),
-      replays_(config.enable_recovery) {
+    : work_dir_(config.work_dir), replays_(config.enable_recovery) {
   LineairDB::Util::SetUpSPDLog();
   logger_ = std::make_unique<ThreadLocalLogger>(
       config, [this](EpochNumber frontier) { PublishDurable(frontier); },

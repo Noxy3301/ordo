@@ -1,6 +1,7 @@
 #include <lineairdb/config.h>
 #include <lineairdb/database.h>
 
+#include <filesystem>
 #include <memory>
 #include <string>
 #include <utility>
@@ -19,7 +20,8 @@ class ScanSecondaryIndexTest : public ::testing::Test {
   std::unique_ptr<LineairDB::Database> db_;
   virtual void SetUp() {
     config_.enable_recovery = false;
-    config_.durability = LineairDB::Config::Durability::Volatile;
+    config_.work_dir = "./lineairdb_scan_secondary_index_test_logs";
+    std::filesystem::remove_all(config_.work_dir);
     db_ = std::make_unique<LineairDB::Database>(config_);
   }
 };

@@ -191,7 +191,7 @@ Database::Impl::Impl(const Config &c)
   }
   // Armed after recovery, which reports its own failures by refusing to
   // start, and before the flusher that can raise one at run time.
-  if (logging()) logger_.EnableProcessFailStop();
+  logger_.EnableProcessFailStop();
   // Built before any thread records, so its storage and its dump signal are
   // in place rather than raised by whichever path happens to reach it first.
   Recovery::FlushTrace::Instance();
@@ -235,7 +235,7 @@ std::function<void(EpochNumber)> Database::Impl::EventsOnEpochIsUpdated() {
     // still be online in U-1, so U-2 is the newest epoch that is certainly
     // closed and safe to write. Handing the target to the logger's own
     // flusher keeps the durability fdatasync off this pool.
-    if (logging() && updated_epoch >= 3) {
+    if (updated_epoch >= 3) {
       logger_.ScheduleFlush(updated_epoch - 2);
     }
 

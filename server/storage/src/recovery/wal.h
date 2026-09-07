@@ -135,8 +135,7 @@ class Wal {
    * a time. It is a granularity rather than a limit: a log that outgrows it
    * is extended by the same amount again, at the price of one synchronous
    * initialisation. `kNoPreallocation` leaves the file to grow as it is
-   * written, which is what the Volatile contract is given: it writes no
-   * record at all, so reserving would occupy the space for nothing.
+   * written.
    */
   Wal(const std::string &work_dir, WalIo io = WalIo::Posix(),
       uint64_t initial_capacity_bytes = kDefaultCapacityBytes);

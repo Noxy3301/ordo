@@ -63,27 +63,6 @@ struct Config {
 
   /**
    * @brief
-   * Whether the database writes a write-ahead log at all.
-   *
-   * - Volatile
-   *   - No logging. A commit is acknowledged once it passes validation;
-   *     nothing is written and nothing is recoverable. No production
-   *     equivalent; it is the logging-disabled research baseline.
-   * - Logged
-   *   - Every commit writes a record. When the acknowledgement happens
-   *     relative to the record reaching the device is not decided here: each
-   *     commit carries its own CommitPolicy.
-   *
-   * Default: Logged
-   */
-  enum class Durability {
-    Volatile,
-    Logged,
-  };
-  Durability durability = Durability::Logged;
-
-  /**
-   * @brief
    * How much of the write-ahead log is made writable in place at a time.
    *
    * @details
@@ -94,8 +73,7 @@ struct Config {
    * device-specific). A log that grows past it is extended by the same
    * amount again: a granularity rather than a limit. Larger means fewer
    * synchronous extensions but a longer startup scan of the reserved
-   * region. Zero disables reservation and lets the file grow as written,
-   * which is what a Volatile database is given: it never writes a record.
+   * region. Zero disables reservation and lets the file grow as written.
    *
    * @note The storage stack must honour fsync/fdatasync; the supported
    * ext4 setup uses its default data ordering and barriers. A log from a

@@ -154,8 +154,7 @@ inline constexpr char kDuplicateSecondaryKeyAbortPrefix[] = "unique_si_";
 
 /**
  * @brief When a commit is acknowledged, relative to its record reaching the
- * device. Carried per commit; a Volatile database writes no log and ignores
- * it.
+ * device. Carried per commit.
  *
  * The equivalent settings elsewhere, to keep Async from being read as a
  * faster Sync: Sync is PostgreSQL's synchronous_commit=on, SQL Server's full

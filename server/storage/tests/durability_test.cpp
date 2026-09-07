@@ -38,7 +38,6 @@ class DurabilityTest : public ::testing::Test {
   std::unique_ptr<LineairDB::Database> db_;
   virtual void SetUp() {
     std::filesystem::remove_all("lineairdb_logs");
-    config_.durability = LineairDB::Config::Durability::Logged;
     config_.enable_recovery = true;
     db_ = std::make_unique<LineairDB::Database>(config_);
     db_->CreateTable(kTable);
@@ -48,7 +47,6 @@ class DurabilityTest : public ::testing::Test {
 TEST_F(DurabilityTest, Recovery) {
   // We expect LineairDB enables recovery logging by default.
   const LineairDB::Config config = db_->GetConfig();
-  ASSERT_EQ(config.durability, LineairDB::Config::Durability::Logged);
 
   int initial_value = 1;
   ASSERT_TRUE(TestHelper::Write<int>(*db_, kTable, "alice", initial_value));
@@ -71,7 +69,6 @@ TEST_F(DurabilityTest, Recovery) {
 TEST_F(DurabilityTest, RecoveryKeepsDeletedKeysAbsent) {
   // We expect LineairDB enables recovery logging by default.
   const LineairDB::Config config = db_->GetConfig();
-  ASSERT_EQ(config.durability, LineairDB::Config::Durability::Logged);
 
   int initial_value = 1;
   ASSERT_TRUE(TestHelper::Write<int>(*db_, kTable, "alice", initial_value));
@@ -101,7 +98,6 @@ TEST_F(DurabilityTest, RecoveryLargeObject) {
 TEST_F(DurabilityTest, RecoveryInContendedWorkload) {
   // We expect LineairDB enables recovery logging by default.
   const LineairDB::Config config = db_->GetConfig();
-  ASSERT_EQ(config.durability, LineairDB::Config::Durability::Logged);
 
   const int value = 0xBEEF;
   std::vector<std::thread> writers;
@@ -152,7 +148,6 @@ TEST(CommitPolicyTest, AsyncDoesNotWaitForTheDevice) {
   LineairDB::Config config;
   config.work_dir = "./lineairdb_commit_policy_test_logs";
   std::filesystem::remove_all(config.work_dir);
-  config.durability = LineairDB::Config::Durability::Logged;
   config.enable_recovery = false;
   config.epoch_duration_ms = kEpochMs;
 

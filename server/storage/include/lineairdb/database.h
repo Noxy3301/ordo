@@ -344,7 +344,7 @@ class Database {
    * @param range_reads Range reads assembled by the caller from earlier
    *                    scans.
    * @param policy When this commit is acknowledged, relative to its record
-   *                    reaching the device. Ignored by a Volatile database.
+   *                    reaching the device.
    * @param abort_reason Optional out parameter. Set only when the function
    *                    returns false.
    * @return true on commit; false on validation failure or schema mismatch.

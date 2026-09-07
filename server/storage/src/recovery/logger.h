@@ -122,7 +122,6 @@ class Logger {
   WaitResult WaitUntilDurable(EpochNumber commit_epoch, Deadline deadline);
 
   /** True when this logger writes records at all. */
-  bool logging() const { return logging_; }
 
   /**
    * @brief Returns once the transaction that committed in `commit_epoch` may
@@ -172,7 +171,6 @@ class Logger {
   void PublishStopped();
 
   const std::string work_dir_;
-  const bool logging_;
   // Whether this instance replays what it reads, which is what decides
   // whether a checkpoint image is read at all.
   const bool replays_;

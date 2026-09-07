@@ -164,11 +164,6 @@ class Database::Impl {
 
   std::optional<Table *> GetTable(const std::string_view table_name);
 
-  /** True when this database writes a log at all. */
-  bool logging() const {
-    return config_.durability == Config::Durability::Logged;
-  }
-
   bool WriteCheckpointImage(uint64_t *out_version_retries);
 
  private:

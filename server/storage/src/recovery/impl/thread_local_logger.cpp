@@ -35,10 +35,7 @@ ThreadLocalLogger::ThreadLocalLogger(const Config &config,
                                      PublishDurable publish_durable,
                                      PublishFailure publish_failure,
                                      ReadDurable read_durable, WalIo io)
-    : wal_(config.work_dir, std::move(io),
-           config.durability == Config::Durability::Volatile
-               ? Wal::kNoPreallocation
-               : config.wal_initial_capacity_bytes),
+    : wal_(config.work_dir, std::move(io), config.wal_initial_capacity_bytes),
       publish_durable_(std::move(publish_durable)),
       publish_failure_(std::move(publish_failure)),
       read_durable_(std::move(read_durable)) {

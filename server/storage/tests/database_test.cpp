@@ -14,7 +14,7 @@
  *   limitations under the License.
  */
 
-#include "lineairdb/database.h"
+#include "storage/database.h"
 
 #include <filesystem>
 #include <memory>
@@ -23,8 +23,8 @@
 #include <vector>
 
 #include "gtest/gtest.h"
-#include "lineairdb/config.h"
 #include "stateless_helper.hpp"
+#include "storage/config.h"
 
 namespace {
 constexpr const char *kTable = "users";
@@ -32,12 +32,12 @@ constexpr const char *kTable = "users";
 
 class DatabaseTest : public ::testing::Test {
  protected:
-  LineairDB::Config config_;
-  std::unique_ptr<LineairDB::Database> db_;
+  helios::storage::Config config_;
+  std::unique_ptr<helios::storage::Database> db_;
   virtual void SetUp() {
     std::filesystem::remove_all(config_.work_dir);
     config_.epoch_duration_ms = 100;
-    db_ = std::make_unique<LineairDB::Database>(config_);
+    db_ = std::make_unique<helios::storage::Database>(config_);
     ASSERT_TRUE(db_->CreateTable(kTable));
   }
 };
@@ -46,8 +46,8 @@ TEST_F(DatabaseTest, Instantiate) {}
 
 TEST_F(DatabaseTest, InstantiateWithConfig) {
   db_.reset(nullptr);
-  LineairDB::Config conf;
-  ASSERT_NO_THROW(db_ = std::make_unique<LineairDB::Database>(conf));
+  helios::storage::Config conf;
+  ASSERT_NO_THROW(db_ = std::make_unique<helios::storage::Database>(conf));
 }
 
 TEST_F(DatabaseTest, LargeSizeBuffer) {
@@ -94,7 +94,7 @@ TEST_F(DatabaseTest, ThreadSafetyInsertions) {
   constexpr int kValue = 0xBEEF;
   constexpr size_t kKeys = 11;
 
-  std::vector<LineairDB::ExternalWriteEntry> writes;
+  std::vector<helios::storage::ExternalWriteEntry> writes;
   for (size_t idx = 0; idx < kKeys; idx++) {
     writes.push_back({kTable, "alice" + std::to_string(idx),
                       TestHelper::Encode<int>(kValue), false, false});

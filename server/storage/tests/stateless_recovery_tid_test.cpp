@@ -3,15 +3,15 @@
 #include <string>
 
 #include "gtest/gtest.h"
-#include "lineairdb/config.h"
-#include "lineairdb/database.h"
+#include "storage/config.h"
+#include "storage/database.h"
 
 namespace {
 
 constexpr const char *kTable = "recovery_tid_test";
 
-LineairDB::Config MakeConfig() {
-  LineairDB::Config config;
+helios::storage::Config MakeConfig() {
+  helios::storage::Config config;
   config.epoch_duration_ms = 10;
   config.enable_recovery = true;
   config.work_dir = "./helios_stateless_recovery_tid_test_logs";
@@ -27,18 +27,18 @@ TEST(StatelessRecoveryTidTest, ARecoveredKeyAcceptsTheNextWrite) {
   std::filesystem::remove_all(config.work_dir);
 
   {
-    LineairDB::Database db(config);
+    helios::storage::Database db(config);
     db.CreateTable(kTable);
     std::string reason;
     const bool committed =
         db.ValidateAndCommit({}, {{kTable, "alice", "v1", false}}, {}, {},
-                             LineairDB::CommitPolicy::Sync, &reason);
+                             helios::storage::CommitPolicy::Sync, &reason);
     db.ReleaseMasstreeThreadEpoch();
     ASSERT_TRUE(committed) << reason;
   }
 
   {
-    LineairDB::Database db(config);
+    helios::storage::Database db(config);
     db.CreateTable(kTable);
 
     auto read = db.Read(kTable, "alice");
@@ -50,7 +50,7 @@ TEST(StatelessRecoveryTidTest, ARecoveredKeyAcceptsTheNextWrite) {
     std::string reason;
     const bool committed =
         db.ValidateAndCommit({}, {{kTable, "alice", "v2", false}}, {}, {},
-                             LineairDB::CommitPolicy::Sync, &reason);
+                             helios::storage::CommitPolicy::Sync, &reason);
     db.ReleaseMasstreeThreadEpoch();
     EXPECT_TRUE(committed) << reason;
   }

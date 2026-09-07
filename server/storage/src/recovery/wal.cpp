@@ -25,8 +25,8 @@
 #include "util/debug_sync.hpp"
 #include "util/logger.hpp"
 
-namespace LineairDB {
-namespace Recovery {
+namespace helios::storage {
+namespace wal {
 
 namespace {
 
@@ -898,5 +898,5 @@ WalAppendResult Wal::AppendGroup(
   return {true, 0};
 }
 
-}  // namespace Recovery
-}  // namespace LineairDB
+}  // namespace wal
+}  // namespace helios::storage

@@ -16,8 +16,8 @@
 #ifndef HELIOS_DATABASE_IMPL_H
 #define HELIOS_DATABASE_IMPL_H
 
-#include <lineairdb/config.h>
-#include <lineairdb/database.h>
+#include <storage/config.h>
+#include <storage/database.h>
 #include <table/table.h>
 
 #include <chrono>
@@ -38,7 +38,7 @@
 #include "types/transaction_id.hpp"
 #include "util/epoch_framework.hpp"
 
-namespace LineairDB {
+namespace helios::storage {
 
 // The concurrency control this database runs.
 
@@ -76,12 +76,12 @@ class Database::Impl {
 
   const Config &GetConfig() const;
 
-  // NOTE: Called by a special thread managed by EpochFramework.
+  // NOTE: Called by a special thread managed by epoch::EpochFramework.
   std::function<void(EpochNumber)> EventsOnEpochIsUpdated();
 
   bool CreateTable(const std::string_view table_name);
 
-  Pax::PaxStore *GetPaxStore(const std::string_view table_name);
+  pax::PaxStore *GetPaxStore(const std::string_view table_name);
   Database::PaxReadView AcquirePaxReadView(uint32_t fence_timeout_ms);
   void ReleasePaxReadView(const Database::PaxReadView &view);
 
@@ -171,13 +171,13 @@ class Database::Impl {
 
  private:
   Config config_;
-  Recovery::Logger logger_;
-  EpochFramework epoch_framework_;
+  wal::Logger logger_;
+  epoch::EpochFramework epoch_framework_;
   TableDictionary table_dictionary_;
-  Recovery::EpochScanCheckpoint scan_checkpoint_;
+  wal::EpochScanCheckpoint scan_checkpoint_;
   mutable std::shared_mutex schema_mutex_;
-  Index::Reaper reaper_;
+  index::Reaper reaper_;
 };
 
-}  // namespace LineairDB
+}  // namespace helios::storage
 #endif /** HELIOS_DATABASE_IMPL_H **/

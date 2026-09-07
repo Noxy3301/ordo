@@ -26,8 +26,8 @@
 #include "util/epoch_framework.hpp"
 #include "util/logger.hpp"
 
-namespace LineairDB {
-namespace Recovery {
+namespace helios::storage {
+namespace wal {
 
 namespace {
 
@@ -241,7 +241,7 @@ EpochScanCheckpoint::Capture EpochScanCheckpoint::CaptureSecondaryEntry(
 
 EpochScanCheckpoint::EpochScanCheckpoint(const Config &config,
                                          TableDictionary &tables,
-                                         EpochFramework &epoch_framework,
+                                         epoch::EpochFramework &epoch_framework,
                                          Logger &logger)
     : config_(config),
       tables_(tables),
@@ -330,7 +330,7 @@ bool EpochScanCheckpoint::RunOnce(Stats *out_stats) {
   // Ends the reclamation critical section the pass held open from its first
   // walk, so a row retired during it could not be freed under the copy; no
   // index reclaims anything while a thread is inside one.
-  Index::MasstreeReleaseThreadEpoch();
+  index::MasstreeReleaseThreadEpoch();
 
   stats.scan_ms = ElapsedMs(scan_begin);
   // Every version in the image was published at or below this epoch, which is
@@ -386,7 +386,7 @@ bool EpochScanCheckpoint::CaptureTable(Table &table, LogRecord *record,
   });
 
   table.ForEachSecondaryIndex(
-      [&](const std::string &index_name, Index::SecondaryIndex &index) {
+      [&](const std::string &index_name, index::SecondaryIndex &index) {
         const uint32_t index_type = index.GetIndexType().Raw();
         index.ForEach([&](std::string_view key, DataItem &item) {
           LogRecord::KeyValuePair kvp;
@@ -442,7 +442,7 @@ bool EpochScanCheckpoint::CaptureTable(Table &table, LogRecord *record,
 
     std::vector<std::pair<std::string, std::string>> entries_left;
     for (const auto &[index_name, key] : unstable_entries) {
-      Index::SecondaryIndex *index = table.GetSecondaryIndex(index_name);
+      index::SecondaryIndex *index = table.GetSecondaryIndex(index_name);
       if (index == nullptr) continue;
       DataItem *item = index->Get(key);
       if (item == nullptr) continue;
@@ -635,5 +635,5 @@ EpochScanCheckpoint::Image EpochScanCheckpoint::Load(
   return image;
 }
 
-}  // namespace Recovery
-}  // namespace LineairDB
+}  // namespace wal
+}  // namespace helios::storage

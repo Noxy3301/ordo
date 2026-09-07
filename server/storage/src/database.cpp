@@ -14,8 +14,8 @@
  *   limitations under the License.
  */
 
-#include <lineairdb/config.h>
-#include <lineairdb/database.h>
+#include <storage/config.h>
+#include <storage/database.h>
 
 #include <algorithm>
 #include <cassert>
@@ -26,13 +26,13 @@
 #include "index/secondary_index.h"
 #include "recovery/flush_trace.h"
 #include "util/logger.hpp"
-namespace LineairDB {
+namespace helios::storage {
 
 Database::Database() : db_pimpl_(std::make_unique<Impl>()) {
-  LineairDB::Util::SetUpSPDLog();
+  helios::storage::util::SetUpSPDLog();
 }
 Database::Database(const Config &c) : db_pimpl_(std::make_unique<Impl>(c)) {
-  LineairDB::Util::SetUpSPDLog();
+  helios::storage::util::SetUpSPDLog();
 }
 
 Database::~Database() noexcept = default;
@@ -42,9 +42,9 @@ const Config Database::GetConfig() const noexcept {
 }
 
 void Database::ReleaseMasstreeThreadEpoch() {
-  Index::MasstreeReleaseThreadEpoch();
+  index::MasstreeReleaseThreadEpoch();
 }
-void Database::FullyDrainMasstreeThread() { Index::MasstreeFullyDrainThread(); }
+void Database::FullyDrainMasstreeThread() { index::MasstreeFullyDrainThread(); }
 bool Database::CreateTable(const std::string_view table_name) {
   return db_pimpl_->CreateTable(table_name);
 }
@@ -57,7 +57,7 @@ bool Database::InstallPaxSchema(const std::string_view table_name,
                                      field_scale);
 }
 
-Pax::PaxStore *Database::GetPaxStore(const std::string_view table_name) {
+pax::PaxStore *Database::GetPaxStore(const std::string_view table_name) {
   return db_pimpl_->GetPaxStore(table_name);
 }
 
@@ -150,11 +150,11 @@ bool Database::WriteCheckpointImage(uint64_t *out_version_retries) {
 }
 
 EpochNumber Database::Impl::ResumeEpochAbove(EpochNumber frontier) {
-  if (frontier >= EpochFramework::kEpochHighWater - 1) {
+  if (frontier >= epoch::EpochFramework::kEpochHighWater - 1) {
     SPDLOG_CRITICAL(
         "Startup failed: resuming above the recovered epoch {0} would reach "
         "the epoch high-water mark {1}",
-        frontier, EpochFramework::kEpochHighWater);
+        frontier, epoch::EpochFramework::kEpochHighWater);
     exit(EXIT_FAILURE);
   }
   return frontier + 1;
@@ -170,7 +170,8 @@ Database::Impl::Impl(const Config &c)
     SPDLOG_INFO("LineairDB instance has been constructed.");
   } else {
     SPDLOG_ERROR(
-        "It is prohibited to allocate two LineairDB::Database instance at "
+        "It is prohibited to allocate two helios::storage::Database instance "
+        "at "
         "the same time.");
     exit(EXIT_FAILURE);
   }
@@ -181,7 +182,7 @@ Database::Impl::Impl(const Config &c)
     Recovery();
   } else {
     auto scanned = logger_.Recover();
-    if (scanned.status != Recovery::Logger::RecoveryStatus::Ok) {
+    if (scanned.status != wal::Logger::RecoveryStatus::Ok) {
       SPDLOG_CRITICAL(
           "Startup failed: the write-ahead log could not be read; refusing to "
           "start with an unknown durable state");
@@ -198,7 +199,7 @@ Database::Impl::Impl(const Config &c)
   logger_.EnableProcessFailStop();
   // Built before any thread records, so its storage and its dump signal are
   // in place rather than raised by whichever path happens to reach it first.
-  Recovery::FlushTrace::Instance();
+  wal::FlushTrace::Instance();
   logger_.StartFlusher();
   epoch_framework_.Start();
   // Last: its scan waits on the epoch it starts.
@@ -221,7 +222,7 @@ Database::Impl::~Impl() {
       epoch_framework_.GetGlobalEpoch(), logger_.GetDurableEpoch());
   // Written once every thread that records has joined, so the census reaches
   // the filesystem without any of its cost landing on a measured path.
-  Recovery::FlushTrace::Instance().Dump();
+  wal::FlushTrace::Instance().Dump();
   SPDLOG_INFO("LineairDB instance has been destructed.");
   assert(Database::Impl::CurrentDBInstance == this);
   Database::Impl::CurrentDBInstance = nullptr;
@@ -248,7 +249,7 @@ std::function<void(EpochNumber)> Database::Impl::EventsOnEpochIsUpdated() {
     // release their epoch at tx/RPC boundaries via
     // ReleaseMasstreeThreadEpoch; we only move the watermark here.
     reaper_.Reap(updated_epoch);
-    Index::MasstreeAdvanceEpoch();
+    index::MasstreeAdvanceEpoch();
   };
 }
 
@@ -259,7 +260,7 @@ bool Database::Impl::CreateTable(const std::string_view table_name) {
 bool Database::Impl::CreateSecondaryIndex(const std::string_view table_name,
                                           const std::string_view index_name,
                                           const uint index_type) {
-  if (index_type > Index::SecondaryIndexType::kUnique) return false;
+  if (index_type > index::SecondaryIndexType::kUnique) return false;
   std::shared_lock<std::shared_mutex> lk(schema_mutex_);
   auto it = GetTable(table_name);
   if (!it.has_value()) {
@@ -267,27 +268,27 @@ bool Database::Impl::CreateSecondaryIndex(const std::string_view table_name,
   }
   return it.value()->CreateSecondaryIndex(
       index_name,
-      Index::SecondaryIndexType::FromRaw(
-          static_cast<Index::SecondaryIndexType::RawType>(index_type)));
+      index::SecondaryIndexType::FromRaw(
+          static_cast<index::SecondaryIndexType::RawType>(index_type)));
 }
 
 StatelessReadResult Database::Impl::Read(
     const std::string_view table_name, const std::string_view key,
     const std::vector<uint32_t> *selected_columns) {
-  return Silo::Read(table_dictionary_, schema_mutex_, table_name, key,
+  return silo::Read(table_dictionary_, schema_mutex_, table_name, key,
                     selected_columns);
 }
 
 std::vector<StatelessReadResult> Database::Impl::BatchRead(
     const std::vector<std::pair<std::string, std::string>> &keys) {
-  return Silo::BatchRead(table_dictionary_, schema_mutex_, keys);
+  return silo::BatchRead(table_dictionary_, schema_mutex_, keys);
 }
 
 StatelessRangeScanResult Database::Impl::Scan(
     const std::string_view table_name, const std::string_view start_key,
     const std::string_view end_key, uint64_t row_limit, bool reverse_scan,
     const std::vector<uint32_t> *selected_columns) {
-  return Silo::Scan(table_dictionary_, schema_mutex_, table_name, start_key,
+  return silo::Scan(table_dictionary_, schema_mutex_, table_name, start_key,
                     end_key, row_limit, reverse_scan, selected_columns);
 }
 
@@ -296,7 +297,7 @@ StatelessSecondaryRangeScanResult Database::Impl::ScanIndex(
     const std::string_view start_key, const std::string_view end_key,
     uint64_t row_limit, bool reverse_scan,
     const std::vector<uint32_t> *selected_columns) {
-  return Silo::ScanIndex(table_dictionary_, schema_mutex_, table_name,
+  return silo::ScanIndex(table_dictionary_, schema_mutex_, table_name,
                          index_name, start_key, end_key, row_limit,
                          reverse_scan, selected_columns);
 }
@@ -304,7 +305,7 @@ StatelessSecondaryRangeScanResult Database::Impl::ScanIndex(
 StatelessPaxRowRefScanResult Database::Impl::ScanPax(
     const std::string_view table_name, const std::string_view start_key,
     const std::string_view end_key, uint64_t row_limit, bool reverse_scan) {
-  return Silo::ScanPax(table_dictionary_, schema_mutex_, table_name, start_key,
+  return silo::ScanPax(table_dictionary_, schema_mutex_, table_name, start_key,
                        end_key, row_limit, reverse_scan);
 }
 
@@ -314,9 +315,9 @@ bool Database::Impl::ValidateAndCommit(
     const std::vector<ExternalSecondaryIndexEntry> &secondary_index_ops,
     const std::vector<ExternalRangeReadEntry> &range_reads, CommitPolicy policy,
     std::string *abort_reason) {
-  const Silo::CommitPayload payload{reads, writes, secondary_index_ops,
+  const silo::CommitPayload payload{reads, writes, secondary_index_ops,
                                     range_reads};
-  return Silo::Commit(table_dictionary_, schema_mutex_, epoch_framework_,
+  return silo::Commit(table_dictionary_, schema_mutex_, epoch_framework_,
                       reaper_, logger_, payload, policy, abort_reason);
 }
 
@@ -326,7 +327,7 @@ std::optional<Table *> Database::Impl::GetTable(
 }
 
 bool Database::Impl::WriteCheckpointImage(uint64_t *out_version_retries) {
-  Recovery::EpochScanCheckpoint::Stats stats;
+  wal::EpochScanCheckpoint::Stats stats;
   const bool published = scan_checkpoint_.RunOnce(&stats);
   if (out_version_retries != nullptr) *out_version_retries = stats.retries;
   return published;
@@ -335,7 +336,7 @@ bool Database::Impl::WriteCheckpointImage(uint64_t *out_version_retries) {
 void Database::Impl::Recovery() {
   SPDLOG_INFO("Start recovery process");
   auto recovered = logger_.Recover();
-  if (recovered.status != Recovery::Logger::RecoveryStatus::Ok) {
+  if (recovered.status != wal::Logger::RecoveryStatus::Ok) {
     SPDLOG_CRITICAL(
         "Recovery failed: the write-ahead log could not be read; refusing to "
         "start with an unknown durable state");
@@ -375,7 +376,7 @@ void Database::Impl::Recovery() {
           recovery_set.key, std::move(recovery_set.data_item_copy));
     } else {
       // Secondary Index recovery
-      Index::SecondaryIndex *idx = nullptr;
+      index::SecondaryIndex *idx = nullptr;
       table.value()->GetOrCreateSecondaryIndex(recovery_set.index_name,
                                                recovery_set.index_type, &idx);
       if (idx != nullptr) {
@@ -401,4 +402,4 @@ void Database::Impl::Recovery() {
   SPDLOG_INFO("Finish recovery process");
 }
 
-}  // namespace LineairDB
+}  // namespace helios::storage

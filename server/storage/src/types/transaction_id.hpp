@@ -20,7 +20,7 @@
 
 #include "types/definitions.h"
 
-namespace LineairDB {
+namespace helios::storage {
 
 struct TransactionId {
   EpochNumber epoch;
@@ -46,5 +46,5 @@ struct TransactionId {
   MSGPACK_DEFINE(epoch, tid);
 };
 
-}  // namespace LineairDB
+}  // namespace helios::storage
 #endif /* HELIOS_TRANSACTION_ID_HPP */

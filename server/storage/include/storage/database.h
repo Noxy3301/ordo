@@ -17,8 +17,8 @@
 #ifndef HELIOS_DATABASE_H
 #define HELIOS_DATABASE_H
 
-#include <lineairdb/config.h>
-#include <lineairdb/stateless.h>
+#include <storage/config.h>
+#include <storage/stateless.h>
 
 #include <chrono>
 #include <functional>
@@ -30,9 +30,9 @@
 
 #include "config.h"
 
-namespace LineairDB {
+namespace helios::storage {
 
-namespace Pax {
+namespace pax {
 class PaxStore;
 }
 
@@ -138,7 +138,7 @@ class Database {
    * @return Store pointer, or nullptr when the table is missing or has no PAX
    * schema.
    */
-  Pax::PaxStore *GetPaxStore(const std::string_view table_name);
+  pax::PaxStore *GetPaxStore(const std::string_view table_name);
 
   /**
    * @brief Handle for one columnar read view.
@@ -335,7 +335,7 @@ class Database {
    * key to its record, lock the write set, validate the reads (point
    * TIDs, range replays, UNIQUE rechecks), then install the writes,
    * append the log set, and unlock with a new TID. The full contract
-   * lives with Silo::Commit.
+   * lives with silo::Commit.
    *
    * Aborts return false. The optional `abort_reason` is set to a short
    * machine-readable label such as `exact_read_tid_moved`,
@@ -382,6 +382,6 @@ class Database {
  private:
   const std::unique_ptr<Impl> db_pimpl_;
 };
-};  // namespace LineairDB
+}  // namespace helios::storage
 
 #endif

@@ -1,7 +1,7 @@
 #ifndef HELIOS_SILO_READ_H
 #define HELIOS_SILO_READ_H
 
-#include <lineairdb/stateless.h>
+#include <storage/stateless.h>
 
 #include <cstdint>
 #include <shared_mutex>
@@ -10,7 +10,7 @@
 #include <utility>
 #include <vector>
 
-namespace LineairDB {
+namespace helios::storage {
 
 class TableDictionary;
 
@@ -22,7 +22,7 @@ class TableDictionary;
  * with the Silo-style stable read; the returned packed TIDs are the read-set
  * evidence the caller later submits through ValidateAndCommit.
  */
-namespace Silo {
+namespace silo {
 
 /**
  * @brief Read one row.
@@ -53,7 +53,7 @@ std::vector<StatelessReadResult> BatchRead(
  * @brief Range-scan the primary index and return the rows observed in
  *        the range.
  *
- * Drives Index::Scan / Index::ScanReverse with a callback that, for each
+ * Drives index::Scan / index::ScanReverse with a callback that, for each
  * hit, performs the same double-TID read used by the point read. The caller
  * assembles the commit-time ExternalRangeReadEntry from its own scan
  * arguments and the returned keys. Tombstones are skipped: key-list
@@ -99,7 +99,7 @@ StatelessPaxRowRefScanResult ScanPax(TableDictionary &tables,
                                      std::string_view end_key,
                                      uint64_t row_limit, bool reverse_scan);
 
-}  // namespace Silo
-}  // namespace LineairDB
+}  // namespace silo
+}  // namespace helios::storage
 
 #endif  // HELIOS_SILO_READ_H

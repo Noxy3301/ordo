@@ -16,7 +16,7 @@
 #ifndef HELIOS_RECOVERY_THREAD_LOCAL_LOGGER_H
 #define HELIOS_RECOVERY_THREAD_LOCAL_LOGGER_H
 
-#include <lineairdb/config.h>
+#include <storage/config.h>
 
 #include <condition_variable>
 #include <functional>
@@ -30,8 +30,8 @@
 #include "types/snapshot.hpp"
 #include "util/thread_key_storage.h"
 
-namespace LineairDB {
-namespace Recovery {
+namespace helios::storage {
+namespace wal {
 
 /**
  * @brief Buffers log records per producing thread and writes them from one
@@ -119,6 +119,6 @@ class ThreadLocalLogger final {
   std::thread flusher_;
 };
 
-}  // namespace Recovery
-}  // namespace LineairDB
+}  // namespace wal
+}  // namespace helios::storage
 #endif /* HELIOS_RECOVERY_THREAD_LOCAL_LOGGER_H */

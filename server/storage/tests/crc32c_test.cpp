@@ -10,11 +10,11 @@
 
 namespace {
 
-using LineairDB::Recovery::ComputeCrc32c;
-using LineairDB::Recovery::Crc32c;
-using LineairDB::Recovery::HasSse42ForTesting;
-using LineairDB::Recovery::UpdateWithSse42ForTesting;
-using LineairDB::Recovery::UpdateWithTableForTesting;
+using helios::storage::wal::ComputeCrc32c;
+using helios::storage::wal::Crc32c;
+using helios::storage::wal::HasSse42ForTesting;
+using helios::storage::wal::UpdateWithSse42ForTesting;
+using helios::storage::wal::UpdateWithTableForTesting;
 
 constexpr uint32_t kInitialState = 0xffffffffu;
 

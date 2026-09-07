@@ -13,8 +13,8 @@
 #include <utility>
 #include <vector>
 
-namespace LineairDB {
-namespace Pax {
+namespace helios::storage {
+namespace pax {
 
 /**
  * @brief Per-field storage kind for typed numeric cells.
@@ -384,7 +384,7 @@ std::unordered_map<uint32_t, std::vector<UndoEntry>> UndoGroupEntries(
  */
 std::vector<UndoEntry> UndoSlotEntries(const PaxGroup *group, uint32_t slot);
 
-}  // namespace Pax
-}  // namespace LineairDB
+}  // namespace pax
+}  // namespace helios::storage
 
 #endif  // HELIOS_PAX_STORE_H

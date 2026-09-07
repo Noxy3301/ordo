@@ -12,8 +12,8 @@
 #include "types/snapshot.hpp"
 #include "types/transaction_id.hpp"
 
-namespace LineairDB {
-namespace Index {
+namespace helios::storage {
+namespace index {
 
 class ConcurrentTable;
 class SecondaryIndex;
@@ -117,7 +117,7 @@ class Reaper {
   uint64_t deferred_purge_dropped_ = 0;
 };
 
-}  // namespace Index
-}  // namespace LineairDB
+}  // namespace index
+}  // namespace helios::storage
 
 #endif  // HELIOS_INDEX_REAPER_H

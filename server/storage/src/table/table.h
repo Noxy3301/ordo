@@ -1,6 +1,6 @@
 #pragma once
 
-#include <lineairdb/pax_store.h>
+#include <storage/pax_store.h>
 
 #include <memory>
 #include <shared_mutex>
@@ -9,25 +9,25 @@
 
 #include "index/concurrent_table.h"
 #include "index/secondary_index.h"
-#include "lineairdb/config.h"
+#include "storage/config.h"
 #include "types/definitions.h"
 #include "util/epoch_framework.hpp"
 
-namespace LineairDB {
+namespace helios::storage {
 
 class Table {
  public:
-  Table(EpochFramework &epoch_framework, const Config &config,
+  Table(epoch::EpochFramework &epoch_framework, const Config &config,
         std::string_view table_name);
 
   bool CreateSecondaryIndex(
       const std::string_view index_name,
-      [[maybe_unused]] const Index::SecondaryIndexType index_type) {
+      [[maybe_unused]] const index::SecondaryIndexType index_type) {
     std::unique_lock<std::shared_mutex> lk(table_lock_);
     if (secondary_indices_.count(std::string(index_name))) {
       return false;
     }
-    auto new_index = std::make_unique<Index::SecondaryIndex>(
+    auto new_index = std::make_unique<index::SecondaryIndex>(
         epoch_framework_, config_, index_type);
     secondary_indices_[std::string(index_name)] = std::move(new_index);
     return true;
@@ -43,10 +43,10 @@ class Table {
    * @return true when the schema is installed for this table.
    * @return false when a schema has already been installed.
    */
-  bool InstallPaxSchema(Pax::TableSchema schema) {
+  bool InstallPaxSchema(pax::TableSchema schema) {
     std::unique_lock<std::shared_mutex> lk(table_lock_);
     if (pax_store_ != nullptr) return false;
-    pax_store_ = std::make_unique<Pax::PaxStore>(std::move(schema));
+    pax_store_ = std::make_unique<pax::PaxStore>(std::move(schema));
     primary_index_.SetPaxStore(pax_store_.get());
     return true;
   }
@@ -54,13 +54,13 @@ class Table {
   /**
    * @brief Returns the table's PAX store, or nullptr when PAX is disabled.
    */
-  Pax::PaxStore *GetPaxStore() const { return pax_store_.get(); }
+  pax::PaxStore *GetPaxStore() const { return pax_store_.get(); }
 
   const std::string &GetTableName() const;
 
-  Index::ConcurrentTable &GetPrimaryIndex();
+  index::ConcurrentTable &GetPrimaryIndex();
 
-  Index::SecondaryIndex *GetSecondaryIndex(const std::string_view index_name);
+  index::SecondaryIndex *GetSecondaryIndex(const std::string_view index_name);
 
   size_t GetSecondaryIndexCount() const {
     std::shared_lock<std::shared_mutex> lk(table_lock_);
@@ -76,15 +76,15 @@ class Table {
   }
 
   bool GetOrCreateSecondaryIndex(const std::string_view index_name,
-                                 const Index::SecondaryIndexType index_type,
-                                 Index::SecondaryIndex **out_index) {
+                                 const index::SecondaryIndexType index_type,
+                                 index::SecondaryIndex **out_index) {
     std::unique_lock<std::shared_mutex> lk(table_lock_);
     auto it = secondary_indices_.find(std::string(index_name));
     if (it != secondary_indices_.end()) {
       *out_index = it->second.get();
       return false;
     }
-    auto new_index = std::make_unique<Index::SecondaryIndex>(
+    auto new_index = std::make_unique<index::SecondaryIndex>(
         epoch_framework_, config_, index_type);
     *out_index = new_index.get();
     secondary_indices_[std::string(index_name)] = std::move(new_index);
@@ -92,13 +92,13 @@ class Table {
   }
 
  private:
-  EpochFramework &epoch_framework_;
+  epoch::EpochFramework &epoch_framework_;
   Config config_;
-  Index::ConcurrentTable primary_index_;
-  std::unique_ptr<Pax::PaxStore> pax_store_;
+  index::ConcurrentTable primary_index_;
+  std::unique_ptr<pax::PaxStore> pax_store_;
   mutable std::shared_mutex table_lock_;
-  std::unordered_map<std::string, std::unique_ptr<Index::SecondaryIndex>>
+  std::unordered_map<std::string, std::unique_ptr<index::SecondaryIndex>>
       secondary_indices_;
   std::string table_name_;
 };
-}  // namespace LineairDB
+}  // namespace helios::storage

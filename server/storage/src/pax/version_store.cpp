@@ -4,8 +4,8 @@
 
 #include "util/logger.hpp"
 
-namespace LineairDB {
-namespace Pax {
+namespace helios::storage {
+namespace pax {
 
 namespace {
 /**
@@ -168,5 +168,5 @@ std::vector<UndoEntry> UndoSlotEntries(const PaxGroup *group, uint32_t slot) {
   return VersionStore::Global().EntriesFor(group, slot);
 }
 
-}  // namespace Pax
-}  // namespace LineairDB
+}  // namespace pax
+}  // namespace helios::storage

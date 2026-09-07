@@ -5,7 +5,7 @@
 #include <string>
 #include <vector>
 
-namespace LineairDB {
+namespace helios::storage {
 
 /**
  * @file stateless.h
@@ -69,7 +69,7 @@ struct StatelessRangeScanResult {
 /**
  * @brief One row reference from a PAX primary-index range scan.
  *
- * @details `group` is a `Pax::PaxGroup*` and `item` is a `DataItem*`, kept
+ * @details `group` is a `pax::PaxGroup*` and `item` is a `DataItem*`, kept
  * opaque so this public header does not expose internal storage headers.
  * Callers read the cells they need, then call PaxRowRefCurrentTid() and compare
  * the result with `tid` to reject torn reads.
@@ -199,6 +199,6 @@ struct ExternalRangeReadEntry {
       result_primary_keys;  ///< Secondary index: paired primary keys.
 };
 
-}  // namespace LineairDB
+}  // namespace helios::storage
 
 #endif  // HELIOS_STATELESS_H

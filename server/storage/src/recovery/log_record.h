@@ -9,8 +9,8 @@
 #include "types/definitions.h"
 #include "types/transaction_id.hpp"
 
-namespace LineairDB {
-namespace Recovery {
+namespace helios::storage {
+namespace wal {
 
 /**
  * @brief An epoch-tagged group of key-value writes, as it is persisted.
@@ -47,7 +47,7 @@ struct LogRecord {
 
 using LogRecords = std::vector<LogRecord>;
 
-}  // namespace Recovery
-}  // namespace LineairDB
+}  // namespace wal
+}  // namespace helios::storage
 
 #endif /* HELIOS_RECOVERY_LOG_RECORD_H */

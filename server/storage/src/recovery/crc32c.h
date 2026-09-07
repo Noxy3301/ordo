@@ -4,8 +4,8 @@
 #include <cstddef>
 #include <cstdint>
 
-namespace LineairDB {
-namespace Recovery {
+namespace helios::storage {
+namespace wal {
 
 /**
  * @brief CRC-32C (Castagnoli): reflected polynomial 0x82F63B78, initial
@@ -38,7 +38,7 @@ uint32_t UpdateWithSse42ForTesting(uint32_t state, const void *data,
                                    size_t size);
 bool HasSse42ForTesting();
 
-}  // namespace Recovery
-}  // namespace LineairDB
+}  // namespace wal
+}  // namespace helios::storage
 
 #endif /* HELIOS_RECOVERY_CRC32C_H */

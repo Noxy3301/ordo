@@ -12,8 +12,8 @@
 #include "log_record.h"
 #include "types/definitions.h"
 
-namespace LineairDB {
-namespace Recovery {
+namespace helios::storage {
+namespace wal {
 
 /**
  * @brief Result of scanning the WAL at startup.
@@ -271,7 +271,7 @@ class Wal {
   size_t extension_count_{0};
 };
 
-}  // namespace Recovery
-}  // namespace LineairDB
+}  // namespace wal
+}  // namespace helios::storage
 
 #endif /* HELIOS_RECOVERY_WAL_H */

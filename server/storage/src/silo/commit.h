@@ -1,27 +1,29 @@
 #ifndef HELIOS_SILO_COMMIT_H
 #define HELIOS_SILO_COMMIT_H
 
-#include <lineairdb/config.h>
-#include <lineairdb/stateless.h>
+#include <storage/config.h>
+#include <storage/stateless.h>
 
 #include <shared_mutex>
 #include <string>
 #include <vector>
 
-namespace LineairDB {
+namespace helios::storage {
 
 class TableDictionary;
+namespace epoch {
 class EpochFramework;
+}  // namespace epoch
 
-namespace Recovery {
+namespace wal {
 class Logger;
 }
 
-namespace Index {
+namespace index {
 class Reaper;
 }
 
-namespace Silo {
+namespace silo {
 
 /**
  * @brief One transaction's request: what it observed and what it wants
@@ -87,11 +89,11 @@ struct CommitPayload {
  * every lock this attempt acquired has been released.
  */
 bool Commit(TableDictionary &tables, std::shared_mutex &schema_mutex,
-            EpochFramework &epoch_framework, Index::Reaper &reaper,
-            Recovery::Logger &logger, const CommitPayload &payload,
+            epoch::EpochFramework &epoch_framework, index::Reaper &reaper,
+            wal::Logger &logger, const CommitPayload &payload,
             CommitPolicy policy, std::string *abort_reason);
 
-}  // namespace Silo
-}  // namespace LineairDB
+}  // namespace silo
+}  // namespace helios::storage
 
 #endif  // HELIOS_SILO_COMMIT_H

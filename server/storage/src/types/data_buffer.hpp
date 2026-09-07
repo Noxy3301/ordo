@@ -18,7 +18,7 @@
 #ifndef HELIOS_DATA_BUFFER_HPP
 #define HELIOS_DATA_BUFFER_HPP
 
-#include <lineairdb/pax_store.h>
+#include <storage/pax_store.h>
 
 #include <atomic>
 #include <cassert>
@@ -34,7 +34,7 @@
 #include "pax/version_store.hpp"
 #include "util/logger.hpp"
 
-namespace LineairDB {
+namespace helios::storage {
 
 /**
  * @brief Owns or references the row payload stored in a DataItem.
@@ -81,12 +81,12 @@ struct DataBuffer {
   bool pax_allocated() const {
     return (reinterpret_cast<uintptr_t>(value) & kPaxAllocated) != 0;
   }
-  Pax::PaxGroup *pax_group() const {
-    return reinterpret_cast<Pax::PaxGroup *>(
+  pax::PaxGroup *pax_group() const {
+    return reinterpret_cast<pax::PaxGroup *>(
         reinterpret_cast<uintptr_t>(value) & ~kPaxMask);
   }
-  Pax::PaxStore *pax_store() const {
-    return reinterpret_cast<Pax::PaxStore *>(
+  pax::PaxStore *pax_store() const {
+    return reinterpret_cast<pax::PaxStore *>(
         reinterpret_cast<uintptr_t>(value) & ~kPaxMask);
   }
   uint32_t pax_slot() const { return static_cast<uint32_t>(capacity); }
@@ -97,7 +97,7 @@ struct DataBuffer {
    * @param store Table store that will allocate the concrete row slot on the
    * first non-empty install.
    */
-  void InitPaxBlank(Pax::PaxStore *store) {
+  void InitPaxBlank(pax::PaxStore *store) {
     assert((reinterpret_cast<uintptr_t>(store) & kPaxMask) == 0);
     value = reinterpret_cast<std::byte *>(reinterpret_cast<uintptr_t>(store) |
                                           kPaxTag);
@@ -222,9 +222,9 @@ struct DataBuffer {
    * active in that state poisons the generation, fail-closed.
    */
   void CaptureBeforeImageForReadView() {
-    auto &version_store = Pax::VersionStore::Global();
+    auto &version_store = pax::VersionStore::Global();
     if (!version_store.CaptureActive()) return;
-    const uint32_t epoch = Pax::CurrentCommitEpoch::Get();
+    const uint32_t epoch = pax::CurrentCommitEpoch::Get();
     if (epoch == 0) {
       // Fail closed: skipping silently would let cells change with no
       // entry and no count advance, and the reader's end recheck would
@@ -309,5 +309,5 @@ struct DataBuffer {
     Reset(v, s);
   }
 };
-}  // namespace LineairDB
+}  // namespace helios::storage
 #endif /* HELIOS_DATA_BUFFER_HPP */

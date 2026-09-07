@@ -30,7 +30,8 @@
 
 #include "util/thread_key_storage.h"
 
-namespace LineairDB {
+namespace helios::storage {
+namespace epoch {
 
 /**
  * @brief
@@ -274,7 +275,7 @@ class EpochFramework {
           // the durability frontier, and refusing to advance instead would
           // stall every commit that waits for its epoch to close.
           fprintf(stderr,
-                  "LineairDB: the global epoch reached the high-water mark "
+                  "Helios: the global epoch reached the high-water mark "
                   "%u; stopping before the counter can run toward the wrap\n",
                   kEpochHighWater);
           std::abort();
@@ -307,5 +308,6 @@ class EpochFramework {
   ThreadKeyStorage<std::atomic<EpochNumber>> tls_;
 };
 
-}  // namespace LineairDB
+}  // namespace epoch
+}  // namespace helios::storage
 #endif

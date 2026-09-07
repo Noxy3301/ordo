@@ -5,18 +5,18 @@
 #include <string>
 #include <vector>
 
-#include "lineairdb/config.h"
-#include "lineairdb/database.h"
-#include "lineairdb/stateless.h"
 #include "recovery/wal.h"
+#include "storage/config.h"
+#include "storage/database.h"
+#include "storage/stateless.h"
 
 namespace {
 
 constexpr const char *kTable = "recovery_test";
 constexpr const char *kIndex = "idx";
 
-using LineairDB::Recovery::Wal;
-using LineairDB::Recovery::WalScanResult;
+using helios::storage::wal::Wal;
+using helios::storage::wal::WalScanResult;
 
 // The stateless commit path is what proxy traffic takes, and what it writes
 // to the log is only observable after the instance that wrote it is gone:
@@ -39,8 +39,8 @@ class StatelessRecoveryTest : public ::testing::Test {
     std::filesystem::remove_all(root_, ec);
   }
 
-  LineairDB::Config MakeConfig(bool enable_recovery) const {
-    LineairDB::Config config;
+  helios::storage::Config MakeConfig(bool enable_recovery) const {
+    helios::storage::Config config;
     config.epoch_duration_ms = 10;
     config.enable_recovery = enable_recovery;
     config.work_dir = work_dir_;
@@ -48,29 +48,29 @@ class StatelessRecoveryTest : public ::testing::Test {
     return config;
   }
 
-  static bool CommitWrite(LineairDB::Database &db, const std::string &key,
+  static bool CommitWrite(helios::storage::Database &db, const std::string &key,
                           const std::string &value) {
     const bool committed =
         db.ValidateAndCommit({}, {{kTable, key, value, false}}, {}, {},
-                             LineairDB::CommitPolicy::Sync);
+                             helios::storage::CommitPolicy::Sync);
     db.ReleaseMasstreeThreadEpoch();
     return committed;
   }
 
-  static bool CommitWriteWithIndexEntry(LineairDB::Database &db,
+  static bool CommitWriteWithIndexEntry(helios::storage::Database &db,
                                         const std::string &key,
                                         const std::string &value,
                                         const std::string &secondary_key) {
     const bool committed =
         db.ValidateAndCommit({}, {{kTable, key, value, false}},
                              {{kTable, kIndex, secondary_key, key, false}}, {},
-                             LineairDB::CommitPolicy::Sync);
+                             helios::storage::CommitPolicy::Sync);
     db.ReleaseMasstreeThreadEpoch();
     return committed;
   }
 
-  static LineairDB::StatelessReadResult Read(LineairDB::Database &db,
-                                             const std::string &key) {
+  static helios::storage::StatelessReadResult Read(
+      helios::storage::Database &db, const std::string &key) {
     auto result = db.Read(kTable, key);
     db.ReleaseMasstreeThreadEpoch();
     return result;
@@ -83,13 +83,13 @@ class StatelessRecoveryTest : public ::testing::Test {
 TEST_F(StatelessRecoveryTest, ALoggedWriteCarriesTheUnlockedTid) {
   {
     auto config = MakeConfig(false);
-    LineairDB::Database db(config);
+    helios::storage::Database db(config);
     db.CreateTable(kTable);
     ASSERT_TRUE(db.CreateSecondaryIndex(kTable, kIndex, 0));
     ASSERT_TRUE(CommitWriteWithIndexEntry(db, "k", "v1", "s"));
   }
 
-  Wal wal(work_dir_, LineairDB::Recovery::WalIo::Posix(), 1ull << 20);
+  Wal wal(work_dir_, helios::storage::wal::WalIo::Posix(), 1ull << 20);
   auto scan = wal.ScanAndRepair();
   ASSERT_EQ(scan.status, WalScanResult::Status::Ok);
 
@@ -123,7 +123,7 @@ TEST_F(StatelessRecoveryTest, ALoggedWriteCarriesTheUnlockedTid) {
 TEST_F(StatelessRecoveryTest, ARecoveredKeyAcceptsAFurtherWrite) {
   {
     auto config = MakeConfig(false);
-    LineairDB::Database db(config);
+    helios::storage::Database db(config);
     db.CreateTable(kTable);
     ASSERT_TRUE(CommitWrite(db, "k", "v1"));
   }
@@ -131,7 +131,7 @@ TEST_F(StatelessRecoveryTest, ARecoveredKeyAcceptsAFurtherWrite) {
   // Guarded by the assertion above: a locked TID in the log makes the read
   // and the write below spin rather than fail.
   {
-    Wal wal(work_dir_, LineairDB::Recovery::WalIo::Posix(), 1ull << 20);
+    Wal wal(work_dir_, helios::storage::wal::WalIo::Posix(), 1ull << 20);
     auto scan = wal.ScanAndRepair();
     ASSERT_EQ(scan.status, WalScanResult::Status::Ok);
     for (const auto &record : scan.records) {
@@ -144,7 +144,7 @@ TEST_F(StatelessRecoveryTest, ARecoveredKeyAcceptsAFurtherWrite) {
   }
 
   auto config = MakeConfig(true);
-  LineairDB::Database db(config);
+  helios::storage::Database db(config);
   db.CreateTable(kTable);
   const auto recovered = Read(db, "k");
   EXPECT_TRUE(recovered.found);

@@ -16,7 +16,7 @@
 
 #include "logger.h"
 
-#include <lineairdb/config.h>
+#include <storage/config.h>
 
 #include <algorithm>
 #include <cstdlib>
@@ -30,8 +30,8 @@
 #include "impl/thread_local_logger.h"
 #include "types/definitions.h"
 
-namespace LineairDB {
-namespace Recovery {
+namespace helios::storage {
+namespace wal {
 
 namespace {
 
@@ -166,7 +166,7 @@ void FoldPrimary(const KeyValuePair &kvp, WriteSetType &recovery_set,
       item.data_item_copy.Reset(value_ptr, kvp.buffer.size(), kvp.tid);
       item.table_name = kvp.table_name;
       item.index_name = kvp.index_name;
-      item.index_type = Index::SecondaryIndexType::FromRaw(kvp.index_type);
+      item.index_type = index::SecondaryIndexType::FromRaw(kvp.index_type);
     }
     return;
   }
@@ -177,7 +177,7 @@ void FoldPrimary(const KeyValuePair &kvp, WriteSetType &recovery_set,
       kvp.key,           reinterpret_cast<const std::byte *>(kvp.buffer.data()),
       kvp.buffer.size(), nullptr,
       kvp.table_name,    kvp.index_name,
-      kvp.tid,           Index::SecondaryIndexType::FromRaw(kvp.index_type),
+      kvp.tid,           index::SecondaryIndexType::FromRaw(kvp.index_type),
   };
   recovery_set.emplace_back(std::move(snapshot));
 }
@@ -211,7 +211,7 @@ void GroupSecondary(const SecondaryOps &ops, WriteSetType &recovery_set) {
         group_key.table_name,
         group_key.index_name,
         entry.max_tid,
-        Index::SecondaryIndexType::FromRaw(group_key.index_type)};
+        index::SecondaryIndexType::FromRaw(group_key.index_type)};
     snapshot.data_item_copy.SetPrimaryKeys(std::move(entry.primary_keys));
     snapshot.data_item_copy.Reset(nullptr, 0, entry.max_tid);
     recovery_set.emplace_back(std::move(snapshot));
@@ -254,7 +254,7 @@ WriteSetType BuildRecoverySet(const LogRecords &image, const LogRecords &tail) {
 
 Logger::Logger(const Config &config, WalIo io)
     : work_dir_(config.work_dir), replays_(config.enable_recovery) {
-  LineairDB::Util::SetUpSPDLog();
+  helios::storage::util::SetUpSPDLog();
   logger_ = std::make_unique<ThreadLocalLogger>(
       config, [this](EpochNumber frontier) { PublishDurable(frontier); },
       [this](int error_number) { PublishFailure(error_number); },
@@ -460,5 +460,5 @@ void Logger::AwaitCommitDurability(EpochNumber commit_epoch,
   std::abort();
 }
 
-}  // namespace Recovery
-}  // namespace LineairDB
+}  // namespace wal
+}  // namespace helios::storage

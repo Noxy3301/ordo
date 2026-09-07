@@ -10,8 +10,8 @@
 
 namespace {
 
-using LineairDB::PackedPrimaryKeys;
-using LineairDB::PackedPrimaryKeysView;
+using helios::storage::PackedPrimaryKeys;
+using helios::storage::PackedPrimaryKeysView;
 
 auto LowerBound(std::vector<std::string> &keys, std::string_view key) {
   auto cmp = [](const std::string &a, std::string_view b) { return a < b; };

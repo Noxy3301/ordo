@@ -19,15 +19,15 @@
 #include <functional>
 
 #include "index/impl/masstree_index.hpp"
-#include "lineairdb/config.h"
+#include "storage/config.h"
 #include "types/data_item.hpp"
 #include "types/definitions.h"
 
-namespace LineairDB {
-namespace Index {
+namespace helios::storage {
+namespace index {
 
-ConcurrentTable::ConcurrentTable(EpochFramework &epoch_framework, Config config,
-                                 WriteSetType recovery_set)
+ConcurrentTable::ConcurrentTable(epoch::EpochFramework &epoch_framework,
+                                 Config config, WriteSetType recovery_set)
     : index_(config, epoch_framework), epoch_manager_ref_(epoch_framework) {
   if (recovery_set.empty()) return;
   for (auto &entry : recovery_set) {
@@ -83,5 +83,5 @@ size_t ConcurrentTable::ScanReverse(
   return index_.ScanReverse(begin, end, operation);
 }
 
-}  // namespace Index
-}  // namespace LineairDB
+}  // namespace index
+}  // namespace helios::storage

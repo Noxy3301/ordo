@@ -14,8 +14,8 @@
  *   limitations under the License.
  */
 
-#include <lineairdb/config.h>
-#include <lineairdb/database.h>
+#include <storage/config.h>
+#include <storage/database.h>
 
 #include <filesystem>
 #include <memory>
@@ -29,14 +29,14 @@ constexpr const char *kTable = "users";
 
 class IndexTest : public ::testing::Test {
  protected:
-  LineairDB::Config config_;
-  std::unique_ptr<LineairDB::Database> db_;
+  helios::storage::Config config_;
+  std::unique_ptr<helios::storage::Database> db_;
   virtual void SetUp() {
     config_.enable_recovery = false;
     config_.work_dir = "./helios_index_test_logs";
     std::filesystem::remove_all(config_.work_dir);
     db_.reset(nullptr);
-    db_ = std::make_unique<LineairDB::Database>(config_);
+    db_ = std::make_unique<helios::storage::Database>(config_);
     ASSERT_TRUE(db_->CreateTable(kTable));
 
     ASSERT_TRUE(TestHelper::CommitWrites(

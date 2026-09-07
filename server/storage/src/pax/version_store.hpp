@@ -1,7 +1,7 @@
 #ifndef HELIOS_PAX_VERSION_STORE_HPP
 #define HELIOS_PAX_VERSION_STORE_HPP
 
-#include <lineairdb/pax_store.h>
+#include <storage/pax_store.h>
 
 #include <atomic>
 #include <cstdint>
@@ -12,8 +12,8 @@
 #include <unordered_map>
 #include <vector>
 
-namespace LineairDB {
-namespace Pax {
+namespace helios::storage {
+namespace pax {
 
 /**
  * @brief Undo-style version store for columnar read views.
@@ -185,7 +185,7 @@ class ScopedCommitEpoch {
   const uint32_t previous_;
 };
 
-}  // namespace Pax
-}  // namespace LineairDB
+}  // namespace pax
+}  // namespace helios::storage
 
 #endif  // HELIOS_PAX_VERSION_STORE_HPP

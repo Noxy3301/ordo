@@ -7,12 +7,13 @@
 #include "types/snapshot.hpp"
 #include "util/epoch_framework.hpp"
 
-namespace LineairDB {
-namespace Index {
+namespace helios::storage {
+namespace index {
 
 class SecondaryIndex {
  public:
-  SecondaryIndex(EpochFramework &epoch_framework, Config config = Config(),
+  SecondaryIndex(epoch::EpochFramework &epoch_framework,
+                 Config config = Config(),
                  SecondaryIndexType index_type = SecondaryIndexType(),
                  [[maybe_unused]] WriteSetType recovery_set = WriteSetType())
       : index_type_(index_type), secondary_index_(config, epoch_framework) {}
@@ -33,7 +34,7 @@ class SecondaryIndex {
     // OCC guards existing entries. A key whose slot carries no live PK list
     // still needs a blank entry the write can fill in.
     auto *item = secondary_index_.Get(key);
-    if (item == nullptr || !Silo::StableReadPrimaryKeys(*item).found) {
+    if (item == nullptr || !silo::StableReadPrimaryKeys(*item).found) {
       secondary_index_.PutBlank(key);
       item = secondary_index_.Get(key);
       assert(item != nullptr);
@@ -73,7 +74,7 @@ class SecondaryIndex {
   SecondaryIndexType index_type_;
   MasstreeIndex secondary_index_;
 };
-}  // namespace Index
-}  // namespace LineairDB
+}  // namespace index
+}  // namespace helios::storage
 
 #endif /* HELIOS_SECONDARY_INDEX_H */

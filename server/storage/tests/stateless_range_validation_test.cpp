@@ -3,48 +3,50 @@
 #include <vector>
 
 #include "gtest/gtest.h"
-#include "lineairdb/config.h"
-#include "lineairdb/database.h"
-#include "lineairdb/stateless.h"
+#include "storage/config.h"
+#include "storage/database.h"
+#include "storage/stateless.h"
 
 namespace {
 
 constexpr const char *kTable = "range_validation_test";
 
-LineairDB::Config MakeConfig() {
-  LineairDB::Config config;
+helios::storage::Config MakeConfig() {
+  helios::storage::Config config;
   config.enable_recovery = false;
   config.work_dir = "./helios_stateless_range_validation_test_logs";
   std::filesystem::remove_all(config.work_dir);
   return config;
 }
 
-bool CommitWrite(LineairDB::Database &db, const std::string &key,
+bool CommitWrite(helios::storage::Database &db, const std::string &key,
                  const std::string &value) {
-  const bool committed = db.ValidateAndCommit(
-      {}, {{kTable, key, value, false}}, {}, {}, LineairDB::CommitPolicy::Sync);
+  const bool committed =
+      db.ValidateAndCommit({}, {{kTable, key, value, false}}, {}, {},
+                           helios::storage::CommitPolicy::Sync);
   db.ReleaseMasstreeThreadEpoch();
   return committed;
 }
 
-bool CommitDelete(LineairDB::Database &db, const std::string &key) {
-  const bool committed = db.ValidateAndCommit(
-      {}, {{kTable, key, "", true}}, {}, {}, LineairDB::CommitPolicy::Sync);
+bool CommitDelete(helios::storage::Database &db, const std::string &key) {
+  const bool committed =
+      db.ValidateAndCommit({}, {{kTable, key, "", true}}, {}, {},
+                           helios::storage::CommitPolicy::Sync);
   db.ReleaseMasstreeThreadEpoch();
   return committed;
 }
 
 /// Scan the range and assemble the evidence a caller submits at commit.
-LineairDB::ExternalRangeReadEntry ScanRange(LineairDB::Database &db,
-                                            const std::string &start_key,
-                                            const std::string &end_key,
-                                            uint64_t row_limit = 0,
-                                            bool reverse_scan = false) {
+helios::storage::ExternalRangeReadEntry ScanRange(helios::storage::Database &db,
+                                                  const std::string &start_key,
+                                                  const std::string &end_key,
+                                                  uint64_t row_limit = 0,
+                                                  bool reverse_scan = false) {
   auto scan = db.Scan(kTable, start_key, end_key, row_limit, reverse_scan);
   db.ReleaseMasstreeThreadEpoch();
   EXPECT_TRUE(scan.ok);
 
-  LineairDB::ExternalRangeReadEntry range;
+  helios::storage::ExternalRangeReadEntry range;
   range.table_name = kTable;
   range.start_key = start_key;
   range.end_key = end_key;
@@ -56,16 +58,16 @@ LineairDB::ExternalRangeReadEntry ScanRange(LineairDB::Database &db,
   return range;
 }
 
-bool Revalidate(LineairDB::Database &db,
-                const LineairDB::ExternalRangeReadEntry &range,
+bool Revalidate(helios::storage::Database &db,
+                const helios::storage::ExternalRangeReadEntry &range,
                 std::string *reason) {
   const bool committed = db.ValidateAndCommit(
-      {}, {}, {}, {range}, LineairDB::CommitPolicy::Sync, reason);
+      {}, {}, {}, {range}, helios::storage::CommitPolicy::Sync, reason);
   db.ReleaseMasstreeThreadEpoch();
   return committed;
 }
 
-void SeedRows(LineairDB::Database &db) {
+void SeedRows(helios::storage::Database &db) {
   for (const char *key : {"k1", "k2", "k3", "k4"}) {
     ASSERT_TRUE(CommitWrite(db, key, "v"));
   }
@@ -73,11 +75,11 @@ void SeedRows(LineairDB::Database &db) {
 
 /// Materialize a key without ever initializing it. Resolving a write inserts
 /// the slot before validation runs, and an aborted commit leaves it behind.
-void LeaveBlankSlot(LineairDB::Database &db, const std::string &key) {
+void LeaveBlankSlot(helios::storage::Database &db, const std::string &key) {
   std::string reason;
   const bool committed = db.ValidateAndCommit(
       {{kTable, "k1", 0, true}}, {{kTable, key, "v", false}}, {}, {},
-      LineairDB::CommitPolicy::Sync, &reason);
+      helios::storage::CommitPolicy::Sync, &reason);
   db.ReleaseMasstreeThreadEpoch();
   ASSERT_FALSE(committed) << "the write was supposed to abort";
 }
@@ -86,7 +88,7 @@ void LeaveBlankSlot(LineairDB::Database &db, const std::string &key) {
 
 TEST(StatelessRangeValidationTest, AnUnchangedRangeCommits) {
   auto config = MakeConfig();
-  LineairDB::Database db(config);
+  helios::storage::Database db(config);
   ASSERT_TRUE(db.CreateTable(kTable));
   SeedRows(db);
 
@@ -100,7 +102,7 @@ TEST(StatelessRangeValidationTest, AnUnchangedRangeCommits) {
 
 TEST(StatelessRangeValidationTest, ARowDeletedInsideTheRangeAborts) {
   auto config = MakeConfig();
-  LineairDB::Database db(config);
+  helios::storage::Database db(config);
   ASSERT_TRUE(db.CreateTable(kTable));
   SeedRows(db);
 
@@ -116,7 +118,7 @@ TEST(StatelessRangeValidationTest, ARowDeletedAtTheEndOfTheRangeAborts) {
   // The replay is a strict prefix of the evidence, so nothing diverges
   // positionally and only the length check rejects it.
   auto config = MakeConfig();
-  LineairDB::Database db(config);
+  helios::storage::Database db(config);
   ASSERT_TRUE(db.CreateTable(kTable));
   SeedRows(db);
 
@@ -130,7 +132,7 @@ TEST(StatelessRangeValidationTest, ARowDeletedAtTheEndOfTheRangeAborts) {
 
 TEST(StatelessRangeValidationTest, ARowInsertedInsideTheRangeAborts) {
   auto config = MakeConfig();
-  LineairDB::Database db(config);
+  helios::storage::Database db(config);
   ASSERT_TRUE(db.CreateTable(kTable));
   SeedRows(db);
 
@@ -146,7 +148,7 @@ TEST(StatelessRangeValidationTest, ARowInsertedAtTheEndOfTheRangeAborts) {
   // The evidence is a strict prefix of the replay, so the divergence is the
   // first live row past the evidence.
   auto config = MakeConfig();
-  LineairDB::Database db(config);
+  helios::storage::Database db(config);
   ASSERT_TRUE(db.CreateTable(kTable));
   SeedRows(db);
 
@@ -160,7 +162,7 @@ TEST(StatelessRangeValidationTest, ARowInsertedAtTheEndOfTheRangeAborts) {
 
 TEST(StatelessRangeValidationTest, ALimitedRangeIgnoresChangesPastItsCap) {
   auto config = MakeConfig();
-  LineairDB::Database db(config);
+  helios::storage::Database db(config);
   ASSERT_TRUE(db.CreateTable(kTable));
   SeedRows(db);
 
@@ -176,7 +178,7 @@ TEST(StatelessRangeValidationTest, ANonLiveSlotDoesNotConsumeTheCap) {
   // The cap counts live rows. A blank slot between the first two of them must
   // leave the replay room to reach the second.
   auto config = MakeConfig();
-  LineairDB::Database db(config);
+  helios::storage::Database db(config);
   ASSERT_TRUE(db.CreateTable(kTable));
   SeedRows(db);
   LeaveBlankSlot(db, "k15");
@@ -190,7 +192,7 @@ TEST(StatelessRangeValidationTest, ANonLiveSlotDoesNotConsumeTheCap) {
 
 TEST(StatelessRangeValidationTest, AnEmptyRangeCommits) {
   auto config = MakeConfig();
-  LineairDB::Database db(config);
+  helios::storage::Database db(config);
   ASSERT_TRUE(db.CreateTable(kTable));
   SeedRows(db);
 
@@ -203,7 +205,7 @@ TEST(StatelessRangeValidationTest, AnEmptyRangeCommits) {
 
 TEST(StatelessRangeValidationTest, ARowAppearingInAnEmptyRangeAborts) {
   auto config = MakeConfig();
-  LineairDB::Database db(config);
+  helios::storage::Database db(config);
   ASSERT_TRUE(db.CreateTable(kTable));
   SeedRows(db);
 
@@ -220,7 +222,7 @@ TEST(StatelessRangeValidationTest, EvidenceRepeatingAKeyAborts) {
   // A primary index cannot return the same key twice, so evidence that does
   // is rejected rather than matched by the positional walk.
   auto config = MakeConfig();
-  LineairDB::Database db(config);
+  helios::storage::Database db(config);
   ASSERT_TRUE(db.CreateTable(kTable));
   SeedRows(db);
 
@@ -234,7 +236,7 @@ TEST(StatelessRangeValidationTest, EvidenceRepeatingAKeyAborts) {
 
 TEST(StatelessRangeValidationTest, AReverseRangeAbortsOnTheSameChange) {
   auto config = MakeConfig();
-  LineairDB::Database db(config);
+  helios::storage::Database db(config);
   ASSERT_TRUE(db.CreateTable(kTable));
   SeedRows(db);
 

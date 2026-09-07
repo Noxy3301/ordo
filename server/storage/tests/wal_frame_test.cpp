@@ -16,13 +16,13 @@
 
 namespace {
 
-using LineairDB::EpochNumber;
-using LineairDB::Recovery::ComputeCrc32c;
-using LineairDB::Recovery::Crc32c;
-using LineairDB::Recovery::LogRecord;
-using LineairDB::Recovery::LogRecords;
-using LineairDB::Recovery::Wal;
-using LineairDB::Recovery::WalScanResult;
+using helios::storage::EpochNumber;
+using helios::storage::wal::ComputeCrc32c;
+using helios::storage::wal::Crc32c;
+using helios::storage::wal::LogRecord;
+using helios::storage::wal::LogRecords;
+using helios::storage::wal::Wal;
+using helios::storage::wal::WalScanResult;
 
 LogRecords MakeRecords(EpochNumber epoch, const std::string &key) {
   LogRecord record;
@@ -65,7 +65,7 @@ class WalFrameTest : public ::testing::Test {
    * the last frame is written out with zeroes in advance.
    */
   off_t EndOfLog() {
-    Wal wal(work_dir_, LineairDB::Recovery::WalIo::Posix(), kCapacity);
+    Wal wal(work_dir_, helios::storage::wal::WalIo::Posix(), kCapacity);
     EXPECT_EQ(wal.ScanAndRepair().status, WalScanResult::Status::Ok);
     return wal.write_offset();
   }
@@ -136,7 +136,7 @@ class WalFrameTest : public ::testing::Test {
   }
 
   void AppendEpochs(const std::vector<EpochNumber> &epochs) {
-    Wal wal(work_dir_, LineairDB::Recovery::WalIo::Posix(), kCapacity);
+    Wal wal(work_dir_, helios::storage::wal::WalIo::Posix(), kCapacity);
     ASSERT_EQ(wal.ScanAndRepair().status, WalScanResult::Status::Ok);
     std::map<EpochNumber, LogRecords> buckets;
     for (const auto epoch : epochs) {
@@ -230,7 +230,7 @@ TEST_F(WalFrameTest, Crc32cKnownVector) {
 }
 
 TEST_F(WalFrameTest, ScanOfAFreshLogHasNoFrontier) {
-  Wal wal(work_dir_, LineairDB::Recovery::WalIo::Posix(), kCapacity);
+  Wal wal(work_dir_, helios::storage::wal::WalIo::Posix(), kCapacity);
   const auto result = wal.ScanAndRepair();
   EXPECT_EQ(result.status, WalScanResult::Status::Ok);
   EXPECT_EQ(result.frontier, 0u);
@@ -241,7 +241,7 @@ TEST_F(WalFrameTest, ScanOfAFreshLogHasNoFrontier) {
 TEST_F(WalFrameTest, ScanReturnsTheLastCompleteEpoch) {
   AppendEpochs({1, 3});
 
-  Wal wal(work_dir_, LineairDB::Recovery::WalIo::Posix(), kCapacity);
+  Wal wal(work_dir_, helios::storage::wal::WalIo::Posix(), kCapacity);
   const auto result = wal.ScanAndRepair();
   ASSERT_EQ(result.status, WalScanResult::Status::Ok);
   EXPECT_EQ(result.frontier, 3u);
@@ -253,7 +253,7 @@ TEST_F(WalFrameTest, ScanReturnsTheLastCompleteEpoch) {
 }
 
 TEST_F(WalFrameTest, AGroupIsOneWriteAndOneSync) {
-  LineairDB::Recovery::WalIo io = LineairDB::Recovery::WalIo::Posix();
+  helios::storage::wal::WalIo io = helios::storage::wal::WalIo::Posix();
   int write_calls = 0;
   int sync_calls = 0;
   io.pwrite = [&write_calls](int fd, const void *data, size_t size,
@@ -278,7 +278,7 @@ TEST_F(WalFrameTest, AGroupIsOneWriteAndOneSync) {
 }
 
 TEST_F(WalFrameTest, GroupSkipsBucketsAboveTheTarget) {
-  Wal wal(work_dir_, LineairDB::Recovery::WalIo::Posix(), kCapacity);
+  Wal wal(work_dir_, helios::storage::wal::WalIo::Posix(), kCapacity);
   ASSERT_EQ(wal.ScanAndRepair().status, WalScanResult::Status::Ok);
   std::map<EpochNumber, LogRecords> buckets;
   buckets[1] = MakeRecords(1, "k1");
@@ -301,7 +301,7 @@ TEST_F(WalFrameTest, TailCorruptionIsRepairedAndLaterGroupsRecover) {
 
   off_t repaired_end = 0;
   {
-    Wal wal(work_dir_, LineairDB::Recovery::WalIo::Posix(), kCapacity);
+    Wal wal(work_dir_, helios::storage::wal::WalIo::Posix(), kCapacity);
     const auto result = wal.ScanAndRepair();
     ASSERT_EQ(result.status, WalScanResult::Status::Ok) << result.detail;
     EXPECT_TRUE(result.tail_truncated);
@@ -316,7 +316,7 @@ TEST_F(WalFrameTest, TailCorruptionIsRepairedAndLaterGroupsRecover) {
   // shrinks the file.
   const off_t file_size_before = FileSize();
   {
-    Wal wal(work_dir_, LineairDB::Recovery::WalIo::Posix(), kCapacity);
+    Wal wal(work_dir_, helios::storage::wal::WalIo::Posix(), kCapacity);
     ASSERT_EQ(wal.ScanAndRepair().status, WalScanResult::Status::Ok);
     ASSERT_EQ(wal.write_offset(), repaired_end);
     EXPECT_EQ(FileSize(), file_size_before);
@@ -327,7 +327,7 @@ TEST_F(WalFrameTest, TailCorruptionIsRepairedAndLaterGroupsRecover) {
     EXPECT_EQ(FileSize(), file_size_before);
   }
   {
-    Wal wal(work_dir_, LineairDB::Recovery::WalIo::Posix(), kCapacity);
+    Wal wal(work_dir_, helios::storage::wal::WalIo::Posix(), kCapacity);
     const auto result = wal.ScanAndRepair();
     ASSERT_EQ(result.status, WalScanResult::Status::Ok) << result.detail;
     EXPECT_FALSE(result.tail_truncated);
@@ -348,7 +348,7 @@ TEST_F(WalFrameTest, PartialHeaderIsRepaired) {
   WriteRawBytesAt(full_end, partial_header);
 
   {
-    Wal wal(work_dir_, LineairDB::Recovery::WalIo::Posix(), kCapacity);
+    Wal wal(work_dir_, helios::storage::wal::WalIo::Posix(), kCapacity);
     const auto result = wal.ScanAndRepair();
     ASSERT_EQ(result.status, WalScanResult::Status::Ok) << result.detail;
     EXPECT_TRUE(result.tail_truncated);
@@ -362,7 +362,7 @@ TEST_F(WalFrameTest, PartialHeaderIsRepaired) {
   EXPECT_EQ(FileSize(), full_size);
 
   // A later scan reaches the same end with nothing left to repair.
-  Wal wal(work_dir_, LineairDB::Recovery::WalIo::Posix(), kCapacity);
+  Wal wal(work_dir_, helios::storage::wal::WalIo::Posix(), kCapacity);
   const auto result = wal.ScanAndRepair();
   ASSERT_EQ(result.status, WalScanResult::Status::Ok) << result.detail;
   EXPECT_FALSE(result.tail_truncated);
@@ -380,7 +380,7 @@ TEST_F(WalFrameTest, PartialPayloadIsRepaired) {
   torn.insert(torn.end(), 10, 0xab);
   WriteRawBytesAt(full_end, torn);
 
-  Wal wal(work_dir_, LineairDB::Recovery::WalIo::Posix(), kCapacity);
+  Wal wal(work_dir_, helios::storage::wal::WalIo::Posix(), kCapacity);
   const auto result = wal.ScanAndRepair();
   ASSERT_EQ(result.status, WalScanResult::Status::Ok) << result.detail;
   EXPECT_TRUE(result.tail_truncated);
@@ -401,7 +401,7 @@ TEST_F(WalFrameTest, WholeHeaderWithUnknownFlagsAtTheLogEndFails) {
                                        0x01, 0x00, 0x07, 0x00};
   WriteRawBytesAt(log_end, header);
 
-  Wal wal(work_dir_, LineairDB::Recovery::WalIo::Posix(), kCapacity);
+  Wal wal(work_dir_, helios::storage::wal::WalIo::Posix(), kCapacity);
   const auto result = wal.ScanAndRepair();
   EXPECT_EQ(result.status, WalScanResult::Status::Corrupt);
   EXPECT_FALSE(result.tail_truncated);
@@ -413,7 +413,7 @@ TEST_F(WalFrameTest, WholeHeaderWithUnknownFlagsMidLogFails) {
 
   WriteRawBytesAt(6, {0x07, 0x00});
 
-  Wal wal(work_dir_, LineairDB::Recovery::WalIo::Posix(), kCapacity);
+  Wal wal(work_dir_, helios::storage::wal::WalIo::Posix(), kCapacity);
   const auto result = wal.ScanAndRepair();
   EXPECT_EQ(result.status, WalScanResult::Status::Corrupt);
   EXPECT_FALSE(result.tail_truncated);
@@ -436,7 +436,7 @@ TEST_F(WalFrameTest, ALengthThatSwallowsLaterFramesFails) {
 
   SetPayloadLengthAt(0, static_cast<uint32_t>(log_end - Wal::kHeaderSize));
 
-  Wal wal(work_dir_, LineairDB::Recovery::WalIo::Posix(), kCapacity);
+  Wal wal(work_dir_, helios::storage::wal::WalIo::Posix(), kCapacity);
   const auto result = wal.ScanAndRepair();
   EXPECT_EQ(result.status, WalScanResult::Status::Corrupt) << result.detail;
   EXPECT_FALSE(result.tail_truncated);
@@ -453,7 +453,7 @@ TEST_F(WalFrameTest, ALengthPastTheFileWithLaterFramesFails) {
 
   SetPayloadLengthAt(0, static_cast<uint32_t>(file_size + 4096));
 
-  Wal wal(work_dir_, LineairDB::Recovery::WalIo::Posix(), kCapacity);
+  Wal wal(work_dir_, helios::storage::wal::WalIo::Posix(), kCapacity);
   const auto result = wal.ScanAndRepair();
   EXPECT_EQ(result.status, WalScanResult::Status::Corrupt) << result.detail;
   EXPECT_FALSE(result.tail_truncated);
@@ -471,7 +471,7 @@ TEST_F(WalFrameTest, ALengthCorruptedOnTheLastFrameIsRepaired) {
   SetPayloadLengthAt(second, 4096);
 
   {
-    Wal wal(work_dir_, LineairDB::Recovery::WalIo::Posix(), kCapacity);
+    Wal wal(work_dir_, helios::storage::wal::WalIo::Posix(), kCapacity);
     const auto result = wal.ScanAndRepair();
     ASSERT_EQ(result.status, WalScanResult::Status::Ok) << result.detail;
     EXPECT_TRUE(result.tail_truncated);
@@ -483,7 +483,7 @@ TEST_F(WalFrameTest, ALengthCorruptedOnTheLastFrameIsRepaired) {
   AssertRangeIsZero(second, log_end);
 
   // A later scan finds nothing left to repair.
-  Wal wal(work_dir_, LineairDB::Recovery::WalIo::Posix(), kCapacity);
+  Wal wal(work_dir_, helios::storage::wal::WalIo::Posix(), kCapacity);
   const auto result = wal.ScanAndRepair();
   ASSERT_EQ(result.status, WalScanResult::Status::Ok) << result.detail;
   EXPECT_FALSE(result.tail_truncated);
@@ -507,7 +507,7 @@ TEST_F(WalFrameTest, AChecksumBrokenFrameFollowedByJunkFailsWithoutRepairing) {
   WriteRawBytesAt(frame_end, junk);
   const off_t full_size = FileSize();
 
-  Wal wal(work_dir_, LineairDB::Recovery::WalIo::Posix(), kCapacity);
+  Wal wal(work_dir_, helios::storage::wal::WalIo::Posix(), kCapacity);
   const auto result = wal.ScanAndRepair();
   EXPECT_EQ(result.status, WalScanResult::Status::Corrupt);
   EXPECT_NE(result.detail.find("with data beyond the frame"), std::string::npos)
@@ -532,7 +532,7 @@ TEST_F(WalFrameTest, MidLogCorruptionFailsWithoutRepairing) {
   // Damage the first frame's payload, leaving valid frames after it.
   FlipByteAt(static_cast<off_t>(Wal::kHeaderSize) + 1);
 
-  Wal wal(work_dir_, LineairDB::Recovery::WalIo::Posix(), kCapacity);
+  Wal wal(work_dir_, helios::storage::wal::WalIo::Posix(), kCapacity);
   const auto result = wal.ScanAndRepair();
   EXPECT_EQ(result.status, WalScanResult::Status::Corrupt);
   EXPECT_FALSE(result.tail_truncated);
@@ -548,7 +548,7 @@ TEST_F(WalFrameTest, OversizedPayloadLengthFailsWithoutRepairing) {
   const uint8_t oversized[4] = {0x01, 0x00, 0x00, 0x20};  // 0x20000001
   WriteRawBytesAt(8, std::vector<uint8_t>(oversized, oversized + 4));
 
-  Wal wal(work_dir_, LineairDB::Recovery::WalIo::Posix(), kCapacity);
+  Wal wal(work_dir_, helios::storage::wal::WalIo::Posix(), kCapacity);
   const auto result = wal.ScanAndRepair();
   EXPECT_EQ(result.status, WalScanResult::Status::Corrupt);
   EXPECT_EQ(FileSize(), full_size);
@@ -557,7 +557,7 @@ TEST_F(WalFrameTest, OversizedPayloadLengthFailsWithoutRepairing) {
 TEST_F(WalFrameTest, AnAppendBelowTheFrontierIsRefused) {
   AppendEpochs({3});
 
-  Wal wal(work_dir_, LineairDB::Recovery::WalIo::Posix(), kCapacity);
+  Wal wal(work_dir_, helios::storage::wal::WalIo::Posix(), kCapacity);
   ASSERT_EQ(wal.ScanAndRepair().status, WalScanResult::Status::Ok);
   std::map<EpochNumber, LogRecords> buckets;
   buckets[2] = MakeRecords(2, "k2");
@@ -574,7 +574,7 @@ TEST_F(WalFrameTest, AnAppendBelowTheFrontierIsRefused) {
  * which writes to stdout, while a death test watches stderr.
  */
 TEST_F(WalFrameTest, AnAppendBeforeTheScanIsRefused) {
-  Wal wal(work_dir_, LineairDB::Recovery::WalIo::Posix(), kCapacity);
+  Wal wal(work_dir_, helios::storage::wal::WalIo::Posix(), kCapacity);
   std::map<EpochNumber, LogRecords> buckets;
   buckets[1] = MakeRecords(1, "k1");
   EXPECT_DEATH(wal.AppendGroup(buckets, 1), "");
@@ -589,7 +589,7 @@ TEST_F(WalFrameTest, EpochRegressionOnDiskFailsWithoutRepairing) {
   WriteRawBytesAt(log_end, MakeFrame(2, PackRecords(MakeRecords(2, "k2"))));
   const off_t full_size = FileSize();
 
-  Wal wal(work_dir_, LineairDB::Recovery::WalIo::Posix(), kCapacity);
+  Wal wal(work_dir_, helios::storage::wal::WalIo::Posix(), kCapacity);
   const auto result = wal.ScanAndRepair();
   EXPECT_EQ(result.status, WalScanResult::Status::Corrupt);
   EXPECT_EQ(FileSize(), full_size);
@@ -600,7 +600,7 @@ TEST_F(WalFrameTest, AZeroEpochFrameFailsWithoutRepairing) {
   WriteRawBytesAt(log_end, MakeFrame(0, PackRecords(MakeRecords(0, "k0"))));
   const off_t full_size = FileSize();
 
-  Wal wal(work_dir_, LineairDB::Recovery::WalIo::Posix(), kCapacity);
+  Wal wal(work_dir_, helios::storage::wal::WalIo::Posix(), kCapacity);
   const auto result = wal.ScanAndRepair();
   EXPECT_EQ(result.status, WalScanResult::Status::Corrupt);
   EXPECT_EQ(FileSize(), full_size);
@@ -613,7 +613,7 @@ TEST_F(WalFrameTest, ARecordDisagreeingWithItsFrameFailsWithoutRepairing) {
   WriteRawBytesAt(log_end, MakeFrame(2, PackRecords(MakeRecords(7, "k7"))));
   const off_t full_size = FileSize();
 
-  Wal wal(work_dir_, LineairDB::Recovery::WalIo::Posix(), kCapacity);
+  Wal wal(work_dir_, helios::storage::wal::WalIo::Posix(), kCapacity);
   const auto result = wal.ScanAndRepair();
   EXPECT_EQ(result.status, WalScanResult::Status::Corrupt);
   EXPECT_EQ(FileSize(), full_size);
@@ -633,7 +633,7 @@ TEST_F(WalFrameTest, ATornTailEmbeddingAFrameImageFailsStop) {
   WriteRawBytesAt(log_end, torn);
   const off_t full_size = FileSize();
 
-  Wal wal(work_dir_, LineairDB::Recovery::WalIo::Posix(), kCapacity);
+  Wal wal(work_dir_, helios::storage::wal::WalIo::Posix(), kCapacity);
   const auto result = wal.ScanAndRepair();
   EXPECT_EQ(result.status, WalScanResult::Status::Corrupt);
   EXPECT_EQ(FileSize(), full_size);
@@ -655,7 +655,7 @@ TEST_F(WalFrameTest, AFrameForgedInsideAPayloadIsFailedOn) {
   // Committed as the value of a record, then the frame that carries it is
   // broken.
   {
-    Wal wal(work_dir_, LineairDB::Recovery::WalIo::Posix(), kCapacity);
+    Wal wal(work_dir_, helios::storage::wal::WalIo::Posix(), kCapacity);
     ASSERT_EQ(wal.ScanAndRepair().status, WalScanResult::Status::Ok);
     LogRecords records = MakeRecords(1, "carrier");
     records[0].key_value_pairs[0].buffer = forged;
@@ -665,7 +665,7 @@ TEST_F(WalFrameTest, AFrameForgedInsideAPayloadIsFailedOn) {
   }
   FlipByteAt(static_cast<off_t>(Wal::kHeaderSize) + 1);
 
-  Wal wal(work_dir_, LineairDB::Recovery::WalIo::Posix(), kCapacity);
+  Wal wal(work_dir_, helios::storage::wal::WalIo::Posix(), kCapacity);
   const auto result = wal.ScanAndRepair();
   EXPECT_EQ(result.status, WalScanResult::Status::Corrupt) << result.detail;
   EXPECT_FALSE(result.tail_truncated);
@@ -679,7 +679,7 @@ TEST_F(WalFrameTest, AFramePayloadThatDoesNotDecodeFailsWithoutRepairing) {
   WriteRawBytesAt(log_end, MakeFrame(2, {0x01, 0x02, 0x03}));
   const off_t full_size = FileSize();
 
-  Wal wal(work_dir_, LineairDB::Recovery::WalIo::Posix(), kCapacity);
+  Wal wal(work_dir_, helios::storage::wal::WalIo::Posix(), kCapacity);
   const auto result = wal.ScanAndRepair();
   EXPECT_EQ(result.status, WalScanResult::Status::Corrupt);
   EXPECT_EQ(FileSize(), full_size);
@@ -693,7 +693,7 @@ TEST_F(WalFrameTest, AFrameWithTrailingPayloadBytesFailsWithoutRepairing) {
   WriteRawBytesAt(log_end, MakeFrame(2, padded));
   const off_t full_size = FileSize();
 
-  Wal wal(work_dir_, LineairDB::Recovery::WalIo::Posix(), kCapacity);
+  Wal wal(work_dir_, helios::storage::wal::WalIo::Posix(), kCapacity);
   const auto result = wal.ScanAndRepair();
   EXPECT_EQ(result.status, WalScanResult::Status::Corrupt);
   EXPECT_EQ(FileSize(), full_size);
@@ -705,7 +705,7 @@ TEST_F(WalFrameTest, AFrameCarryingNoRecordFailsWithoutRepairing) {
   WriteRawBytesAt(log_end, MakeFrame(2, PackRecords(LogRecords{})));
   const off_t full_size = FileSize();
 
-  Wal wal(work_dir_, LineairDB::Recovery::WalIo::Posix(), kCapacity);
+  Wal wal(work_dir_, helios::storage::wal::WalIo::Posix(), kCapacity);
   const auto result = wal.ScanAndRepair();
   EXPECT_EQ(result.status, WalScanResult::Status::Corrupt);
   EXPECT_EQ(FileSize(), full_size);
@@ -730,7 +730,7 @@ TEST_F(WalFrameTest, AHeaderFieldAnomalyFailsWithoutRepairing) {
                                        anomaly.version, anomaly.flags));
     const off_t full_size = FileSize();
 
-    Wal wal(work_dir_, LineairDB::Recovery::WalIo::Posix(), kCapacity);
+    Wal wal(work_dir_, helios::storage::wal::WalIo::Posix(), kCapacity);
     const auto result = wal.ScanAndRepair();
     EXPECT_EQ(result.status, WalScanResult::Status::Corrupt);
     EXPECT_EQ(FileSize(), full_size);
@@ -750,7 +750,7 @@ TEST_F(WalFrameTest, AFrameStraddlingTheProbeWindowBoundaryIsFound) {
   // One frame long enough to carry the boundary inside its own payload, so
   // that the log ends past it and the reservation covers what follows.
   {
-    Wal wal(work_dir_, LineairDB::Recovery::WalIo::Posix(), kWideCapacity);
+    Wal wal(work_dir_, helios::storage::wal::WalIo::Posix(), kWideCapacity);
     ASSERT_EQ(wal.ScanAndRepair().status, WalScanResult::Status::Ok);
     std::map<EpochNumber, LogRecords> buckets;
     buckets[1] = MakeRecords(1, std::string(2 << 20, 'x'));
@@ -765,7 +765,7 @@ TEST_F(WalFrameTest, AFrameStraddlingTheProbeWindowBoundaryIsFound) {
   const off_t placed = kBoundary - 2;
   WriteRawBytesAt(placed, survivor);
 
-  Wal wal(work_dir_, LineairDB::Recovery::WalIo::Posix(), kWideCapacity);
+  Wal wal(work_dir_, helios::storage::wal::WalIo::Posix(), kWideCapacity);
   const auto result = wal.ScanAndRepair();
   EXPECT_EQ(result.status, WalScanResult::Status::Corrupt) << result.detail;
   EXPECT_FALSE(result.tail_truncated);
@@ -799,7 +799,7 @@ TEST_F(WalFrameTest, AReadFailureWhileLookingForSurvivorsStopsTheScan) {
   WriteRawBytesAt(log_end, torn);
   const off_t file_size = FileSize();
 
-  LineairDB::Recovery::WalIo io = LineairDB::Recovery::WalIo::Posix();
+  helios::storage::wal::WalIo io = helios::storage::wal::WalIo::Posix();
   auto real_pread = io.pread;
   io.pread = [real_pread, embedded_at](int fd, void *data, size_t size,
                                        off_t offset) -> ssize_t {
@@ -821,7 +821,7 @@ TEST_F(WalFrameTest, AReadFailureWhileLookingForSurvivorsStopsTheScan) {
 
 TEST_F(WalFrameTest, ShortWritesAreRetriedUntilTheGroupIsComplete) {
   {
-    LineairDB::Recovery::WalIo io = LineairDB::Recovery::WalIo::Posix();
+    helios::storage::wal::WalIo io = helios::storage::wal::WalIo::Posix();
     int write_calls = 0;
     io.pwrite = [&write_calls](int fd, const void *data, size_t,
                                off_t offset) -> ssize_t {
@@ -839,7 +839,7 @@ TEST_F(WalFrameTest, ShortWritesAreRetriedUntilTheGroupIsComplete) {
 
   // The exclusive flock is held only while `wal` is alive; the reader needs
   // its own instance, opened after that one is gone.
-  Wal reader(work_dir_, LineairDB::Recovery::WalIo::Posix(), kCapacity);
+  Wal reader(work_dir_, helios::storage::wal::WalIo::Posix(), kCapacity);
   const auto result = reader.ScanAndRepair();
   ASSERT_EQ(result.status, WalScanResult::Status::Ok) << result.detail;
   EXPECT_EQ(result.frontier, 1u);
@@ -850,7 +850,7 @@ TEST_F(WalFrameTest, ShortWritesAreRetriedUntilTheGroupIsComplete) {
 // be carried to completion at the right offsets, not restarted or left
 // short.
 TEST_F(WalFrameTest, APartialWriteIsCarriedToCompletion) {
-  LineairDB::Recovery::WalIo io = LineairDB::Recovery::WalIo::Posix();
+  helios::storage::wal::WalIo io = helios::storage::wal::WalIo::Posix();
   size_t calls = 0;
   io.pwrite = [&calls](int fd, const void *data, size_t size, off_t offset) {
     ++calls;
@@ -873,7 +873,7 @@ TEST_F(WalFrameTest, APartialWriteIsCarriedToCompletion) {
 }
 
 TEST_F(WalFrameTest, WriteFailurePropagatesWithoutSyncing) {
-  LineairDB::Recovery::WalIo io = LineairDB::Recovery::WalIo::Posix();
+  helios::storage::wal::WalIo io = helios::storage::wal::WalIo::Posix();
   bool synced = false;
   io.pwrite = [](int, const void *, size_t, off_t) -> ssize_t {
     errno = EIO;
@@ -901,7 +901,7 @@ TEST_F(WalFrameTest, WriteFailurePropagatesWithoutSyncing) {
 // The expected output is empty because the reason is logged through spdlog,
 // which writes to stdout, while a death test watches stderr.
 TEST_F(WalFrameTest, AFailedAppendRefusesEveryLaterAppend) {
-  LineairDB::Recovery::WalIo io = LineairDB::Recovery::WalIo::Posix();
+  helios::storage::wal::WalIo io = helios::storage::wal::WalIo::Posix();
   io.fdatasync = [](int) {
     errno = EIO;
     return -1;
@@ -919,7 +919,7 @@ TEST_F(WalFrameTest, AFailedAppendRefusesEveryLaterAppend) {
 }
 
 TEST_F(WalFrameTest, ABucketTheScanWouldRejectIsRefused) {
-  Wal wal(work_dir_, LineairDB::Recovery::WalIo::Posix(), kCapacity);
+  Wal wal(work_dir_, helios::storage::wal::WalIo::Posix(), kCapacity);
   ASSERT_EQ(wal.ScanAndRepair().status, WalScanResult::Status::Ok);
   {
     std::map<EpochNumber, LogRecords> buckets;
@@ -939,7 +939,7 @@ TEST_F(WalFrameTest, ABucketTheScanWouldRejectIsRefused) {
 }
 
 TEST_F(WalFrameTest, FdatasyncFailurePropagates) {
-  LineairDB::Recovery::WalIo io = LineairDB::Recovery::WalIo::Posix();
+  helios::storage::wal::WalIo io = helios::storage::wal::WalIo::Posix();
   io.fdatasync = [](int) {
     errno = EIO;
     return -1;
@@ -961,13 +961,13 @@ TEST_F(WalFrameTest, ScanAcceptsTheMaximumEpoch) {
   // startup to add one to UINT32_MAX.
   const EpochNumber near_wrap = 0xFFFFFFFFu;
   {
-    Wal wal(work_dir_, LineairDB::Recovery::WalIo::Posix(), kCapacity);
+    Wal wal(work_dir_, helios::storage::wal::WalIo::Posix(), kCapacity);
     ASSERT_EQ(wal.ScanAndRepair().status, WalScanResult::Status::Ok);
     std::map<EpochNumber, LogRecords> buckets;
     buckets[near_wrap] = MakeRecords(near_wrap, "k");
     ASSERT_TRUE(wal.AppendGroup(buckets, near_wrap).ok);
   }
-  Wal wal(work_dir_, LineairDB::Recovery::WalIo::Posix(), kCapacity);
+  Wal wal(work_dir_, helios::storage::wal::WalIo::Posix(), kCapacity);
   const auto result = wal.ScanAndRepair();
   ASSERT_EQ(result.status, WalScanResult::Status::Ok);
   EXPECT_EQ(result.frontier, near_wrap);
@@ -976,7 +976,7 @@ TEST_F(WalFrameTest, ScanAcceptsTheMaximumEpoch) {
 // The whole point of the design: the file's size is settled before the
 // first group, so a group flush has no new size to persist.
 TEST_F(WalFrameTest, CapacityIsWrittenOutAndGroupsDoNotChangeTheFileSize) {
-  Wal wal(work_dir_, LineairDB::Recovery::WalIo::Posix(), kCapacity);
+  Wal wal(work_dir_, helios::storage::wal::WalIo::Posix(), kCapacity);
   ASSERT_EQ(wal.ScanAndRepair().status, WalScanResult::Status::Ok);
   ASSERT_EQ(FileSize(), static_cast<off_t>(kCapacity));
 
@@ -996,7 +996,7 @@ TEST_F(WalFrameTest, CapacityIsWrittenOutAndGroupsDoNotChangeTheFileSize) {
 // zeroes after it. Opening it must find that end and reserve from there.
 TEST_F(WalFrameTest, AGrownLogIsAdoptedWithoutLosingFrames) {
   {
-    Wal wal(work_dir_, LineairDB::Recovery::WalIo::Posix(),
+    Wal wal(work_dir_, helios::storage::wal::WalIo::Posix(),
             Wal::kNoPreallocation);
     ASSERT_EQ(wal.ScanAndRepair().status, WalScanResult::Status::Ok);
     std::map<EpochNumber, LogRecords> buckets;
@@ -1007,7 +1007,7 @@ TEST_F(WalFrameTest, AGrownLogIsAdoptedWithoutLosingFrames) {
   }
   const off_t grown_end = FileSize();
 
-  Wal wal(work_dir_, LineairDB::Recovery::WalIo::Posix(), kCapacity);
+  Wal wal(work_dir_, helios::storage::wal::WalIo::Posix(), kCapacity);
   const auto result = wal.ScanAndRepair();
   ASSERT_EQ(result.status, WalScanResult::Status::Ok) << result.detail;
   EXPECT_FALSE(result.tail_truncated);
@@ -1033,7 +1033,7 @@ TEST_F(WalFrameTest, AHalfWrittenCapacityIsCompleted) {
                        log_end + static_cast<off_t>(kCapacity) / 4),
             0);
 
-  Wal wal(work_dir_, LineairDB::Recovery::WalIo::Posix(), kCapacity);
+  Wal wal(work_dir_, helios::storage::wal::WalIo::Posix(), kCapacity);
   const auto result = wal.ScanAndRepair();
   ASSERT_EQ(result.status, WalScanResult::Status::Ok) << result.detail;
   EXPECT_FALSE(result.tail_truncated);
@@ -1048,7 +1048,7 @@ TEST_F(WalFrameTest, AnInterruptedReservationIsCompletedOnTheNextStart) {
   // Written without preallocation, so that the file still ends at the log
   // and the reservation below has something to do.
   {
-    Wal wal(work_dir_, LineairDB::Recovery::WalIo::Posix(),
+    Wal wal(work_dir_, helios::storage::wal::WalIo::Posix(),
             Wal::kNoPreallocation);
     ASSERT_EQ(wal.ScanAndRepair().status, WalScanResult::Status::Ok);
     std::map<EpochNumber, LogRecords> buckets;
@@ -1059,7 +1059,7 @@ TEST_F(WalFrameTest, AnInterruptedReservationIsCompletedOnTheNextStart) {
 
   {
     off_t allowed = static_cast<off_t>(kCapacity) / 4;
-    LineairDB::Recovery::WalIo io = LineairDB::Recovery::WalIo::Posix();
+    helios::storage::wal::WalIo io = helios::storage::wal::WalIo::Posix();
     io.initialise_pwrite = [&allowed](int fd, const void *data, size_t size,
                                       off_t offset) -> ssize_t {
       if (allowed <= 0) {
@@ -1080,7 +1080,7 @@ TEST_F(WalFrameTest, AnInterruptedReservationIsCompletedOnTheNextStart) {
   ASSERT_GT(FileSize(), log_end);
   ASSERT_LT(FileSize(), static_cast<off_t>(kCapacity));
 
-  Wal wal(work_dir_, LineairDB::Recovery::WalIo::Posix(), kCapacity);
+  Wal wal(work_dir_, helios::storage::wal::WalIo::Posix(), kCapacity);
   const auto result = wal.ScanAndRepair();
   ASSERT_EQ(result.status, WalScanResult::Status::Ok) << result.detail;
   EXPECT_FALSE(result.tail_truncated);
@@ -1093,7 +1093,7 @@ TEST_F(WalFrameTest, AnInterruptedReservationIsCompletedOnTheNextStart) {
 // the worst case for rounding the target up and the case that would expose
 // a step per unit rather than a division.
 TEST_F(WalFrameTest, ACapacityOfOneByteReservesPerGroup) {
-  Wal wal(work_dir_, LineairDB::Recovery::WalIo::Posix(), 1);
+  Wal wal(work_dir_, helios::storage::wal::WalIo::Posix(), 1);
   ASSERT_EQ(wal.ScanAndRepair().status, WalScanResult::Status::Ok);
 
   for (EpochNumber epoch = 1; epoch <= 3; ++epoch) {
@@ -1115,7 +1115,7 @@ TEST_F(WalFrameTest, ACapacityOfOneByteReservesPerGroup) {
 // which a measurement of the flush alone has to see is absent.
 TEST_F(WalFrameTest, OutgrowingCapacityExtendsAndIsCounted) {
   constexpr uint64_t kTinyCapacity = 4096;
-  Wal wal(work_dir_, LineairDB::Recovery::WalIo::Posix(), kTinyCapacity);
+  Wal wal(work_dir_, helios::storage::wal::WalIo::Posix(), kTinyCapacity);
   ASSERT_EQ(wal.ScanAndRepair().status, WalScanResult::Status::Ok);
   ASSERT_EQ(FileSize(), static_cast<off_t>(kTinyCapacity));
 
@@ -1140,9 +1140,9 @@ TEST_F(WalFrameTest, OutgrowingCapacityExtendsAndIsCounted) {
 // appending, so a second holder would write over frames rather than after
 // them.
 TEST_F(WalFrameTest, ASecondHolderIsRefused) {
-  Wal wal(work_dir_, LineairDB::Recovery::WalIo::Posix(), kCapacity);
+  Wal wal(work_dir_, helios::storage::wal::WalIo::Posix(), kCapacity);
   ASSERT_EQ(wal.ScanAndRepair().status, WalScanResult::Status::Ok);
-  EXPECT_THROW(Wal(work_dir_, LineairDB::Recovery::WalIo::Posix(), kCapacity),
+  EXPECT_THROW(Wal(work_dir_, helios::storage::wal::WalIo::Posix(), kCapacity),
                std::system_error);
 }
 
@@ -1151,7 +1151,7 @@ TEST_F(WalFrameTest, ASecondHolderIsRefused) {
 TEST_F(WalFrameTest, ALegacyLogLargerThanCapacityIsPreserved) {
   constexpr uint64_t kTinyCapacity = 4096;
   {
-    Wal wal(work_dir_, LineairDB::Recovery::WalIo::Posix(),
+    Wal wal(work_dir_, helios::storage::wal::WalIo::Posix(),
             Wal::kNoPreallocation);
     ASSERT_EQ(wal.ScanAndRepair().status, WalScanResult::Status::Ok);
     for (EpochNumber epoch = 1; epoch <= 40; ++epoch) {
@@ -1164,7 +1164,7 @@ TEST_F(WalFrameTest, ALegacyLogLargerThanCapacityIsPreserved) {
   }
   const off_t grown = FileSize();
 
-  Wal wal(work_dir_, LineairDB::Recovery::WalIo::Posix(), kTinyCapacity);
+  Wal wal(work_dir_, helios::storage::wal::WalIo::Posix(), kTinyCapacity);
   const auto result = wal.ScanAndRepair();
   ASSERT_EQ(result.status, WalScanResult::Status::Ok) << result.detail;
   EXPECT_EQ(result.frontier, 40u);
@@ -1176,7 +1176,7 @@ TEST_F(WalFrameTest, ALegacyLogLargerThanCapacityIsPreserved) {
 // Without preallocation the file tracks the log exactly, which is what a
 // database that writes no record at all should leave behind.
 TEST_F(WalFrameTest, WithoutPreallocationTheFileTracksTheLog) {
-  Wal wal(work_dir_, LineairDB::Recovery::WalIo::Posix(),
+  Wal wal(work_dir_, helios::storage::wal::WalIo::Posix(),
           Wal::kNoPreallocation);
   ASSERT_EQ(wal.ScanAndRepair().status, WalScanResult::Status::Ok);
   EXPECT_EQ(FileSize(), 0);
@@ -1194,7 +1194,7 @@ TEST_F(WalFrameTest, WithoutPreallocationTheFileTracksTheLog) {
 // group's failure by its own seam. Nothing may be published from a scan
 // that hit one.
 TEST_F(WalFrameTest, AFailureToReserveCapacityIsReported) {
-  LineairDB::Recovery::WalIo io = LineairDB::Recovery::WalIo::Posix();
+  helios::storage::wal::WalIo io = helios::storage::wal::WalIo::Posix();
   io.initialise_pwrite = [](int, const void *, size_t, off_t) -> ssize_t {
     errno = ENOSPC;
     return -1;
@@ -1210,7 +1210,7 @@ TEST_F(WalFrameTest, AFailureToReserveCapacityIsReported) {
 // A capacity that cannot be expressed as an offset is refused rather than
 // turned into a write of that size.
 TEST_F(WalFrameTest, ACapacityBeyondTheOffsetRangeIsRefused) {
-  Wal wal(work_dir_, LineairDB::Recovery::WalIo::Posix(), UINT64_MAX);
+  Wal wal(work_dir_, helios::storage::wal::WalIo::Posix(), UINT64_MAX);
   const auto result = wal.ScanAndRepair();
   EXPECT_EQ(result.status, WalScanResult::Status::IoError);
   EXPECT_EQ(result.error_number, EFBIG);
@@ -1219,7 +1219,7 @@ TEST_F(WalFrameTest, ACapacityBeyondTheOffsetRangeIsRefused) {
 }
 
 TEST_F(WalFrameTest, EmptyGroupNeitherWritesNorSyncs) {
-  LineairDB::Recovery::WalIo io = LineairDB::Recovery::WalIo::Posix();
+  helios::storage::wal::WalIo io = helios::storage::wal::WalIo::Posix();
   bool wrote = false;
   bool synced = false;
   io.pwrite = [&wrote](int fd, const void *data, size_t size, off_t offset) {
@@ -1249,7 +1249,7 @@ TEST_F(WalFrameTest, EmptyGroupNeitherWritesNorSyncs) {
 TEST_F(WalFrameTest, HopReadsOnlyTheGuardAndTailPayloads) {
   AppendEpochs({1, 2, 3, 4, 5});
 
-  LineairDB::Recovery::WalIo io = LineairDB::Recovery::WalIo::Posix();
+  helios::storage::wal::WalIo io = helios::storage::wal::WalIo::Posix();
   auto header_reads = std::make_shared<int>(0);
   auto payload_reads = std::make_shared<int>(0);
   auto real_pread = io.pread;
@@ -1286,7 +1286,7 @@ TEST_F(WalFrameTest, HopReadsOnlyTheGuardAndTailPayloads) {
   // plus the two tail frames.
   EXPECT_EQ(*payload_reads, 3);
 
-  Wal full_wal(work_dir_, LineairDB::Recovery::WalIo::Posix(), kCapacity);
+  Wal full_wal(work_dir_, helios::storage::wal::WalIo::Posix(), kCapacity);
   const auto full = full_wal.ScanAndRepair(0);
   ASSERT_EQ(full.status, WalScanResult::Status::Ok);
   EXPECT_EQ(hopped.frontier, full.frontier);
@@ -1302,7 +1302,7 @@ TEST_F(WalFrameTest, HopOfTheWholeLogStillFinishesTheScan) {
   AppendEpochs({1, 2, 3});
   const off_t log_end = EndOfLog();
 
-  LineairDB::Recovery::WalIo io = LineairDB::Recovery::WalIo::Posix();
+  helios::storage::wal::WalIo io = helios::storage::wal::WalIo::Posix();
   auto payload_reads = std::make_shared<int>(0);
   auto real_pread = io.pread;
   // The end-of-log check reads the whole capacity looking for a surviving
@@ -1338,12 +1338,12 @@ TEST_F(WalFrameTest,
 
   WalScanResult hop_result;
   {
-    Wal wal(work_dir_, LineairDB::Recovery::WalIo::Posix(), kCapacity);
+    Wal wal(work_dir_, helios::storage::wal::WalIo::Posix(), kCapacity);
     hop_result = wal.ScanAndRepair(4);
   }
   WalScanResult full_result;
   {
-    Wal wal(work_dir_, LineairDB::Recovery::WalIo::Posix(), kCapacity);
+    Wal wal(work_dir_, helios::storage::wal::WalIo::Posix(), kCapacity);
     full_result = wal.ScanAndRepair(0);
   }
 
@@ -1355,7 +1355,7 @@ TEST_F(WalFrameTest,
 
 TEST_F(WalFrameTest, InjectedFdatasyncFailsAfterTheAllowedCalls) {
   ASSERT_EQ(::setenv("HELIOS_WAL_FDATASYNC_FAIL_AFTER", "2", 1), 0);
-  LineairDB::Recovery::WalIo io = LineairDB::Recovery::WalIo::Posix();
+  helios::storage::wal::WalIo io = helios::storage::wal::WalIo::Posix();
   // The factory captured the count; the variable must not leak to later
   // tests.
   ASSERT_EQ(::unsetenv("HELIOS_WAL_FDATASYNC_FAIL_AFTER"), 0);
@@ -1395,7 +1395,7 @@ TEST_F(WalFrameTest, AnUnparsableInjectionCountStopsStartup) {
   };
   for (const char *value : malformed) {
     ASSERT_EQ(::setenv("HELIOS_WAL_FDATASYNC_FAIL_AFTER", value, 1), 0);
-    EXPECT_EXIT(LineairDB::Recovery::WalIo::Posix(),
+    EXPECT_EXIT(helios::storage::wal::WalIo::Posix(),
                 ::testing::ExitedWithCode(EXIT_FAILURE), "")
         << "value: " << value;
   }

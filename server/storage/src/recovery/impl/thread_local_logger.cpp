@@ -28,8 +28,8 @@
 #include "recovery/flush_trace.h"
 #include "types/definitions.h"
 
-namespace LineairDB {
-namespace Recovery {
+namespace helios::storage {
+namespace wal {
 
 ThreadLocalLogger::ThreadLocalLogger(const Config &config,
                                      PublishDurable publish_durable,
@@ -39,7 +39,7 @@ ThreadLocalLogger::ThreadLocalLogger(const Config &config,
       publish_durable_(std::move(publish_durable)),
       publish_failure_(std::move(publish_failure)),
       read_durable_(std::move(read_durable)) {
-  LineairDB::Util::SetUpSPDLog();
+  helios::storage::util::SetUpSPDLog();
 }
 
 ThreadLocalLogger::~ThreadLocalLogger() { StopAndDrainFlusher(); }
@@ -219,5 +219,5 @@ WalAppendResult ThreadLocalLogger::FlushThrough(EpochNumber target) {
   return result;
 }
 
-}  // namespace Recovery
-}  // namespace LineairDB
+}  // namespace wal
+}  // namespace helios::storage

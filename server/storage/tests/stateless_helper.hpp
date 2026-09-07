@@ -1,8 +1,8 @@
 #ifndef HELIOS_STATELESS_HELPER_HPP
 #define HELIOS_STATELESS_HELPER_HPP
 
-#include <lineairdb/database.h>
-#include <lineairdb/stateless.h>
+#include <storage/database.h>
+#include <storage/stateless.h>
 
 #include <cstring>
 #include <optional>
@@ -39,43 +39,45 @@ T Decode(const std::string &value) {
 }
 
 inline bool Commit(
-    LineairDB::Database &db,
-    const std::vector<LineairDB::ExternalReadEntry> &reads,
-    const std::vector<LineairDB::ExternalWriteEntry> &writes,
-    const std::vector<LineairDB::ExternalSecondaryIndexEntry> &index_ops = {},
-    const std::vector<LineairDB::ExternalRangeReadEntry> &ranges = {},
+    helios::storage::Database &db,
+    const std::vector<helios::storage::ExternalReadEntry> &reads,
+    const std::vector<helios::storage::ExternalWriteEntry> &writes,
+    const std::vector<helios::storage::ExternalSecondaryIndexEntry> &index_ops =
+        {},
+    const std::vector<helios::storage::ExternalRangeReadEntry> &ranges = {},
     std::string *abort_reason = nullptr) {
   const bool committed =
       db.ValidateAndCommit(reads, writes, index_ops, ranges,
-                           LineairDB::CommitPolicy::Sync, abort_reason);
+                           helios::storage::CommitPolicy::Sync, abort_reason);
   db.ReleaseMasstreeThreadEpoch();
   return committed;
 }
 
 inline bool CommitWrites(
-    LineairDB::Database &db,
-    const std::vector<LineairDB::ExternalWriteEntry> &writes,
-    const std::vector<LineairDB::ExternalSecondaryIndexEntry> &index_ops = {}) {
+    helios::storage::Database &db,
+    const std::vector<helios::storage::ExternalWriteEntry> &writes,
+    const std::vector<helios::storage::ExternalSecondaryIndexEntry> &index_ops =
+        {}) {
   return Commit(db, {}, writes, index_ops);
 }
 
-inline bool Write(LineairDB::Database &db, const std::string &table,
+inline bool Write(helios::storage::Database &db, const std::string &table,
                   const std::string &key, const std::string &value) {
   return CommitWrites(db, {{table, key, value, false, false}});
 }
 
 template <typename T>
-bool Write(LineairDB::Database &db, const std::string &table,
+bool Write(helios::storage::Database &db, const std::string &table,
            const std::string &key, const T &value) {
   return Write(db, table, key, Encode<T>(value));
 }
 
-inline bool Delete(LineairDB::Database &db, const std::string &table,
+inline bool Delete(helios::storage::Database &db, const std::string &table,
                    const std::string &key) {
   return CommitWrites(db, {{table, key, "", true, false}});
 }
 
-inline std::optional<std::string> Read(LineairDB::Database &db,
+inline std::optional<std::string> Read(helios::storage::Database &db,
                                        const std::string &table,
                                        const std::string &key) {
   auto result = db.Read(table, key);
@@ -85,7 +87,7 @@ inline std::optional<std::string> Read(LineairDB::Database &db,
 }
 
 template <typename T>
-std::optional<T> Read(LineairDB::Database &db, const std::string &table,
+std::optional<T> Read(helios::storage::Database &db, const std::string &table,
                       const std::string &key) {
   auto value = Read(db, table, key);
   if (!value.has_value() || value->size() < sizeof(T)) return std::nullopt;
@@ -94,7 +96,7 @@ std::optional<T> Read(LineairDB::Database &db, const std::string &table,
 
 /// Rows a primary-index range scan returned, in scan order.
 inline std::vector<std::pair<std::string, std::string>> Scan(
-    LineairDB::Database &db, const std::string &table,
+    helios::storage::Database &db, const std::string &table,
     const std::string &start_key, const std::string &end_key,
     uint64_t row_limit = 0, bool reverse_scan = false) {
   auto scan = db.Scan(table, start_key, end_key, row_limit, reverse_scan);
@@ -110,7 +112,7 @@ inline std::vector<std::pair<std::string, std::string>> Scan(
 
 /// (secondary key, primary key) pairs a secondary-index range scan returned.
 inline std::vector<std::pair<std::string, std::string>> ScanSecondaryIndex(
-    LineairDB::Database &db, const std::string &table,
+    helios::storage::Database &db, const std::string &table,
     const std::string &index_name, const std::string &start_key,
     const std::string &end_key, uint64_t row_limit = 0,
     bool reverse_scan = false) {
@@ -128,7 +130,7 @@ inline std::vector<std::pair<std::string, std::string>> ScanSecondaryIndex(
 
 /// Primary keys a single secondary key resolves to.
 inline std::vector<std::string> ReadSecondaryIndex(
-    LineairDB::Database &db, const std::string &table,
+    helios::storage::Database &db, const std::string &table,
     const std::string &index_name, const std::string &secondary_key) {
   std::vector<std::string> primary_keys;
   for (auto &entry : ScanSecondaryIndex(db, table, index_name, secondary_key,

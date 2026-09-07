@@ -33,7 +33,7 @@
 #include "packed_primary_keys.hpp"
 #include "types/transaction_id.hpp"
 
-namespace LineairDB {
+namespace helios::storage {
 
 struct DataItem {
   std::atomic<TransactionId> transaction_id;
@@ -156,5 +156,5 @@ struct DataItem {
 
 static_assert(sizeof(DataItem) == 48,
               "DataItem must remain 48 bytes in the slim layout");
-}  // namespace LineairDB
+}  // namespace helios::storage
 #endif /* HELIOS_DATA_ITEM_HPP */

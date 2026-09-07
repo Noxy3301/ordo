@@ -8,8 +8,8 @@
 #include <cinttypes>
 #include <functional>
 
-namespace LineairDB {
-namespace Recovery {
+namespace helios::storage {
+namespace wal {
 
 std::atomic<bool> FlushTrace::dump_requested_{false};
 
@@ -231,5 +231,5 @@ void FlushTrace::Dump() {
   }
 }
 
-}  // namespace Recovery
-}  // namespace LineairDB
+}  // namespace wal
+}  // namespace helios::storage

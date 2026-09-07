@@ -21,7 +21,7 @@
 #include <cstdint>
 #include <string>
 
-namespace LineairDB {
+namespace helios::storage {
 
 /**
  * @brief
@@ -150,6 +150,6 @@ constexpr bool HasFlag(SecondaryIndexOption::Constraint set,
   using U = std::underlying_type_t<SecondaryIndexOption::Constraint>;
   return (static_cast<U>(set) & static_cast<U>(flag)) != 0;
 }
-}  // namespace LineairDB
+}  // namespace helios::storage
 
 #endif

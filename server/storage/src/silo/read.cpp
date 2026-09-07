@@ -9,8 +9,8 @@
 #include "table/table_dictionary.hpp"
 #include "types/data_item.hpp"
 
-namespace LineairDB {
-namespace Silo {
+namespace helios::storage {
+namespace silo {
 
 StatelessReadResult Read(TableDictionary &tables,
                          std::shared_mutex &schema_mutex,
@@ -86,14 +86,14 @@ StatelessRangeScanResult Scan(TableDictionary &tables,
   return result;
 }
 
-}  // namespace Silo
+}  // namespace silo
 
 uint64_t PaxRowRefCurrentTid(const StatelessPaxRowRef &row) {
   const auto *item = static_cast<const DataItem *>(row.item);
-  return Silo::PackTransactionId(item->transaction_id.load());
+  return silo::PackTransactionId(item->transaction_id.load());
 }
 
-namespace Silo {
+namespace silo {
 
 StatelessSecondaryRangeScanResult ScanIndex(
     TableDictionary &tables, std::shared_mutex &schema_mutex,
@@ -108,7 +108,7 @@ StatelessSecondaryRangeScanResult ScanIndex(
   auto table = tables.GetTable(table_name);
   if (!table.has_value()) return result;
 
-  Index::SecondaryIndex *index = table.value()->GetSecondaryIndex(index_name);
+  index::SecondaryIndex *index = table.value()->GetSecondaryIndex(index_name);
   if (index == nullptr) return result;
   result.ok = true;
 
@@ -219,5 +219,5 @@ StatelessPaxRowRefScanResult ScanPax(TableDictionary &tables,
   return result;
 }
 
-}  // namespace Silo
-}  // namespace LineairDB
+}  // namespace silo
+}  // namespace helios::storage

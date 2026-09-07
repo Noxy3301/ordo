@@ -28,8 +28,8 @@
 #include <spdlog/sinks/stdout_color_sinks.h>
 #include <spdlog/spdlog.h>
 
-namespace LineairDB {
-namespace Util {
+namespace helios::storage {
+namespace util {
 static inline void SetUpSPDLog() {
 #ifdef NDEBUG
   spdlog::set_level(spdlog::level::info);
@@ -38,7 +38,7 @@ static inline void SetUpSPDLog() {
 #endif
   spdlog::set_pattern("[Thread %t] %+ [+%omsec]");
 }
-}  // namespace Util
-}  // namespace LineairDB
+}  // namespace util
+}  // namespace helios::storage
 
 #endif /* HELIOS_LOGGER_HPP */

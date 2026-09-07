@@ -8,8 +8,8 @@
 #define HELIOS_CRC32C_X86_SSE42 1
 #endif
 
-namespace LineairDB {
-namespace Recovery {
+namespace helios::storage {
+namespace wal {
 
 namespace {
 
@@ -108,5 +108,5 @@ bool HasSse42ForTesting() {
 #endif
 }
 
-}  // namespace Recovery
-}  // namespace LineairDB
+}  // namespace wal
+}  // namespace helios::storage

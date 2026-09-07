@@ -6,8 +6,8 @@
 #include "types/definitions.h"
 #include "types/transaction_id.hpp"
 
-namespace LineairDB {
-namespace Silo {
+namespace helios::storage {
+namespace silo {
 
 /**
  * @brief Pack a {epoch, tid} pair into one uint64_t so it can travel over
@@ -29,7 +29,7 @@ inline TransactionId UnpackTransactionId(uint64_t packed) {
           static_cast<uint32_t>(packed & 0xffffffffu)};
 }
 
-}  // namespace Silo
-}  // namespace LineairDB
+}  // namespace silo
+}  // namespace helios::storage
 
 #endif  // HELIOS_SILO_PACKED_TRANSACTION_ID_HPP

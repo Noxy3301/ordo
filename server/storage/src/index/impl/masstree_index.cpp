@@ -44,8 +44,8 @@ relaxed_atomic<mrcu_epoch_type> globalepoch{1};
 relaxed_atomic<mrcu_epoch_type> active_epoch{1};
 volatile bool recovering = false;
 
-namespace LineairDB {
-namespace Index {
+namespace helios::storage {
+namespace index {
 
 namespace {
 
@@ -236,7 +236,7 @@ struct MasstreeIndex::Impl {
 
   // Blank rows created after SetPaxStore are initialized in PAX mode so their
   // first committed payload scatters into the table's strips.
-  Pax::PaxStore *pax_store_ = nullptr;
+  pax::PaxStore *pax_store_ = nullptr;
   DataItem *NewBlankItem() {
     auto *item = new DataItem();
     if (pax_store_ != nullptr) item->buffer.InitPaxBlank(pax_store_);
@@ -383,12 +383,12 @@ struct MasstreeIndex::Impl {
   }
 };
 
-MasstreeIndex::MasstreeIndex(Config /*c*/, EpochFramework & /*e*/)
+MasstreeIndex::MasstreeIndex(Config /*c*/, epoch::EpochFramework & /*e*/)
     : impl_(std::make_unique<Impl>()) {}
 
 MasstreeIndex::~MasstreeIndex() = default;
 
-void MasstreeIndex::SetPaxStore(Pax::PaxStore *store) {
+void MasstreeIndex::SetPaxStore(pax::PaxStore *store) {
   impl_->pax_store_ = store;
 }
 
@@ -511,5 +511,5 @@ void MasstreeFullyDrainThread() {
   }
 }
 
-}  // namespace Index
-}  // namespace LineairDB
+}  // namespace index
+}  // namespace helios::storage

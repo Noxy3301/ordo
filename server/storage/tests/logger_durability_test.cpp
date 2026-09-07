@@ -20,11 +20,11 @@
 
 namespace {
 
-using LineairDB::EpochNumber;
-using LineairDB::Snapshot;
-using LineairDB::WriteSetType;
-using LineairDB::Recovery::Logger;
-using LineairDB::Recovery::WalIo;
+using helios::storage::EpochNumber;
+using helios::storage::Snapshot;
+using helios::storage::WriteSetType;
+using helios::storage::wal::Logger;
+using helios::storage::wal::WalIo;
 
 constexpr auto kTestTimeout = std::chrono::seconds(5);
 
@@ -68,7 +68,7 @@ class LoggerDurabilityTest : public ::testing::Test {
   }
 
   std::string root_;
-  LineairDB::Config config_;
+  helios::storage::Config config_;
 };
 
 TEST_F(LoggerDurabilityTest, EnqueueReportsOnlyWhatItPersists) {
@@ -279,11 +279,11 @@ TEST_F(LoggerDurabilityTest, RecordsAboveTheTargetAreCarriedForward) {
   }
 
   // Both epochs must be present, in order, after reopening.
-  LineairDB::Recovery::Wal wal(config_.work_dir,
-                               LineairDB::Recovery::WalIo::Posix(),
-                               config_.wal_initial_capacity_bytes);
+  helios::storage::wal::Wal wal(config_.work_dir,
+                                helios::storage::wal::WalIo::Posix(),
+                                config_.wal_initial_capacity_bytes);
   const auto scan = wal.ScanAndRepair();
-  ASSERT_EQ(scan.status, LineairDB::Recovery::WalScanResult::Status::Ok);
+  ASSERT_EQ(scan.status, helios::storage::wal::WalScanResult::Status::Ok);
   EXPECT_EQ(scan.frontier, 9u);
   ASSERT_EQ(scan.records.size(), 2u);
   EXPECT_EQ(scan.records[0].epoch, 4u);
@@ -383,11 +383,11 @@ TEST_F(LoggerDurabilityTest, StopDrainsWhatWasAlreadyClosed) {
     EXPECT_EQ(logger.GetDurableEpoch(), 6u);
   }
 
-  LineairDB::Recovery::Wal wal(config_.work_dir,
-                               LineairDB::Recovery::WalIo::Posix(),
-                               config_.wal_initial_capacity_bytes);
+  helios::storage::wal::Wal wal(config_.work_dir,
+                                helios::storage::wal::WalIo::Posix(),
+                                config_.wal_initial_capacity_bytes);
   const auto scan = wal.ScanAndRepair();
-  ASSERT_EQ(scan.status, LineairDB::Recovery::WalScanResult::Status::Ok);
+  ASSERT_EQ(scan.status, helios::storage::wal::WalScanResult::Status::Ok);
   EXPECT_EQ(scan.frontier, 6u);
 }
 

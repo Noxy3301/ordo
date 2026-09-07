@@ -17,7 +17,7 @@
 #ifndef HELIOS_CONCURRENT_TABLE_H
 #define HELIOS_CONCURRENT_TABLE_H
 
-#include <lineairdb/config.h>
+#include <storage/config.h>
 
 #include <functional>
 #include <memory>
@@ -30,18 +30,19 @@
 #include "types/snapshot.hpp"
 #include "util/epoch_framework.hpp"
 
-namespace LineairDB {
-namespace Index {
+namespace helios::storage {
+namespace index {
 
 class ConcurrentTable {
  public:
-  ConcurrentTable(EpochFramework &epoch_framework, Config config = Config(),
+  ConcurrentTable(epoch::EpochFramework &epoch_framework,
+                  Config config = Config(),
                   WriteSetType recovery_set = WriteSetType());
 
   /**
    * @brief Routes future primary-row placeholders through `store`.
    */
-  void SetPaxStore(Pax::PaxStore *store) { index_.SetPaxStore(store); }
+  void SetPaxStore(pax::PaxStore *store) { index_.SetPaxStore(store); }
 
   DataItem *Get(const std::string_view key);
   DataItem *GetOrInsert(const std::string_view key);
@@ -66,9 +67,9 @@ class ConcurrentTable {
 
  private:
   MasstreeIndex index_;
-  LineairDB::EpochFramework &epoch_manager_ref_;
+  helios::storage::epoch::EpochFramework &epoch_manager_ref_;
 };
-}  // namespace Index
-}  // namespace LineairDB
+}  // namespace index
+}  // namespace helios::storage
 
 #endif /* HELIOS_CONCURRENT_TABLE_H */

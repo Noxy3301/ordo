@@ -11,15 +11,15 @@
 #include "types/data_item.hpp"
 #include "types/transaction_id.hpp"
 
-namespace LineairDB {
-namespace Silo {
+namespace helios::storage {
+namespace silo {
 
 /**
  * @brief Silo-style stable read (tuple.h stable_read in the reference
  * implementation): load the TID, yield while the lock bit (LSB) is set,
  * copy the payload, then re-load the TID and retry until it has not moved.
  *
- * Silo::Read and ReadDirect run the same loop inline; these helpers
+ * silo::Read and ReadDirect run the same loop inline; these helpers
  * serve callers that need the copy without a transaction. The returned TID
  * is the version the copy is consistent with.
  */
@@ -145,7 +145,7 @@ inline StablePrimaryKeys StableReadPrimaryKeys(const DataItem &item) {
   }
 }
 
-}  // namespace Silo
-}  // namespace LineairDB
+}  // namespace silo
+}  // namespace helios::storage
 
 #endif  // HELIOS_SILO_STABLE_READ_HPP

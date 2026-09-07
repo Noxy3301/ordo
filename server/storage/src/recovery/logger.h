@@ -16,7 +16,7 @@
 #ifndef HELIOS_RECOVERY_LOGGER_H
 #define HELIOS_RECOVERY_LOGGER_H
 
-#include <lineairdb/config.h>
+#include <storage/config.h>
 
 #include <atomic>
 #include <chrono>
@@ -31,8 +31,8 @@
 #include "types/snapshot.hpp"
 #include "wal.h"
 
-namespace LineairDB {
-namespace Recovery {
+namespace helios::storage {
+namespace wal {
 
 class ThreadLocalLogger;
 
@@ -188,6 +188,6 @@ class Logger {
   std::unique_ptr<ThreadLocalLogger> logger_;
 };
 
-}  // namespace Recovery
-}  // namespace LineairDB
+}  // namespace wal
+}  // namespace helios::storage
 #endif /* HELIOS_RECOVERY_LOGGER_H */

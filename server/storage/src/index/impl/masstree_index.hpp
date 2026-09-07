@@ -1,8 +1,8 @@
 #ifndef HELIOS_INDEX_IMPL_MASSTREE_INDEX_HPP
 #define HELIOS_INDEX_IMPL_MASSTREE_INDEX_HPP
 
-#include <lineairdb/config.h>
-#include <lineairdb/pax_store.h>
+#include <storage/config.h>
+#include <storage/pax_store.h>
 
 #include <functional>
 #include <memory>
@@ -12,8 +12,8 @@
 #include "types/data_item.hpp"
 #include "util/epoch_framework.hpp"
 
-namespace LineairDB {
-namespace Index {
+namespace helios::storage {
+namespace index {
 
 // PImpl wrapper around masstree-beta. Masstree headers are confined to
 // masstree_index.cpp; this header stays free of masstree to avoid leaking
@@ -21,7 +21,7 @@ namespace Index {
 // that do not have masstree on their include path).
 class MasstreeIndex final {
  public:
-  MasstreeIndex(Config c, EpochFramework &e);
+  MasstreeIndex(Config c, epoch::EpochFramework &e);
   ~MasstreeIndex();
 
   /**
@@ -30,7 +30,7 @@ class MasstreeIndex final {
    * @details Secondary indexes never set a PaxStore: they store index
    * metadata rather than table row payloads.
    */
-  void SetPaxStore(Pax::PaxStore *store);
+  void SetPaxStore(pax::PaxStore *store);
 
   DataItem *Get(std::string_view key);
   bool Put(std::string_view key, DataItem &&rhs);
@@ -83,7 +83,7 @@ void MasstreeReleaseThreadEpoch();
 // paths only.
 void MasstreeFullyDrainThread();
 
-}  // namespace Index
-}  // namespace LineairDB
+}  // namespace index
+}  // namespace helios::storage
 
 #endif /* HELIOS_INDEX_IMPL_MASSTREE_INDEX_HPP */

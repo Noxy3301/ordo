@@ -1,4 +1,4 @@
-#include <lineairdb/pax_store.h>
+#include <storage/pax_store.h>
 
 #include <algorithm>
 #include <cassert>
@@ -8,8 +8,8 @@
 #include <cstring>
 #include <string>
 
-namespace LineairDB {
-namespace Pax {
+namespace helios::storage {
+namespace pax {
 
 namespace {
 
@@ -454,5 +454,5 @@ std::pair<PaxGroup *, uint32_t> PaxStore::AllocateSlot() {
   return {grp, static_cast<uint32_t>(idx % PaxGroup::kRows)};
 }
 
-}  // namespace Pax
-}  // namespace LineairDB
+}  // namespace pax
+}  // namespace helios::storage

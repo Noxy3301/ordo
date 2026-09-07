@@ -24,8 +24,8 @@
 #include "util/debug_sync.hpp"
 #include "util/epoch_framework.hpp"
 
-namespace LineairDB {
-namespace Silo {
+namespace helios::storage {
+namespace silo {
 
 namespace {
 
@@ -46,7 +46,7 @@ struct Write {
   std::string value;
   bool is_delete = false;
   DataItem *item = nullptr;
-  Index::ConcurrentTable *index = nullptr;
+  index::ConcurrentTable *index = nullptr;
   // Insert entry that is the first entry for its key in this request, so
   // the committed row is what decides whether the key is free.
   bool check_committed_row = false;
@@ -60,15 +60,15 @@ struct SiOp {
   std::string primary_key;
   bool is_delete = false;
   DataItem *item = nullptr;
-  Index::SecondaryIndex *index = nullptr;
-  Index::SecondaryIndexType index_type;
+  index::SecondaryIndex *index = nullptr;
+  index::SecondaryIndexType index_type;
 };
 
 // The index entry a locked item must still be reachable through.
 struct LockTarget {
   DataItem *item = nullptr;
-  Index::ConcurrentTable *primary_index = nullptr;
-  Index::SecondaryIndex *secondary_index = nullptr;
+  index::ConcurrentTable *primary_index = nullptr;
+  index::SecondaryIndex *secondary_index = nullptr;
   std::string key;
 };
 
@@ -86,7 +86,7 @@ struct LockedTid {
  */
 struct Ctx {
   TableDictionary &tables;
-  EpochFramework &epoch;
+  epoch::EpochFramework &epoch;
   const CommitPayload &payload;
   std::string *abort_reason;
 
@@ -214,7 +214,7 @@ bool Resolve(Ctx &c, std::shared_mutex &schema_mutex) {
       return c.Abort("si_table_missing");
     }
 
-    Index::SecondaryIndex *index =
+    index::SecondaryIndex *index =
         table.value()->GetSecondaryIndex(op.index_name);
     if (index == nullptr) {
       return c.Abort("si_index_missing");
@@ -540,7 +540,7 @@ void Install(Ctx &c) {
   {
     // Tags the install region with the commit epoch so the PAX
     // before-image capture can label its entries.
-    Pax::ScopedCommitEpoch commit_epoch_scope(c.epoch.GetMyThreadLocalEpoch());
+    pax::ScopedCommitEpoch commit_epoch_scope(c.epoch.GetMyThreadLocalEpoch());
     size_t installed = 0;
     for (auto &write : c.writes) {
       if (installed > 0) {
@@ -606,7 +606,7 @@ WriteSetType BuildLog(Ctx &c) {
 
 // Phase 3.3-3.4: publish the new TIDs, stamp them into the log snapshot, and
 // hand slots this transaction left empty to the reaper.
-void Publish(Ctx &c, Index::Reaper &reaper, WriteSetType &log_set) {
+void Publish(Ctx &c, index::Reaper &reaper, WriteSetType &log_set) {
   // Unlock by writing the new TID. Carry the epoch forward when the captured
   // TID is from an earlier epoch.
   c.commit_epoch = c.epoch.GetMyThreadLocalEpoch();
@@ -663,7 +663,7 @@ void Publish(Ctx &c, Index::Reaper &reaper, WriteSetType &log_set) {
  *
  * @return true when the caller must wait for the device.
  */
-bool Enqueue(Recovery::Logger &logger, WriteSetType &log_set,
+bool Enqueue(wal::Logger &logger, WriteSetType &log_set,
              EpochNumber commit_epoch, CommitPolicy policy) {
   if (log_set.empty()) return false;
   return logger.Enqueue(log_set, commit_epoch) && policy == CommitPolicy::Sync;
@@ -672,8 +672,8 @@ bool Enqueue(Recovery::Logger &logger, WriteSetType &log_set,
 }  // namespace
 
 bool Commit(TableDictionary &tables, std::shared_mutex &schema_mutex,
-            EpochFramework &epoch_framework, Index::Reaper &reaper,
-            Recovery::Logger &logger, const CommitPayload &payload,
+            epoch::EpochFramework &epoch_framework, index::Reaper &reaper,
+            wal::Logger &logger, const CommitPayload &payload,
             CommitPolicy policy, std::string *abort_reason) {
   Ctx c{tables, epoch_framework, payload, abort_reason};
 
@@ -730,5 +730,5 @@ bool Commit(TableDictionary &tables, std::shared_mutex &schema_mutex,
   return true;
 }
 
-}  // namespace Silo
-}  // namespace LineairDB
+}  // namespace silo
+}  // namespace helios::storage

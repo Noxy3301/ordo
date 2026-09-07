@@ -5,16 +5,16 @@
 #include <vector>
 
 #include "gtest/gtest.h"
-#include "lineairdb/config.h"
-#include "lineairdb/database.h"
-#include "lineairdb/stateless.h"
+#include "storage/config.h"
+#include "storage/database.h"
+#include "storage/stateless.h"
 
 namespace {
 
 constexpr const char *kTable = "purge_test";
 
-LineairDB::Config MakeConfig(size_t epoch_duration_ms) {
-  LineairDB::Config config;
+helios::storage::Config MakeConfig(size_t epoch_duration_ms) {
+  helios::storage::Config config;
   config.epoch_duration_ms = epoch_duration_ms;
   config.enable_recovery = false;
   config.work_dir = "./helios_deferred_purge_test_logs";
@@ -22,46 +22,46 @@ LineairDB::Config MakeConfig(size_t epoch_duration_ms) {
   return config;
 }
 
-bool CommitWrite(LineairDB::Database &db, const std::string &key,
+bool CommitWrite(helios::storage::Database &db, const std::string &key,
                  const std::string &value, std::string *reason = nullptr) {
   const bool committed =
       db.ValidateAndCommit({}, {{kTable, key, value, false}}, {}, {},
-                           LineairDB::CommitPolicy::Sync, reason);
+                           helios::storage::CommitPolicy::Sync, reason);
   db.ReleaseMasstreeThreadEpoch();
   return committed;
 }
 
-bool CommitInsert(LineairDB::Database &db, const std::string &key,
+bool CommitInsert(helios::storage::Database &db, const std::string &key,
                   const std::string &value, std::string *reason = nullptr) {
   const bool committed =
       db.ValidateAndCommit({}, {{kTable, key, value, false, true}}, {}, {},
-                           LineairDB::CommitPolicy::Sync, reason);
+                           helios::storage::CommitPolicy::Sync, reason);
   db.ReleaseMasstreeThreadEpoch();
   return committed;
 }
 
-bool CommitDelete(LineairDB::Database &db, const std::string &key,
+bool CommitDelete(helios::storage::Database &db, const std::string &key,
                   std::string *reason = nullptr) {
   const bool committed =
       db.ValidateAndCommit({}, {{kTable, key, "", true}}, {}, {},
-                           LineairDB::CommitPolicy::Sync, reason);
+                           helios::storage::CommitPolicy::Sync, reason);
   db.ReleaseMasstreeThreadEpoch();
   return committed;
 }
 
-LineairDB::StatelessReadResult Read(LineairDB::Database &db,
-                                    const std::string &key) {
+helios::storage::StatelessReadResult Read(helios::storage::Database &db,
+                                          const std::string &key) {
   auto result = db.Read(kTable, key);
   db.ReleaseMasstreeThreadEpoch();
   return result;
 }
 
-bool ValidateRead(LineairDB::Database &db,
-                  const LineairDB::StatelessReadResult &read,
+bool ValidateRead(helios::storage::Database &db,
+                  const helios::storage::StatelessReadResult &read,
                   const std::string &key, std::string *reason) {
   const bool committed =
       db.ValidateAndCommit({{kTable, key, read.tid, read.found}}, {}, {}, {},
-                           LineairDB::CommitPolicy::Sync, reason);
+                           helios::storage::CommitPolicy::Sync, reason);
   db.ReleaseMasstreeThreadEpoch();
   return committed;
 }
@@ -70,7 +70,7 @@ bool StartsWith(const std::string &value, const std::string &prefix) {
   return value.rfind(prefix, 0) == 0;
 }
 
-void WaitForEpochReaper(LineairDB::Database &db,
+void WaitForEpochReaper(helios::storage::Database &db,
                         std::chrono::milliseconds duration) {
   std::this_thread::sleep_for(duration);
   db.ReleaseMasstreeThreadEpoch();
@@ -81,7 +81,7 @@ void WaitForEpochReaper(LineairDB::Database &db,
 
 TEST(DeferredPurgeTest, SameEpochDeleteReinsertInvalidatesStaleRead) {
   auto config = MakeConfig(100);
-  LineairDB::Database db(config);
+  helios::storage::Database db(config);
   ASSERT_TRUE(db.CreateTable(kTable));
 
   ASSERT_TRUE(CommitWrite(db, "k", "v1"));
@@ -98,7 +98,7 @@ TEST(DeferredPurgeTest, SameEpochDeleteReinsertInvalidatesStaleRead) {
 
 TEST(DeferredPurgeTest, FoundReadAbortsAfterDeferredPurgeRemovesSlot) {
   auto config = MakeConfig(5);
-  LineairDB::Database db(config);
+  helios::storage::Database db(config);
   ASSERT_TRUE(db.CreateTable(kTable));
 
   ASSERT_TRUE(CommitWrite(db, "k", "v1"));
@@ -118,7 +118,7 @@ TEST(DeferredPurgeTest, FoundReadAbortsAfterDeferredPurgeRemovesSlot) {
 
 TEST(DeferredPurgeTest, ReinsertBeforeReaperKeepsLiveRow) {
   auto config = MakeConfig(200);
-  LineairDB::Database db(config);
+  helios::storage::Database db(config);
   ASSERT_TRUE(db.CreateTable(kTable));
 
   ASSERT_TRUE(CommitWrite(db, "k", "v1"));
@@ -134,7 +134,7 @@ TEST(DeferredPurgeTest, ReinsertBeforeReaperKeepsLiveRow) {
 
 TEST(DeferredPurgeTest, AbsentReadStillAbortsWhenRowAppears) {
   auto config = MakeConfig(100);
-  LineairDB::Database db(config);
+  helios::storage::Database db(config);
   ASSERT_TRUE(db.CreateTable(kTable));
 
   const auto absent = Read(db, "k");
@@ -149,7 +149,7 @@ TEST(DeferredPurgeTest, AbsentReadStillAbortsWhenRowAppears) {
 
 TEST(DeferredPurgeTest, InsertAfterThePurgeClaimsAFreshSlot) {
   auto config = MakeConfig(5);
-  LineairDB::Database db(config);
+  helios::storage::Database db(config);
   ASSERT_TRUE(db.CreateTable(kTable));
 
   const std::string key = "purged_then_reinserted_key";
@@ -168,16 +168,16 @@ TEST(DeferredPurgeTest, InsertAfterThePurgeClaimsAFreshSlot) {
 
 TEST(DeferredPurgeTest, TwoInsertsOfOneKeyInARequestAreRefused) {
   auto config = MakeConfig(100);
-  LineairDB::Database db(config);
+  helios::storage::Database db(config);
   ASSERT_TRUE(db.CreateTable(kTable));
 
   const std::string key = "twice_inserted_key";
   std::string reason;
   EXPECT_FALSE(db.ValidateAndCommit(
       {}, {{kTable, key, "v1", false, true}, {kTable, key, "v2", false, true}},
-      {}, {}, LineairDB::CommitPolicy::Sync, &reason));
+      {}, {}, helios::storage::CommitPolicy::Sync, &reason));
   db.ReleaseMasstreeThreadEpoch();
-  EXPECT_EQ(reason, LineairDB::kDuplicateKeyAbortReason);
+  EXPECT_EQ(reason, helios::storage::kDuplicateKeyAbortReason);
   EXPECT_FALSE(Read(db, key).found);
 
   // Deleted in between, the second insert is not a duplicate.
@@ -186,7 +186,7 @@ TEST(DeferredPurgeTest, TwoInsertsOfOneKeyInARequestAreRefused) {
                                    {{kTable, key, "v1", false, true},
                                     {kTable, key, "", true, false},
                                     {kTable, key, "v2", false, true}},
-                                   {}, {}, LineairDB::CommitPolicy::Sync,
+                                   {}, {}, helios::storage::CommitPolicy::Sync,
                                    &reason));
   db.ReleaseMasstreeThreadEpoch();
   const auto live = Read(db, key);
@@ -196,7 +196,7 @@ TEST(DeferredPurgeTest, TwoInsertsOfOneKeyInARequestAreRefused) {
 
 TEST(DeferredPurgeTest, InsertOntoALiveKeyIsRefused) {
   auto config = MakeConfig(100);
-  LineairDB::Database db(config);
+  helios::storage::Database db(config);
   ASSERT_TRUE(db.CreateTable(kTable));
 
   const std::string key = "live_key";
@@ -204,7 +204,7 @@ TEST(DeferredPurgeTest, InsertOntoALiveKeyIsRefused) {
 
   std::string reason;
   EXPECT_FALSE(CommitInsert(db, key, "v2", &reason));
-  EXPECT_EQ(reason, LineairDB::kDuplicateKeyAbortReason);
+  EXPECT_EQ(reason, helios::storage::kDuplicateKeyAbortReason);
 
   const auto live = Read(db, key);
   EXPECT_TRUE(live.found);

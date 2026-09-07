@@ -14,7 +14,7 @@
 
 namespace {
 
-using LineairDB::Recovery::FlushTrace;
+using helios::storage::wal::FlushTrace;
 
 // The one data row of "<prefix>_meta.csv".
 struct Meta {

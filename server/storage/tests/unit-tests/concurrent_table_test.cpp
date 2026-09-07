@@ -24,39 +24,39 @@
 #include "util/logger.hpp"
 
 TEST(ConcurrentTableTest, Instantiate) {
-  LineairDB::EpochFramework epoch;
+  helios::storage::epoch::EpochFramework epoch;
   epoch.Start();
-  ASSERT_NO_THROW(LineairDB::Index::ConcurrentTable table(epoch));
+  ASSERT_NO_THROW(helios::storage::index::ConcurrentTable table(epoch));
 }
 
 TEST(ConcurrentTableTest, Put) {
-  LineairDB::EpochFramework epoch;
+  helios::storage::epoch::EpochFramework epoch;
   epoch.Start();
-  LineairDB::Index::ConcurrentTable table(epoch);
-  table.Put("alice", LineairDB::DataItem{});
+  helios::storage::index::ConcurrentTable table(epoch);
+  table.Put("alice", helios::storage::DataItem{});
 }
 
 TEST(ConcurrentTableTest, Get) {
-  LineairDB::EpochFramework epoch;
+  helios::storage::epoch::EpochFramework epoch;
   epoch.Start();
-  LineairDB::Index::ConcurrentTable table(epoch);
+  helios::storage::index::ConcurrentTable table(epoch);
   ASSERT_EQ(nullptr, table.Get("alice"));
   table.Put("alice", {});
   ASSERT_NE(nullptr, table.Get("alice"));
 }
 
 TEST(ConcurrentTableTest, GetOrInsert) {
-  LineairDB::EpochFramework epoch;
+  helios::storage::epoch::EpochFramework epoch;
   epoch.Start();
-  LineairDB::Index::ConcurrentTable table(epoch);
+  helios::storage::index::ConcurrentTable table(epoch);
   ASSERT_NE(nullptr, table.GetOrInsert("alice"));
 }
 
 TEST(ConcurrentTableTest, ConcurrentInserting) {
   std::vector<std::thread> threads;
-  LineairDB::EpochFramework epoch;
+  helios::storage::epoch::EpochFramework epoch;
   epoch.Start();
-  LineairDB::Index::ConcurrentTable table(epoch);
+  helios::storage::index::ConcurrentTable table(epoch);
 
   for (size_t i = 0; i < 10; i++) {
     threads.emplace_back([&, i]() { table.Put(std::to_string(i), {}); });
@@ -71,10 +71,10 @@ TEST(ConcurrentTableTest, ConcurrentInserting) {
 
 TEST(ConcurrentTableTest, ConcurrentAndConflictedInserting) {
   std::vector<std::thread> threads;
-  std::vector<LineairDB::DataItem> items(10);
-  LineairDB::EpochFramework epoch;
+  std::vector<helios::storage::DataItem> items(10);
+  helios::storage::epoch::EpochFramework epoch;
   epoch.Start();
-  LineairDB::Index::ConcurrentTable table(epoch);
+  helios::storage::index::ConcurrentTable table(epoch);
 
   for (size_t i = 0; i < 10; i++) {
     threads.emplace_back([&]() { table.Put("alice", {}); });
@@ -92,10 +92,10 @@ TEST(ConcurrentTableTest, ConcurrentAndConflictedInserting) {
 }
 
 TEST(ConcurrentTableTest, Scan) {
-  LineairDB::Util::SetUpSPDLog();
-  LineairDB::EpochFramework epoch;
+  helios::storage::util::SetUpSPDLog();
+  helios::storage::epoch::EpochFramework epoch;
   epoch.Start();
-  LineairDB::Index::ConcurrentTable table(epoch);
+  helios::storage::index::ConcurrentTable table(epoch);
   ASSERT_TRUE(table.Put("alice", {}));
   ASSERT_TRUE(table.Put("bob", {}));
   ASSERT_TRUE(table.Put("carol", {}));
@@ -112,10 +112,10 @@ TEST(ConcurrentTableTest, Scan) {
 
 TEST(ConcurrentTableTest, TremendousPut) {
   std::vector<std::thread> threads;
-  std::vector<LineairDB::DataItem *> items;
-  LineairDB::EpochFramework epoch;
+  std::vector<helios::storage::DataItem *> items;
+  helios::storage::epoch::EpochFramework epoch;
   epoch.Start();
-  LineairDB::Index::ConcurrentTable table(epoch);
+  helios::storage::index::ConcurrentTable table(epoch);
 
   constexpr size_t working_set_size = 8192;
   for (size_t i = 0; i < 10; i++) {
@@ -133,10 +133,10 @@ TEST(ConcurrentTableTest, TremendousPut) {
 
 TEST(ConcurrentTableTest, TremendousGetAndPut) {
   std::vector<std::thread> threads;
-  std::vector<LineairDB::DataItem *> items;
-  LineairDB::EpochFramework epoch;
+  std::vector<helios::storage::DataItem *> items;
+  helios::storage::epoch::EpochFramework epoch;
   epoch.Start();
-  LineairDB::Index::ConcurrentTable table(epoch);
+  helios::storage::index::ConcurrentTable table(epoch);
 
   constexpr size_t working_set_size = 8192;
   for (size_t i = 0; i < 10; i++) {
@@ -156,10 +156,10 @@ TEST(ConcurrentTableTest, TremendousGetAndPut) {
 TEST(ConcurrentTableTest, ForEachIsSafeWithRehashing) {
   // Test scenario: #Rehash and #ForEach are concurrently executed.
   std::vector<std::thread> threads;
-  std::vector<LineairDB::DataItem *> items;
-  LineairDB::EpochFramework epoch(1);
+  std::vector<helios::storage::DataItem *> items;
+  helios::storage::epoch::EpochFramework epoch(1);
   epoch.Start();
-  LineairDB::Index::ConcurrentTable table(epoch);
+  helios::storage::index::ConcurrentTable table(epoch);
 
   constexpr size_t working_set_size = 8192;
   for (size_t i = 0; i < 5; i++) {

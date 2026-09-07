@@ -14,10 +14,10 @@
 #include <thread>
 #include <vector>
 
-#include "lineairdb/config.h"
-#include "lineairdb/database.h"
-#include "lineairdb/stateless.h"
 #include "recovery/wal.h"
+#include "storage/config.h"
+#include "storage/database.h"
+#include "storage/stateless.h"
 
 namespace {
 
@@ -25,9 +25,9 @@ constexpr const char *kTable = "checkpoint_test";
 constexpr const char *kIndex = "idx";
 constexpr auto kTestTimeout = std::chrono::seconds(10);
 
-using LineairDB::Recovery::EpochScanCheckpoint;
-using LineairDB::Recovery::Wal;
-using LineairDB::Recovery::WalScanResult;
+using helios::storage::wal::EpochScanCheckpoint;
+using helios::storage::wal::Wal;
+using helios::storage::wal::WalScanResult;
 
 // Closes both ends on scope exit so an assertion failure cannot leak them.
 // Ported from debug_sync_test.cpp.
@@ -108,8 +108,8 @@ class EpochScanCheckpointTest : public ::testing::Test {
     armed_.push_back(variable);
   }
 
-  LineairDB::Config MakeConfig(bool enable_recovery) const {
-    LineairDB::Config config;
+  helios::storage::Config MakeConfig(bool enable_recovery) const {
+    helios::storage::Config config;
     config.epoch_duration_ms = 10;
     config.enable_recovery = enable_recovery;
     config.work_dir = work_dir_;
@@ -117,43 +117,45 @@ class EpochScanCheckpointTest : public ::testing::Test {
     return config;
   }
 
-  static bool CommitWrite(LineairDB::Database &db, const std::string &key,
+  static bool CommitWrite(helios::storage::Database &db, const std::string &key,
                           const std::string &value) {
     const bool committed =
         db.ValidateAndCommit({}, {{kTable, key, value, false}}, {}, {},
-                             LineairDB::CommitPolicy::Sync);
+                             helios::storage::CommitPolicy::Sync);
     db.ReleaseMasstreeThreadEpoch();
     return committed;
   }
 
-  static bool CommitDelete(LineairDB::Database &db, const std::string &key) {
-    const bool committed = db.ValidateAndCommit(
-        {}, {{kTable, key, "", true}}, {}, {}, LineairDB::CommitPolicy::Sync);
+  static bool CommitDelete(helios::storage::Database &db,
+                           const std::string &key) {
+    const bool committed =
+        db.ValidateAndCommit({}, {{kTable, key, "", true}}, {}, {},
+                             helios::storage::CommitPolicy::Sync);
     db.ReleaseMasstreeThreadEpoch();
     return committed;
   }
 
-  static bool CommitIndexedWrite(LineairDB::Database &db,
+  static bool CommitIndexedWrite(helios::storage::Database &db,
                                  const std::string &key,
                                  const std::string &value,
                                  const std::string &secondary_key) {
     const bool committed =
         db.ValidateAndCommit({}, {{kTable, key, value, false}},
                              {{kTable, kIndex, secondary_key, key, false}}, {},
-                             LineairDB::CommitPolicy::Sync);
+                             helios::storage::CommitPolicy::Sync);
     db.ReleaseMasstreeThreadEpoch();
     return committed;
   }
 
-  static LineairDB::StatelessReadResult Read(LineairDB::Database &db,
-                                             const std::string &key) {
+  static helios::storage::StatelessReadResult Read(
+      helios::storage::Database &db, const std::string &key) {
     auto result = db.Read(kTable, key);
     db.ReleaseMasstreeThreadEpoch();
     return result;
   }
 
   /** Every key's value, in key order, as the database currently holds it. */
-  static std::vector<std::string> ReadAll(LineairDB::Database &db) {
+  static std::vector<std::string> ReadAll(helios::storage::Database &db) {
     std::vector<std::string> rows;
     for (const char *key : {"alice", "bob", "carol"}) {
       const auto row = Read(db, key);
@@ -163,7 +165,7 @@ class EpochScanCheckpointTest : public ::testing::Test {
   }
 
   /** Every secondary-index hit, as `secondary_key/primary_key=value`. */
-  static std::vector<std::string> ReadIndex(LineairDB::Database &db) {
+  static std::vector<std::string> ReadIndex(helios::storage::Database &db) {
     auto result = db.ScanIndex(kTable, kIndex, "", "\xff", 0, false);
     db.ReleaseMasstreeThreadEpoch();
     std::vector<std::string> hits;
@@ -213,7 +215,7 @@ class EpochScanCheckpointTest : public ::testing::Test {
 
   std::string root_;
   std::string work_dir_;
-  LineairDB::EpochNumber frontier_ = 0;
+  helios::storage::EpochNumber frontier_ = 0;
 
  private:
   std::vector<std::string> armed_;
@@ -222,7 +224,7 @@ class EpochScanCheckpointTest : public ::testing::Test {
 TEST_F(EpochScanCheckpointTest, AnImageHoldsWhatTheScanFound) {
   {
     auto config = MakeConfig(false);
-    LineairDB::Database db(config);
+    helios::storage::Database db(config);
     db.CreateTable(kTable);
     ASSERT_TRUE(db.CreateSecondaryIndex(kTable, kIndex, 0));
     ASSERT_TRUE(CommitIndexedWrite(db, "alice", "one", "s"));
@@ -246,7 +248,7 @@ TEST_F(EpochScanCheckpointTest, AnImageHoldsWhatTheScanFound) {
 TEST_F(EpochScanCheckpointTest, ADeletedRowLeavesNoEntry) {
   {
     auto config = MakeConfig(false);
-    LineairDB::Database db(config);
+    helios::storage::Database db(config);
     db.CreateTable(kTable);
     ASSERT_TRUE(CommitWrite(db, "alice", "one"));
     ASSERT_TRUE(CommitWrite(db, "bob", "two"));
@@ -268,7 +270,7 @@ TEST_F(EpochScanCheckpointTest, AnAbsentImageIsNotAFailure) {
 TEST_F(EpochScanCheckpointTest, ADamagedImageIsRefused) {
   {
     auto config = MakeConfig(false);
-    LineairDB::Database db(config);
+    helios::storage::Database db(config);
     db.CreateTable(kTable);
     ASSERT_TRUE(CommitWrite(db, "alice", "one"));
     ASSERT_TRUE(db.WriteCheckpointImage());
@@ -292,7 +294,7 @@ TEST_F(EpochScanCheckpointTest, ADamagedImageIsRefused) {
 TEST_F(EpochScanCheckpointTest, TheLogTailWinsOverTheImage) {
   {
     auto config = MakeConfig(false);
-    LineairDB::Database db(config);
+    helios::storage::Database db(config);
     db.CreateTable(kTable);
     ASSERT_TRUE(CommitWrite(db, "alice", "one"));
     ASSERT_TRUE(CommitWrite(db, "bob", "one"));
@@ -306,7 +308,7 @@ TEST_F(EpochScanCheckpointTest, TheLogTailWinsOverTheImage) {
   }
 
   auto config = MakeConfig(true);
-  LineairDB::Database db(config);
+  helios::storage::Database db(config);
   db.CreateTable(kTable);
   EXPECT_EQ(Read(db, "alice").value, "two");
   // Only the image holds this one: its record is in a frame the replay skips.
@@ -318,7 +320,7 @@ TEST_F(EpochScanCheckpointTest, TheLogTailWinsOverTheImage) {
 TEST_F(EpochScanCheckpointTest, RecoveryWithTheImageMatchesRecoveryWithout) {
   {
     auto config = MakeConfig(false);
-    LineairDB::Database db(config);
+    helios::storage::Database db(config);
     db.CreateTable(kTable);
     ASSERT_TRUE(db.CreateSecondaryIndex(kTable, kIndex, 0));
     ASSERT_TRUE(CommitIndexedWrite(db, "alice", "one", "s"));
@@ -334,14 +336,14 @@ TEST_F(EpochScanCheckpointTest, RecoveryWithTheImageMatchesRecoveryWithout) {
 
   // What the replay leaves out, and that it leaves out something at all.
   {
-    Wal wal(work_dir_, LineairDB::Recovery::WalIo::Posix(), 1ull << 20);
+    Wal wal(work_dir_, helios::storage::wal::WalIo::Posix(), 1ull << 20);
     auto full = wal.ScanAndRepair(0);
     ASSERT_EQ(full.status, WalScanResult::Status::Ok);
     EXPECT_EQ(full.frames_skipped, 0u);
     frontier_ = full.frontier;
   }
   {
-    Wal wal(work_dir_, LineairDB::Recovery::WalIo::Posix(), 1ull << 20);
+    Wal wal(work_dir_, helios::storage::wal::WalIo::Posix(), 1ull << 20);
     auto filtered = wal.ScanAndRepair(image.cut_epoch);
     ASSERT_EQ(filtered.status, WalScanResult::Status::Ok);
     EXPECT_GT(filtered.frames_skipped, 0u);
@@ -357,7 +359,7 @@ TEST_F(EpochScanCheckpointTest, RecoveryWithTheImageMatchesRecoveryWithout) {
   std::vector<std::string> index_with_image;
   {
     auto config = MakeConfig(true);
-    LineairDB::Database db(config);
+    helios::storage::Database db(config);
     db.CreateTable(kTable);
     with_image = ReadAll(db);
     index_with_image = ReadIndex(db);
@@ -369,7 +371,7 @@ TEST_F(EpochScanCheckpointTest, RecoveryWithTheImageMatchesRecoveryWithout) {
   std::vector<std::string> index_without_image;
   {
     auto config = MakeConfig(true);
-    LineairDB::Database db(config);
+    helios::storage::Database db(config);
     db.CreateTable(kTable);
     without_image = ReadAll(db);
     index_without_image = ReadIndex(db);
@@ -388,7 +390,7 @@ TEST_F(EpochScanCheckpointTest, RecoveryWithTheImageMatchesRecoveryWithout) {
 TEST_F(EpochScanCheckpointTest, AQuietTailAfterTheImageIsAccepted) {
   {
     auto config = MakeConfig(false);
-    LineairDB::Database db(config);
+    helios::storage::Database db(config);
     db.CreateTable(kTable);
     ASSERT_TRUE(CommitWrite(db, "alice", "one"));
     ASSERT_TRUE(CommitWrite(db, "bob", "one"));
@@ -400,7 +402,7 @@ TEST_F(EpochScanCheckpointTest, AQuietTailAfterTheImageIsAccepted) {
   const auto image = EpochScanCheckpoint::Load(work_dir_);
   ASSERT_EQ(image.status, EpochScanCheckpoint::Image::Status::Ok);
   {
-    Wal wal(work_dir_, LineairDB::Recovery::WalIo::Posix(), 1ull << 20);
+    Wal wal(work_dir_, helios::storage::wal::WalIo::Posix(), 1ull << 20);
     auto scan = wal.ScanAndRepair(0);
     ASSERT_EQ(scan.status, WalScanResult::Status::Ok);
     // The quiet tail this test is named for: the log's frontier never
@@ -413,7 +415,7 @@ TEST_F(EpochScanCheckpointTest, AQuietTailAfterTheImageIsAccepted) {
   }
 
   auto config = MakeConfig(true);
-  LineairDB::Database db(config);
+  helios::storage::Database db(config);
   db.CreateTable(kTable);
   EXPECT_EQ(Read(db, "alice").value, "one");
   EXPECT_EQ(Read(db, "bob").value, "one");
@@ -423,7 +425,7 @@ TEST_F(EpochScanCheckpointTest, ALogShorterThanThePublishFrontierIsRejected) {
   const std::string short_log_copy = root_ + "/short_wal.log";
   {
     auto config = MakeConfig(false);
-    LineairDB::Database db(config);
+    helios::storage::Database db(config);
     db.CreateTable(kTable);
     ASSERT_TRUE(CommitWrite(db, "alice", "one"));
     ASSERT_TRUE(CommitWrite(db, "bob", "one"));
@@ -443,7 +445,7 @@ TEST_F(EpochScanCheckpointTest, ALogShorterThanThePublishFrontierIsRejected) {
   std::filesystem::copy_file(short_log_copy, work_dir_ + "/wal.log",
                              std::filesystem::copy_options::overwrite_existing);
   {
-    Wal wal(work_dir_, LineairDB::Recovery::WalIo::Posix(), 1ull << 20);
+    Wal wal(work_dir_, helios::storage::wal::WalIo::Posix(), 1ull << 20);
     const auto scan = wal.ScanAndRepair(0);
     ASSERT_EQ(scan.status, WalScanResult::Status::Ok);
     ASSERT_LT(scan.frontier, image.wal_frontier_at_publish);
@@ -452,7 +454,7 @@ TEST_F(EpochScanCheckpointTest, ALogShorterThanThePublishFrontierIsRejected) {
   // The refusal is only real if recovery acts on it: rows the image alone
   // holds must not come back from a log that never carried them.
   auto config = MakeConfig(true);
-  LineairDB::Database db(config);
+  helios::storage::Database db(config);
   db.CreateTable(kTable);
   EXPECT_EQ(Read(db, "alice").value, "one");
   EXPECT_EQ(Read(db, "bob").value, "one");
@@ -463,7 +465,7 @@ TEST_F(EpochScanCheckpointTest, ALogShorterThanThePublishFrontierIsRejected) {
 TEST_F(EpochScanCheckpointTest, AV1FormatImageIsRefused) {
   {
     auto config = MakeConfig(false);
-    LineairDB::Database db(config);
+    helios::storage::Database db(config);
     db.CreateTable(kTable);
     ASSERT_TRUE(CommitWrite(db, "alice", "one"));
     ASSERT_TRUE(db.WriteCheckpointImage());
@@ -492,7 +494,7 @@ TEST_F(EpochScanCheckpointTest, ARowLockedDuringTheScanIsRetried) {
   Pipe write_release;
 
   auto config = MakeConfig(false);
-  LineairDB::Database db(config);
+  helios::storage::Database db(config);
   db.CreateTable(kTable);
   ASSERT_TRUE(CommitWrite(db, "alice", std::string(64, 'a')));
   ASSERT_TRUE(CommitWrite(db, "bob", std::string(64, 'a')));
@@ -527,7 +529,7 @@ TEST_F(EpochScanCheckpointTest, ARowLockedDuringTheScanIsRetried) {
         db.ValidateAndCommit({},
                              {{kTable, "alice", std::string(64, 'b'), false},
                               {kTable, "bob", std::string(64, 'b'), false}},
-                             {}, {}, LineairDB::CommitPolicy::Sync);
+                             {}, {}, helios::storage::CommitPolicy::Sync);
     db.ReleaseMasstreeThreadEpoch();
     return committed;
   });
@@ -583,7 +585,7 @@ TEST_F(EpochScanCheckpointTest, ARowLockedDuringTheScanIsRetried) {
 TEST_F(EpochScanCheckpointTest, ALeftoverWorkingFileIsNotRead) {
   {
     auto config = MakeConfig(false);
-    LineairDB::Database db(config);
+    helios::storage::Database db(config);
     db.CreateTable(kTable);
     ASSERT_TRUE(CommitWrite(db, "alice", "one"));
     ASSERT_TRUE(db.WriteCheckpointImage());

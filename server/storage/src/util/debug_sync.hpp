@@ -50,8 +50,8 @@
 
 extern char **environ;
 
-namespace LineairDB {
-namespace Util {
+namespace helios::storage {
+namespace util {
 
 inline bool DebugSyncEnabled() {
   static const bool enabled = [] {
@@ -168,14 +168,14 @@ inline void DebugSyncPoint(const char *point_name) {
   DebugSyncFatal(point_name, "unknown action");
 }
 
-}  // namespace Util
-}  // namespace LineairDB
+}  // namespace util
+}  // namespace helios::storage
 
-#define HELIOS_DEBUG_SYNC(point_name)                \
-  do {                                               \
-    if (::LineairDB::Util::DebugSyncEnabled()) {     \
-      ::LineairDB::Util::DebugSyncPoint(point_name); \
-    }                                                \
+#define HELIOS_DEBUG_SYNC(point_name)                      \
+  do {                                                     \
+    if (::helios::storage::util::DebugSyncEnabled()) {     \
+      ::helios::storage::util::DebugSyncPoint(point_name); \
+    }                                                      \
   } while (0)
 
 #endif  // HELIOS_UTIL_DEBUG_SYNC_HPP

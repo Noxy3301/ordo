@@ -4,7 +4,7 @@
 
 namespace {
 
-using LineairDB::Index::SecondaryIndexType;
+using helios::storage::index::SecondaryIndexType;
 
 TEST(SecondaryIndexTypeTest, DefaultIsNotUnique) {
   EXPECT_FALSE(SecondaryIndexType().IsUnique());

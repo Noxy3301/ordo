@@ -6,19 +6,19 @@
 #include <utility>
 
 #include "index/concurrent_table.h"
-#include "lineairdb/config.h"
+#include "storage/config.h"
 #include "util/epoch_framework.hpp"
 // #include "index/secondary_index.h"  // now included from table.h
 
-namespace LineairDB {
-Table::Table(EpochFramework &epoch_framework, const Config &config,
+namespace helios::storage {
+Table::Table(epoch::EpochFramework &epoch_framework, const Config &config,
              std::string_view table_name)
     : epoch_framework_(epoch_framework),
       config_(config),
       primary_index_(epoch_framework, config),
       table_name_(table_name) {}
 
-Index::SecondaryIndex *Table::GetSecondaryIndex(
+index::SecondaryIndex *Table::GetSecondaryIndex(
     const std::string_view index_name) {
   std::shared_lock<std::shared_mutex> lk(table_lock_);
   auto it = secondary_indices_.find(std::string(index_name));
@@ -29,6 +29,6 @@ Index::SecondaryIndex *Table::GetSecondaryIndex(
 }
 
 const std::string &Table::GetTableName() const { return table_name_; }
-Index::ConcurrentTable &Table::GetPrimaryIndex() { return primary_index_; }
+index::ConcurrentTable &Table::GetPrimaryIndex() { return primary_index_; }
 
-}  // namespace LineairDB
+}  // namespace helios::storage

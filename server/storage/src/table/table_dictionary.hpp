@@ -9,7 +9,7 @@
 
 #include "table/table.h"
 
-namespace LineairDB {
+namespace helios::storage {
 
 /**
  * @brief The tables of one database: published by DDL, read by every request.
@@ -35,7 +35,8 @@ class TableDictionary {
     }
   }
 
-  bool CreateTable(std::string_view table_name, EpochFramework &epoch_framework,
+  bool CreateTable(std::string_view table_name,
+                   epoch::EpochFramework &epoch_framework,
                    const Config &config) {
     std::lock_guard<std::mutex> lk(create_mtx_);
     if (Find(table_name) != nullptr) return false;
@@ -64,7 +65,7 @@ class TableDictionary {
     Table table;
     Node *next;
 
-    Node(std::string_view n, EpochFramework &epoch_framework,
+    Node(std::string_view n, epoch::EpochFramework &epoch_framework,
          const Config &config, Node *next)
         : name(n), table(epoch_framework, config, n), next(next) {}
   };
@@ -81,4 +82,4 @@ class TableDictionary {
   std::mutex create_mtx_;
 };
 
-}  // namespace LineairDB
+}  // namespace helios::storage

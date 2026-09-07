@@ -14,7 +14,7 @@
 #include "index/secondary_index.h"
 #include "types/data_item.hpp"
 
-namespace LineairDB {
+namespace helios::storage {
 
 namespace {
 
@@ -111,7 +111,7 @@ bool Database::Impl::ComputeIndexNdvInt(const std::string_view table_name,
                          return count_key(key);
                        });
   } else {
-    Index::SecondaryIndex *index = table.value()->GetSecondaryIndex(index_name);
+    index::SecondaryIndex *index = table.value()->GetSecondaryIndex(index_name);
     if (index == nullptr) return false;
 
     // Pin the secondary primary-key list under one stable TID.
@@ -211,7 +211,7 @@ bool Database::Impl::ComputeIndexHistogram(const std::string_view table_name,
             return false;
           });
     } else {
-      Index::SecondaryIndex *index =
+      index::SecondaryIndex *index =
           table.value()->GetSecondaryIndex(index_name);
       if (index == nullptr) {
         malformed = true;
@@ -273,4 +273,4 @@ bool Database::Impl::ComputeIndexHistogram(const std::string_view table_name,
   return !out_bounds.empty();
 }
 
-}  // namespace LineairDB
+}  // namespace helios::storage

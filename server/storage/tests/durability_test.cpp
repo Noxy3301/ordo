@@ -14,8 +14,8 @@
  *   limitations under the License.
  */
 
-#include <lineairdb/config.h>
-#include <lineairdb/database.h>
+#include <storage/config.h>
+#include <storage/database.h>
 
 #include <chrono>
 #include <filesystem>
@@ -34,19 +34,19 @@ constexpr const char *kTable = "users";
 
 class DurabilityTest : public ::testing::Test {
  protected:
-  LineairDB::Config config_;
-  std::unique_ptr<LineairDB::Database> db_;
+  helios::storage::Config config_;
+  std::unique_ptr<helios::storage::Database> db_;
   virtual void SetUp() {
     std::filesystem::remove_all("helios_wal");
     config_.enable_recovery = true;
-    db_ = std::make_unique<LineairDB::Database>(config_);
+    db_ = std::make_unique<helios::storage::Database>(config_);
     db_->CreateTable(kTable);
   }
 };
 
 TEST_F(DurabilityTest, Recovery) {
   // We expect LineairDB enables recovery logging by default.
-  const LineairDB::Config config = db_->GetConfig();
+  const helios::storage::Config config = db_->GetConfig();
 
   int initial_value = 1;
   ASSERT_TRUE(TestHelper::Write<int>(*db_, kTable, "alice", initial_value));
@@ -55,7 +55,7 @@ TEST_F(DurabilityTest, Recovery) {
   // Expect that recovery procedure has idempotence
   for (size_t i = 0; i < 3; i++) {
     db_.reset(nullptr);
-    db_ = std::make_unique<LineairDB::Database>(config);
+    db_ = std::make_unique<helios::storage::Database>(config);
 
     auto alice = TestHelper::Read<int>(*db_, kTable, "alice");
     ASSERT_TRUE(alice.has_value());
@@ -68,7 +68,7 @@ TEST_F(DurabilityTest, Recovery) {
 
 TEST_F(DurabilityTest, RecoveryKeepsDeletedKeysAbsent) {
   // We expect LineairDB enables recovery logging by default.
-  const LineairDB::Config config = db_->GetConfig();
+  const helios::storage::Config config = db_->GetConfig();
 
   int initial_value = 1;
   ASSERT_TRUE(TestHelper::Write<int>(*db_, kTable, "alice", initial_value));
@@ -77,7 +77,7 @@ TEST_F(DurabilityTest, RecoveryKeepsDeletedKeysAbsent) {
   // Expect that recovery procedure has idempotence
   for (size_t i = 0; i < 3; i++) {
     db_.reset(nullptr);
-    db_ = std::make_unique<LineairDB::Database>(config);
+    db_ = std::make_unique<helios::storage::Database>(config);
 
     auto alice = TestHelper::Read<int>(*db_, kTable, "alice");
     ASSERT_FALSE(alice.has_value());
@@ -97,7 +97,7 @@ TEST_F(DurabilityTest, RecoveryLargeObject) {
 
 TEST_F(DurabilityTest, RecoveryInContendedWorkload) {
   // We expect LineairDB enables recovery logging by default.
-  const LineairDB::Config config = db_->GetConfig();
+  const helios::storage::Config config = db_->GetConfig();
 
   const int value = 0xBEEF;
   std::vector<std::thread> writers;
@@ -110,7 +110,7 @@ TEST_F(DurabilityTest, RecoveryInContendedWorkload) {
   for (auto &writer : writers) writer.join();
 
   db_.reset(nullptr);
-  db_ = std::make_unique<LineairDB::Database>(config);
+  db_ = std::make_unique<helios::storage::Database>(config);
 
   auto alice = TestHelper::Read<int>(*db_, kTable, "alice");
   ASSERT_TRUE(alice.has_value());
@@ -118,7 +118,7 @@ TEST_F(DurabilityTest, RecoveryInContendedWorkload) {
 }
 
 TEST_F(DurabilityTest, RecoveryWithNamedTable) {
-  const LineairDB::Config config = db_->GetConfig();
+  const helios::storage::Config config = db_->GetConfig();
   const std::string table_name = "accounts";
   const std::string key = "user1";
   const int value = 12345;
@@ -129,7 +129,7 @@ TEST_F(DurabilityTest, RecoveryWithNamedTable) {
 
   // 2. Restart DB to trigger recovery
   db_.reset(nullptr);
-  db_ = std::make_unique<LineairDB::Database>(config);
+  db_ = std::make_unique<helios::storage::Database>(config);
 
   // 3. Verify data is recovered in the correct table
   auto data = TestHelper::Read<int>(*db_, table_name, key);
@@ -145,18 +145,18 @@ TEST_F(DurabilityTest, RecoveryWithNamedTable) {
 // which is what makes the comparison a contract and not a stopwatch reading.
 TEST(CommitPolicyTest, AsyncDoesNotWaitForTheDevice) {
   constexpr size_t kEpochMs = 1000;
-  LineairDB::Config config;
+  helios::storage::Config config;
   config.work_dir = "./helios_commit_policy_test_logs";
   std::filesystem::remove_all(config.work_dir);
   config.enable_recovery = false;
   config.epoch_duration_ms = kEpochMs;
 
   {
-    LineairDB::Database db(config);
+    helios::storage::Database db(config);
     ASSERT_TRUE(db.CreateTable(kTable));
 
     const auto commit = [&db](const std::string &key,
-                              LineairDB::CommitPolicy policy) {
+                              helios::storage::CommitPolicy policy) {
       const auto started = std::chrono::steady_clock::now();
       const bool committed = db.ValidateAndCommit(
           {}, {{kTable, key, "v", false}}, {}, {}, policy, nullptr);
@@ -167,11 +167,13 @@ TEST(CommitPolicyTest, AsyncDoesNotWaitForTheDevice) {
           .count();
     };
 
-    const auto async_ms = commit("async_key", LineairDB::CommitPolicy::Async);
+    const auto async_ms =
+        commit("async_key", helios::storage::CommitPolicy::Async);
     EXPECT_LT(async_ms, static_cast<long>(kEpochMs))
         << "an Async commit waited for its epoch to become durable";
 
-    const auto sync_ms = commit("sync_key", LineairDB::CommitPolicy::Sync);
+    const auto sync_ms =
+        commit("sync_key", helios::storage::CommitPolicy::Sync);
     EXPECT_GE(sync_ms, static_cast<long>(kEpochMs))
         << "a Sync commit returned before its epoch could close";
     EXPECT_LT(async_ms, sync_ms)

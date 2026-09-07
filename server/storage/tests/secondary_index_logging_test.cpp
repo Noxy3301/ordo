@@ -15,8 +15,8 @@
  *   limitations under the License.
  */
 
-#include <lineairdb/config.h>
-#include <lineairdb/database.h>
+#include <storage/config.h>
+#include <storage/database.h>
 
 #include <algorithm>
 #include <chrono>
@@ -44,7 +44,7 @@ struct SecondaryLogStats {
   size_t primary_keys_bytes = 0;
 };
 
-size_t GetLogDirectorySize(const LineairDB::Config &conf) {
+size_t GetLogDirectorySize(const helios::storage::Config &conf) {
   namespace fs = std::filesystem;
   size_t size = 0;
   for (const auto &entry : fs::directory_iterator(conf.work_dir)) {
@@ -64,20 +64,20 @@ size_t GetLogDirectorySize(const LineairDB::Config &conf) {
  * appending to.
  */
 SecondaryLogStats GetSecondaryIndexLogStatsForLatestEpoch(
-    const LineairDB::Config &conf) {
+    const helios::storage::Config &conf) {
   namespace fs = std::filesystem;
   SecondaryLogStats stats{};
   if (!fs::exists(fs::path(conf.work_dir) / "wal.log")) return stats;
 
   // Read the log through the codec that wrote it rather than re-deriving the
   // frame format here.
-  LineairDB::Recovery::Wal wal(conf.work_dir);
+  helios::storage::wal::Wal wal(conf.work_dir);
   const auto scan = wal.ScanAndRepair();
-  if (scan.status != LineairDB::Recovery::WalScanResult::Status::Ok) {
+  if (scan.status != helios::storage::wal::WalScanResult::Status::Ok) {
     return stats;
   }
 
-  LineairDB::EpochNumber max_epoch = 0;
+  helios::storage::EpochNumber max_epoch = 0;
   for (const auto &record : scan.records) {
     if (record.epoch > max_epoch) max_epoch = record.epoch;
   }
@@ -116,14 +116,14 @@ std::vector<std::string> MakePrimaryKeys(size_t count, size_t offset = 0) {
 
 class SecondaryIndexLoggingTest : public ::testing::Test {
  protected:
-  LineairDB::Config config_;
-  std::unique_ptr<LineairDB::Database> db_;
+  helios::storage::Config config_;
+  std::unique_ptr<helios::storage::Database> db_;
 
   void SetUp() override {
     spdlog::set_level(spdlog::level::info);
     std::filesystem::remove_all("helios_wal");
     config_.enable_recovery = true;
-    db_ = std::make_unique<LineairDB::Database>(config_);
+    db_ = std::make_unique<helios::storage::Database>(config_);
     db_->CreateTable("users");
     spdlog::set_level(spdlog::level::info);
   }
@@ -131,12 +131,12 @@ class SecondaryIndexLoggingTest : public ::testing::Test {
 
 TEST_F(SecondaryIndexLoggingTest,
        SecondaryIndexDeltaLoggingAvoidsFullPrimaryKeyList) {
-  LineairDB::Config config = db_->GetConfig();
+  helios::storage::Config config = db_->GetConfig();
   config.enable_recovery = false;
 
   db_.reset(nullptr);
   std::filesystem::remove_all(config.work_dir);
-  db_ = std::make_unique<LineairDB::Database>(config);
+  db_ = std::make_unique<helios::storage::Database>(config);
 
   const std::string table_name = "users";
   const std::string index_name = "age_index";
@@ -153,8 +153,8 @@ TEST_F(SecondaryIndexLoggingTest,
 
   // Preload 9 secondary keys, each with 300 primary keys (16 bytes each).
   {
-    std::vector<LineairDB::ExternalWriteEntry> writes;
-    std::vector<LineairDB::ExternalSecondaryIndexEntry> index_ops;
+    std::vector<helios::storage::ExternalWriteEntry> writes;
+    std::vector<helios::storage::ExternalSecondaryIndexEntry> index_ops;
     for (size_t s = 0; s < secondary_keys; ++s) {
       for (size_t i = 0; i < primary_keys_per_secondary; ++i) {
         const size_t pk_index = s * primary_keys_per_secondary + i;
@@ -170,8 +170,8 @@ TEST_F(SecondaryIndexLoggingTest,
 
   // Trigger a single transaction that updates all 9 secondary keys.
   {
-    std::vector<LineairDB::ExternalWriteEntry> writes;
-    std::vector<LineairDB::ExternalSecondaryIndexEntry> index_ops;
+    std::vector<helios::storage::ExternalWriteEntry> writes;
+    std::vector<helios::storage::ExternalSecondaryIndexEntry> index_ops;
     for (size_t s = 0; s < secondary_keys; ++s) {
       const size_t pk_index = secondary_keys * primary_keys_per_secondary + s;
       const std::string primary_key = MakeFixedPrimaryKey(pk_index);
@@ -198,12 +198,12 @@ TEST_F(SecondaryIndexLoggingTest,
 }
 
 TEST_F(SecondaryIndexLoggingTest, RecoveryWithSecondaryIndexWithoutCheckpoint) {
-  LineairDB::Config config = db_->GetConfig();
+  helios::storage::Config config = db_->GetConfig();
   config.enable_recovery = true;
 
   db_.reset(nullptr);
   std::filesystem::remove_all(config.work_dir);
-  db_ = std::make_unique<LineairDB::Database>(config);
+  db_ = std::make_unique<helios::storage::Database>(config);
 
   const std::string table_name = "users";
   const std::string index_name = "age_index";
@@ -215,8 +215,8 @@ TEST_F(SecondaryIndexLoggingTest, RecoveryWithSecondaryIndexWithoutCheckpoint) {
   ASSERT_TRUE(db_->CreateSecondaryIndex(table_name, index_name, 0));
 
   {
-    std::vector<LineairDB::ExternalWriteEntry> writes;
-    std::vector<LineairDB::ExternalSecondaryIndexEntry> index_ops;
+    std::vector<helios::storage::ExternalWriteEntry> writes;
+    std::vector<helios::storage::ExternalSecondaryIndexEntry> index_ops;
     for (const auto &primary_key : primary_keys) {
       writes.push_back(
           {table_name, primary_key, "value_" + primary_key, false, false});
@@ -227,7 +227,7 @@ TEST_F(SecondaryIndexLoggingTest, RecoveryWithSecondaryIndexWithoutCheckpoint) {
   }
 
   db_.reset(nullptr);
-  db_ = std::make_unique<LineairDB::Database>(config);
+  db_ = std::make_unique<helios::storage::Database>(config);
 
   const auto results =
       TestHelper::ReadSecondaryIndex(*db_, table_name, index_name, index_key);
@@ -239,7 +239,7 @@ TEST_F(SecondaryIndexLoggingTest, RecoveryWithSecondaryIndexWithoutCheckpoint) {
 }
 
 TEST_F(SecondaryIndexLoggingTest, SecondaryIndexAddTimingRecorded) {
-  LineairDB::Config config = db_->GetConfig();
+  helios::storage::Config config = db_->GetConfig();
   config.enable_recovery = false;
   // What this test reports per transaction is how many bytes of log one
   // secondary-index write costs, and it reads that from the file's size. A
@@ -249,7 +249,7 @@ TEST_F(SecondaryIndexLoggingTest, SecondaryIndexAddTimingRecorded) {
 
   db_.reset(nullptr);
   std::filesystem::remove_all(config.work_dir);
-  db_ = std::make_unique<LineairDB::Database>(config);
+  db_ = std::make_unique<helios::storage::Database>(config);
 
   const std::string table_name = "users";
   const std::string index_name = "age_index";
@@ -262,8 +262,8 @@ TEST_F(SecondaryIndexLoggingTest, SecondaryIndexAddTimingRecorded) {
 
   // Preload 300 primary keys for the same secondary key.
   {
-    std::vector<LineairDB::ExternalWriteEntry> writes;
-    std::vector<LineairDB::ExternalSecondaryIndexEntry> index_ops;
+    std::vector<helios::storage::ExternalWriteEntry> writes;
+    std::vector<helios::storage::ExternalSecondaryIndexEntry> index_ops;
     for (size_t i = 0; i < initial_primary_keys; ++i) {
       const std::string primary_key = MakeFixedPrimaryKey(i);
       writes.push_back(
@@ -290,7 +290,7 @@ TEST_F(SecondaryIndexLoggingTest, SecondaryIndexAddTimingRecorded) {
     const bool committed = db_->ValidateAndCommit(
         {}, {{table_name, primary_key, value, false, false}},
         {{table_name, index_name, index_key, primary_key, false}}, {},
-        LineairDB::CommitPolicy::Sync);
+        helios::storage::CommitPolicy::Sync);
     const auto end = std::chrono::steady_clock::now();
     db_->ReleaseMasstreeThreadEpoch();
     ASSERT_TRUE(committed);

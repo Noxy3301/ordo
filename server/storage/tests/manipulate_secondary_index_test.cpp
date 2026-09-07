@@ -21,19 +21,19 @@
 #include <vector>
 
 #include "gtest/gtest.h"
-#include "lineairdb/config.h"
-#include "lineairdb/database.h"
 #include "stateless_helper.hpp"
+#include "storage/config.h"
+#include "storage/database.h"
 
 class ManipulateSecondaryIndexTest : public ::testing::Test {
  protected:
-  LineairDB::Config config_;
-  std::unique_ptr<LineairDB::Database> db_;
+  helios::storage::Config config_;
+  std::unique_ptr<helios::storage::Database> db_;
   virtual void SetUp() {
     std::filesystem::remove_all(config_.work_dir);
     config_.epoch_duration_ms = 100;
     db_.reset(nullptr);
-    db_ = std::make_unique<LineairDB::Database>(config_);
+    db_ = std::make_unique<helios::storage::Database>(config_);
   }
 };
 

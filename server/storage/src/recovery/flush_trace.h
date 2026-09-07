@@ -18,8 +18,8 @@
 
 #include "types/definitions.h"
 
-namespace LineairDB {
-namespace Recovery {
+namespace helios::storage {
+namespace wal {
 
 /**
  * @brief Timing census of the write-ahead log's flush groups.
@@ -399,7 +399,7 @@ class FlushTrace {
   static std::atomic<bool> dump_requested_;
 };
 
-}  // namespace Recovery
-}  // namespace LineairDB
+}  // namespace wal
+}  // namespace helios::storage
 
 #endif /* HELIOS_RECOVERY_FLUSH_TRACE_H */

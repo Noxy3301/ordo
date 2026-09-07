@@ -16,7 +16,7 @@
 #include <type_traits>
 #include <vector>
 
-namespace LineairDB {
+namespace helios::storage {
 
 class PackedPrimaryKeysView;
 
@@ -434,6 +434,6 @@ class PackedPrimaryKeysView {
   const PackedPrimaryKeys *keys_;
 };
 
-}  // namespace LineairDB
+}  // namespace helios::storage
 
 #endif  // HELIOS_PACKED_PRIMARY_KEYS_HPP

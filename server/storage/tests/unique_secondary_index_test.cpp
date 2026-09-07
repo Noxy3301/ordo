@@ -1,5 +1,5 @@
-#include <lineairdb/config.h>
-#include <lineairdb/database.h>
+#include <storage/config.h>
+#include <storage/database.h>
 
 #include <filesystem>
 #include <memory>
@@ -10,10 +10,11 @@
 
 namespace {
 
-constexpr uint kUnique =
-    static_cast<uint>(LineairDB::SecondaryIndexOption::Constraint::UNIQUE);
+constexpr uint kUnique = static_cast<uint>(
+    helios::storage::SecondaryIndexOption::Constraint::UNIQUE);
 
-bool WriteSecondary(LineairDB::Database &db, const std::string &table_name,
+bool WriteSecondary(helios::storage::Database &db,
+                    const std::string &table_name,
                     const std::string &primary_key, const std::string &value,
                     const std::string &index_name,
                     const std::string &secondary_key) {
@@ -26,7 +27,7 @@ bool WriteSecondary(LineairDB::Database &db, const std::string &table_name,
 
 class UniqueSecondaryIndexTest : public ::testing::Test {
  protected:
-  LineairDB::Config config_;
+  helios::storage::Config config_;
 
   void SetUp() override {
     std::filesystem::remove_all("helios_wal");
@@ -41,7 +42,7 @@ TEST_F(UniqueSecondaryIndexTest, DictUniqueFlagRejectsDuplicateSecondaryKey) {
   std::filesystem::remove_all(config_.work_dir);
   config_.enable_recovery = false;
 
-  LineairDB::Database db(config_);
+  helios::storage::Database db(config_);
   ASSERT_TRUE(db.CreateTable("users"));
   ASSERT_TRUE(db.CreateSecondaryIndex("users", "email_idx", kUnique));
 
@@ -56,7 +57,7 @@ TEST_F(UniqueSecondaryIndexTest,
   config_.enable_recovery = true;
 
   {
-    LineairDB::Database db(config_);
+    helios::storage::Database db(config_);
     ASSERT_TRUE(db.CreateTable("users"));
     ASSERT_TRUE(db.CreateSecondaryIndex("users", "email_idx", kUnique));
 
@@ -64,7 +65,7 @@ TEST_F(UniqueSecondaryIndexTest,
                                "alice@example.com"));
   }
 
-  LineairDB::Database recovered_db(config_);
+  helios::storage::Database recovered_db(config_);
 
   const auto recovered = TestHelper::ReadSecondaryIndex(
       recovered_db, "users", "email_idx", "alice@example.com");

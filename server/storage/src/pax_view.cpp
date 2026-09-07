@@ -9,9 +9,9 @@
 #include "pax/version_store.hpp"
 #include "util/debug_sync.hpp"
 
-namespace LineairDB {
+namespace helios::storage {
 
-Pax::PaxStore *Database::Impl::GetPaxStore(const std::string_view table_name) {
+pax::PaxStore *Database::Impl::GetPaxStore(const std::string_view table_name) {
   auto table = GetTable(table_name);
   if (!table.has_value()) return nullptr;
   return table.value()->GetPaxStore();
@@ -20,7 +20,7 @@ Pax::PaxStore *Database::Impl::GetPaxStore(const std::string_view table_name) {
 Database::PaxReadView Database::Impl::AcquirePaxReadView(
     uint32_t fence_timeout_ms) {
   Database::PaxReadView handle;
-  auto token = Pax::VersionStore::Global().BeginCapture();
+  auto token = pax::VersionStore::Global().BeginCapture();
   if (!token.valid) {
     handle.error =
         "columnar read view rejected: the active capture generation is "
@@ -36,8 +36,8 @@ Database::PaxReadView Database::Impl::AcquirePaxReadView(
   // the high-water mark, compared without addition to stay exact at
   // the numeric limit.
   const EpochNumber cut = epoch_framework_.GetGlobalEpoch();
-  if (cut >= EpochFramework::kEpochHighWater - 2) {
-    Pax::VersionStore::Global().EndCapture(token);
+  if (cut >= epoch::EpochFramework::kEpochHighWater - 2) {
+    pax::VersionStore::Global().EndCapture(token);
     handle.error =
         "columnar read view rejected: epoch space is near its wrap "
         "high-water mark, restart the server";
@@ -45,7 +45,7 @@ Database::PaxReadView Database::Impl::AcquirePaxReadView(
   }
   if (!epoch_framework_.WaitGlobalEpochAtLeast(
           cut + 2, std::chrono::milliseconds(fence_timeout_ms))) {
-    Pax::VersionStore::Global().EndCapture(token);
+    pax::VersionStore::Global().EndCapture(token);
     handle.error =
         "columnar read view fence timed out; a long-running transaction is "
         "holding the epoch";
@@ -55,8 +55,8 @@ Database::PaxReadView Database::Impl::AcquirePaxReadView(
   HELIOS_DEBUG_SYNC("pax_read_view.after_fence");
   // A poison landing during acquisition must fail it here; callers
   // treat a valid handle as a serviceable read view.
-  if (Pax::VersionStore::Global().Poisoned(token)) {
-    Pax::VersionStore::Global().EndCapture(token);
+  if (pax::VersionStore::Global().Poisoned(token)) {
+    pax::VersionStore::Global().EndCapture(token);
     handle.error = "columnar read view poisoned during acquisition";
     return handle;
   }
@@ -68,10 +68,10 @@ Database::PaxReadView Database::Impl::AcquirePaxReadView(
 
 void Database::Impl::ReleasePaxReadView(const Database::PaxReadView &view) {
   if (!view.valid) return;
-  Pax::VersionStore::ReadViewToken token;
+  pax::VersionStore::ReadViewToken token;
   token.id = view.token;
   token.valid = true;
-  Pax::VersionStore::Global().EndCapture(token);
+  pax::VersionStore::Global().EndCapture(token);
 }
 
 bool Database::Impl::PaxReadViewPoisoned(
@@ -81,10 +81,10 @@ bool Database::Impl::PaxReadViewPoisoned(
       kPaxReadViewEpochLifetime) {
     return true;  // expired: comparisons could leave the wrap-free window
   }
-  Pax::VersionStore::ReadViewToken token;
+  pax::VersionStore::ReadViewToken token;
   token.id = view.token;
   token.valid = true;
-  return Pax::VersionStore::Global().Poisoned(token);
+  return pax::VersionStore::Global().Poisoned(token);
 }
 
 bool Database::Impl::InstallPaxSchema(
@@ -96,7 +96,7 @@ bool Database::Impl::InstallPaxSchema(
   if (field_max_bytes.empty()) return false;
   auto table = GetTable(table_name);
   if (!table.has_value()) return false;
-  Pax::TableSchema schema;
+  pax::TableSchema schema;
   schema.table_name = std::string(table_name);
   schema.field_max_bytes = field_max_bytes;
   // Typed cells only when the kinds vector matches the field count; otherwise
@@ -111,4 +111,4 @@ bool Database::Impl::InstallPaxSchema(
   return table.value()->InstallPaxSchema(std::move(schema));
 }
 
-}  // namespace LineairDB
+}  // namespace helios::storage

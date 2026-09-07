@@ -35,10 +35,10 @@
 
 ```c++
 
-#include <lineairdb/lineairdb.h>
+#include <storage/database.h>
 
 int main() {
-  LineairDB::Database db;
+  helios::storage::Database db;
   db.CreateTable("accounts");
 
   // Read: the returned tid is the evidence the commit is validated against.
@@ -46,12 +46,12 @@ int main() {
 
   // Commit: hand back what was read and what to install. The read set is
   // revalidated and the writes are installed atomically, or nothing is.
-  const std::vector<LineairDB::ExternalReadEntry> reads = {
+  const std::vector<helios::storage::ExternalReadEntry> reads = {
       {"accounts", "alice", alice.tid, alice.found}};
-  const std::vector<LineairDB::ExternalWriteEntry> writes = {
+  const std::vector<helios::storage::ExternalWriteEntry> writes = {
       {"accounts", "bob", "1"}};
   const bool committed =
-      db.ValidateAndCommit(reads, writes, {}, {}, LineairDB::CommitPolicy::Sync);
+      db.ValidateAndCommit(reads, writes, {}, {}, helios::storage::CommitPolicy::Sync);
 }
 ```
 
@@ -70,7 +70,7 @@ mkdir -p build && cd build
 cmake -DBUILD_SHARED_LIBS=ON -DCMAKE_BUILD_TYPE=Release .. && make && sudo make install
 ```
 
-Then you can use LineairDB by including the header `lineairdb/lineairdb.h`.
+Then you can use the engine by including the header `storage/database.h`.
 
 ### Compatibility
 

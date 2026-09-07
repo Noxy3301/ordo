@@ -19,7 +19,7 @@
 
 #include <cstdint>
 
-namespace LineairDB {
+namespace helios::storage {
 
 using EpochNumber = uint32_t;
 
@@ -30,6 +30,6 @@ enum class SecondaryIndexOp : uint8_t {
   Full = 3,
 };
 
-}  // namespace LineairDB
+}  // namespace helios::storage
 
 #endif /* HELIOS_TYPES_H */

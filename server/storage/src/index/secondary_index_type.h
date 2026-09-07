@@ -2,7 +2,7 @@
 
 #include <cstdint>
 
-namespace LineairDB::Index {
+namespace helios::storage::index {
 
 // The declared kind of one secondary index. kNone and kUnique are the only
 // accepted values; CreateSecondaryIndex refuses anything else.
@@ -27,4 +27,4 @@ class SecondaryIndexType {
   RawType raw_;
 };
 
-}  // namespace LineairDB::Index
+}  // namespace helios::storage::index

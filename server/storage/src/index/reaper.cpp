@@ -8,8 +8,8 @@
 #include "index/secondary_index.h"
 #include "util/logger.hpp"
 
-namespace LineairDB {
-namespace Index {
+namespace helios::storage {
+namespace index {
 
 void Reaper::Enqueue(ConcurrentTable *primary_index,
                      SecondaryIndex *secondary_index, std::string_view key,
@@ -184,5 +184,5 @@ void Reaper::Reap(EpochNumber published_epoch) {
   MasstreeReleaseThreadEpoch();
 }
 
-}  // namespace Index
-}  // namespace LineairDB
+}  // namespace index
+}  // namespace helios::storage

@@ -1,7 +1,7 @@
 #ifndef HELIOS_RECOVERY_EPOCH_SCAN_CHECKPOINT_H
 #define HELIOS_RECOVERY_EPOCH_SCAN_CHECKPOINT_H
 
-#include <lineairdb/config.h>
+#include <storage/config.h>
 
 #include <condition_variable>
 #include <cstdint>
@@ -13,14 +13,16 @@
 #include "log_record.h"
 #include "types/definitions.h"
 
-namespace LineairDB {
+namespace helios::storage {
 
 struct DataItem;
 class Table;
 class TableDictionary;
+namespace epoch {
 class EpochFramework;
+}  // namespace epoch
 
-namespace Recovery {
+namespace wal {
 
 class Logger;
 
@@ -75,7 +77,7 @@ class EpochScanCheckpoint {
   };
 
   EpochScanCheckpoint(const Config &config, TableDictionary &tables,
-                      EpochFramework &epoch_framework, Logger &logger);
+                      epoch::EpochFramework &epoch_framework, Logger &logger);
   ~EpochScanCheckpoint();
 
   EpochScanCheckpoint(const EpochScanCheckpoint &) = delete;
@@ -85,7 +87,7 @@ class EpochScanCheckpoint {
    * @brief Starts the thread that captures on the configured interval.
    * A zero interval and no one-shot delay leaves the thread unstarted, which
    * is the default.
-   * @pre EpochFramework::Start has been called.
+   * @pre epoch::EpochFramework::Start has been called.
    */
   void Start();
 
@@ -141,7 +143,7 @@ class EpochScanCheckpoint {
 
   const Config &config_;
   TableDictionary &tables_;
-  EpochFramework &epoch_framework_;
+  epoch::EpochFramework &epoch_framework_;
   Logger &logger_;
   const std::string image_path_;
   const std::string working_path_;
@@ -156,7 +158,7 @@ class EpochScanCheckpoint {
   std::thread thread_;
 };
 
-}  // namespace Recovery
-}  // namespace LineairDB
+}  // namespace wal
+}  // namespace helios::storage
 
 #endif /* HELIOS_RECOVERY_EPOCH_SCAN_CHECKPOINT_H */

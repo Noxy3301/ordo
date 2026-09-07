@@ -86,7 +86,7 @@ struct LockedTid {
  */
 struct Ctx {
   TableDictionary &tables;
-  epoch::EpochFramework &epoch;
+  epoch::Framework &epoch;
   const CommitPayload &payload;
   std::string *abort_reason;
 
@@ -672,7 +672,7 @@ bool Enqueue(wal::Logger &logger, WriteSetType &log_set,
 }  // namespace
 
 bool Commit(TableDictionary &tables, std::shared_mutex &schema_mutex,
-            epoch::EpochFramework &epoch_framework, index::Reaper &reaper,
+            epoch::Framework &epoch_framework, index::Reaper &reaper,
             wal::Logger &logger, const CommitPayload &payload,
             CommitPolicy policy, std::string *abort_reason) {
   Ctx c{tables, epoch_framework, payload, abort_reason};

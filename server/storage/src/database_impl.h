@@ -76,7 +76,7 @@ class Database::Impl {
 
   const Config &GetConfig() const;
 
-  // NOTE: Called by a special thread managed by epoch::EpochFramework.
+  // NOTE: Called by a special thread managed by epoch::Framework.
   std::function<void(EpochNumber)> EpochHook();
 
   bool CreateTable(const std::string_view table_name);
@@ -172,7 +172,7 @@ class Database::Impl {
  private:
   Config config_;
   wal::Logger logger_;
-  epoch::EpochFramework epoch_framework_;
+  epoch::Framework epoch_framework_;
   TableDictionary table_dictionary_;
   wal::EpochScanCheckpoint scan_checkpoint_;
   mutable std::shared_mutex schema_mutex_;

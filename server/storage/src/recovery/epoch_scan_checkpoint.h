@@ -19,7 +19,7 @@ struct DataItem;
 class Table;
 class TableDictionary;
 namespace epoch {
-class EpochFramework;
+class Framework;
 }  // namespace epoch
 
 namespace wal {
@@ -77,7 +77,7 @@ class EpochScanCheckpoint {
   };
 
   EpochScanCheckpoint(const Config &config, TableDictionary &tables,
-                      epoch::EpochFramework &epoch_framework, Logger &logger);
+                      epoch::Framework &epoch_framework, Logger &logger);
   ~EpochScanCheckpoint();
 
   EpochScanCheckpoint(const EpochScanCheckpoint &) = delete;
@@ -87,7 +87,7 @@ class EpochScanCheckpoint {
    * @brief Starts the thread that captures on the configured interval.
    * A zero interval and no one-shot delay leaves the thread unstarted, which
    * is the default.
-   * @pre epoch::EpochFramework::Start has been called.
+   * @pre epoch::Framework::Start has been called.
    */
   void Start();
 
@@ -143,7 +143,7 @@ class EpochScanCheckpoint {
 
   const Config &config_;
   TableDictionary &tables_;
-  epoch::EpochFramework &epoch_framework_;
+  epoch::Framework &epoch_framework_;
   Logger &logger_;
   const std::string image_path_;
   const std::string working_path_;

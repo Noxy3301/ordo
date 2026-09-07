@@ -14,7 +14,7 @@ namespace pax {
 namespace {
 
 // ---------------------------------------------------------------------------
-// Typed cell codec. Parses the proxy's ASCII val_str into a fixed-width LE
+// Typed cells. Parses the query layer's ASCII val_str into a fixed-width LE
 // binary at scatter time, and reformats the binary back into the *exact*
 // original val_str ASCII at gather time. The round trip must be byte-identical:
 // DataBuffer::size tracks the original ASCII payload size, so a gather that

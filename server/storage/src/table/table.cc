@@ -11,7 +11,7 @@
 // #include "index/secondary_index.h"  // now included from table.h
 
 namespace helios::storage {
-Table::Table(epoch::EpochFramework &epoch_framework, const Config &config,
+Table::Table(epoch::Framework &epoch_framework, const Config &config,
              std::string_view table_name)
     : epoch_framework_(epoch_framework),
       config_(config),

@@ -35,8 +35,7 @@ namespace index {
 
 class ConcurrentTable {
  public:
-  ConcurrentTable(epoch::EpochFramework &epoch_framework,
-                  Config config = Config(),
+  ConcurrentTable(epoch::Framework &epoch_framework, Config config = Config(),
                   WriteSetType recovery_set = WriteSetType());
 
   /**
@@ -67,7 +66,7 @@ class ConcurrentTable {
 
  private:
   MasstreeIndex index_;
-  helios::storage::epoch::EpochFramework &epoch_manager_ref_;
+  helios::storage::epoch::Framework &epoch_manager_ref_;
 };
 }  // namespace index
 }  // namespace helios::storage

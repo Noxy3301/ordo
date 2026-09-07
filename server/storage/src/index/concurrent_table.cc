@@ -26,7 +26,7 @@
 namespace helios::storage {
 namespace index {
 
-ConcurrentTable::ConcurrentTable(epoch::EpochFramework &epoch_framework,
+ConcurrentTable::ConcurrentTable(epoch::Framework &epoch_framework,
                                  Config config, WriteSetType recovery_set)
     : index_(config, epoch_framework), epoch_manager_ref_(epoch_framework) {
   if (recovery_set.empty()) return;

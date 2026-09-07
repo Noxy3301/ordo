@@ -21,7 +21,7 @@ namespace index {
 // that do not have masstree on their include path).
 class MasstreeIndex final {
  public:
-  MasstreeIndex(Config c, epoch::EpochFramework &e);
+  MasstreeIndex(Config c, epoch::Framework &e);
   ~MasstreeIndex();
 
   /**

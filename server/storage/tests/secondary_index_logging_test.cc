@@ -69,7 +69,7 @@ SecondaryLogStats GetSecondaryIndexLogStatsForLatestEpoch(
   SecondaryLogStats stats{};
   if (!fs::exists(fs::path(conf.work_dir) / "wal.log")) return stats;
 
-  // Read the log through the codec that wrote it rather than re-deriving the
+  // Read the log through the writer's own format rather than re-deriving the
   // frame format here.
   helios::storage::wal::Wal wal(conf.work_dir);
   const auto scan = wal.ScanAndRepair();

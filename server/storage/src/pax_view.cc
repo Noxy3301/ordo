@@ -36,7 +36,7 @@ Database::PaxReadView Database::Impl::AcquirePaxView(
   // the high-water mark, compared without addition to stay exact at
   // the numeric limit.
   const EpochNumber cut = epoch_framework_.GetGlobalEpoch();
-  if (cut >= epoch::EpochFramework::kEpochHighWater - 2) {
+  if (cut >= epoch::Framework::kEpochHighWater - 2) {
     pax::VersionStore::Global().EndCapture(token);
     handle.error =
         "columnar read view rejected: epoch space is near its wrap "

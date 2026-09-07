@@ -383,7 +383,7 @@ struct MasstreeIndex::Impl {
   }
 };
 
-MasstreeIndex::MasstreeIndex(Config /*c*/, epoch::EpochFramework & /*e*/)
+MasstreeIndex::MasstreeIndex(Config /*c*/, epoch::Framework & /*e*/)
     : impl_(std::make_unique<Impl>()) {}
 
 MasstreeIndex::~MasstreeIndex() = default;

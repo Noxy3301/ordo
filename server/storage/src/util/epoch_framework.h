@@ -47,25 +47,24 @@ namespace epoch {
  * @see [FASTER]:
  * https://www.microsoft.com/en-us/research/uploads/prod/2018/03/faster-sigmod18.pdf
  */
-class EpochFramework {
+class Framework {
  public:
   static constexpr EpochNumber THREAD_OFFLINE = UINT32_MAX;
 
  public:
-  EpochFramework(size_t epoch_duration_ms = 40)
+  Framework(size_t epoch_duration_ms = 40)
       : start_(false),
         stop_(false),
         global_epoch_(1),
         epoch_writer_([=]() { EpochWriterJob(epoch_duration_ms); }) {}
-  EpochFramework(size_t epoch_duration_ms,
-                 std::function<void(EpochNumber)> &&pt)
+  Framework(size_t epoch_duration_ms, std::function<void(EpochNumber)> &&pt)
       : start_(false),
         stop_(false),
         global_epoch_(1),
         publish_target_(pt),
         epoch_writer_([=]() { EpochWriterJob(epoch_duration_ms); }) {}
 
-  ~EpochFramework() { Stop(); }
+  ~Framework() { Stop(); }
 
   void SetGlobalEpoch(const EpochNumber epoch) { global_epoch_.store(epoch); }
 

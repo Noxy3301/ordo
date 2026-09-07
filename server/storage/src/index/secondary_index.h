@@ -12,8 +12,7 @@ namespace index {
 
 class SecondaryIndex {
  public:
-  SecondaryIndex(epoch::EpochFramework &epoch_framework,
-                 Config config = Config(),
+  SecondaryIndex(epoch::Framework &epoch_framework, Config config = Config(),
                  SecondaryIndexType index_type = SecondaryIndexType(),
                  [[maybe_unused]] WriteSetType recovery_set = WriteSetType())
       : index_type_(index_type), secondary_index_(config, epoch_framework) {}

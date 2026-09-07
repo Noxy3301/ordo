@@ -12,7 +12,7 @@ namespace helios::storage {
 
 class TableDictionary;
 namespace epoch {
-class EpochFramework;
+class Framework;
 }  // namespace epoch
 
 namespace wal {
@@ -89,7 +89,7 @@ struct CommitPayload {
  * every lock this attempt acquired has been released.
  */
 bool Commit(TableDictionary &tables, std::shared_mutex &schema_mutex,
-            epoch::EpochFramework &epoch_framework, index::Reaper &reaper,
+            epoch::Framework &epoch_framework, index::Reaper &reaper,
             wal::Logger &logger, const CommitPayload &payload,
             CommitPolicy policy, std::string *abort_reason);
 

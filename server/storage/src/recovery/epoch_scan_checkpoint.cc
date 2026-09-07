@@ -241,7 +241,7 @@ EpochScanCheckpoint::Capture EpochScanCheckpoint::CaptureSecondaryEntry(
 
 EpochScanCheckpoint::EpochScanCheckpoint(const Config &config,
                                          TableDictionary &tables,
-                                         epoch::EpochFramework &epoch_framework,
+                                         epoch::Framework &epoch_framework,
                                          Logger &logger)
     : config_(config),
       tables_(tables),

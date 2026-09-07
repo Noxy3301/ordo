@@ -37,8 +37,7 @@ class TableDictionary {
   }
 
   bool CreateTable(std::string_view table_name,
-                   epoch::EpochFramework &epoch_framework,
-                   const Config &config) {
+                   epoch::Framework &epoch_framework, const Config &config) {
     std::lock_guard<std::mutex> lk(create_mtx_);
     if (Find(table_name) != nullptr) return false;
     auto *node = new Node(table_name, epoch_framework, config,
@@ -66,7 +65,7 @@ class TableDictionary {
     Table table;
     Node *next;
 
-    Node(std::string_view n, epoch::EpochFramework &epoch_framework,
+    Node(std::string_view n, epoch::Framework &epoch_framework,
          const Config &config, Node *next)
         : name(n), table(epoch_framework, config, n), next(next) {}
   };

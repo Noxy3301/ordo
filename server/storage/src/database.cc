@@ -146,11 +146,11 @@ bool Database::WriteCheckpointImage(uint64_t *out_version_retries) {
 }
 
 EpochNumber Database::Impl::ResumeEpochAbove(EpochNumber frontier) {
-  if (frontier >= epoch::EpochFramework::kEpochHighWater - 1) {
+  if (frontier >= epoch::Framework::kEpochHighWater - 1) {
     SPDLOG_CRITICAL(
         "Startup failed: resuming above the recovered epoch {0} would reach "
         "the epoch high-water mark {1}",
-        frontier, epoch::EpochFramework::kEpochHighWater);
+        frontier, epoch::Framework::kEpochHighWater);
     exit(EXIT_FAILURE);
   }
   return frontier + 1;

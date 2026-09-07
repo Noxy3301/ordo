@@ -18,7 +18,7 @@ namespace helios::storage {
 
 class Table {
  public:
-  Table(epoch::EpochFramework &epoch_framework, const Config &config,
+  Table(epoch::Framework &epoch_framework, const Config &config,
         std::string_view table_name);
 
   bool CreateSecondaryIndex(
@@ -93,7 +93,7 @@ class Table {
   }
 
  private:
-  epoch::EpochFramework &epoch_framework_;
+  epoch::Framework &epoch_framework_;
   Config config_;
   index::ConcurrentTable primary_index_;
   std::unique_ptr<pax::PaxStore> pax_store_;

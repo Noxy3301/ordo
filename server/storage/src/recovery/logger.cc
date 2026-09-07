@@ -27,7 +27,7 @@
 
 #include "epoch_scan_checkpoint.h"
 #include "flush_trace.h"
-#include "impl/thread_local_logger.h"
+#include "thread_local_logger.h"
 #include "types/definitions.h"
 
 namespace helios::storage {

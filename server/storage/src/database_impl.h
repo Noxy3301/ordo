@@ -160,7 +160,7 @@ class Database::Impl {
       const std::vector<ExternalWriteEntry> &writes,
       const std::vector<ExternalSecondaryIndexEntry> &secondary_index_ops,
       const std::vector<ExternalRangeReadEntry> &range_reads,
-      CommitPolicy policy, std::string *abort_reason = nullptr);
+      CommitDurability durability, std::string *abort_reason = nullptr);
 
   std::optional<Table *> GetTable(const std::string_view table_name);
 

@@ -18,7 +18,7 @@
 
 #include <functional>
 
-#include "index/impl/masstree_index.h"
+#include "index/masstree_index.h"
 #include "storage/config.h"
 #include "types/data_item.h"
 #include "types/definitions.h"

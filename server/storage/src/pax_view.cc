@@ -6,6 +6,7 @@
 #include <utility>
 
 #include "database_impl.h"
+#include "pax/store.h"
 #include "pax/version_store.h"
 #include "util/debug_sync.h"
 

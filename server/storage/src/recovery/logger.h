@@ -128,7 +128,7 @@ class Logger {
    * be acknowledged: at once when `awaits_durability` is false, and after
    * `commit_epoch` is durable when it is true.
    * @details The decision is the caller's, not this method's, so that a
-   * policy switch cannot land between the caller's callback placement and
+   * durability switch cannot land between the caller's callback placement and
    * this wait and make the two disagree. A commit whose record cannot be made
    * durable stops the process: it has passed its serialization point, so an
    * abort would be a lie and an acknowledgement would be the lie the contract

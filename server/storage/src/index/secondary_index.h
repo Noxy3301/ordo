@@ -1,7 +1,7 @@
 #ifndef HELIOS_STORAGE_SRC_INDEX_SECONDARY_INDEX_H
 #define HELIOS_STORAGE_SRC_INDEX_SECONDARY_INDEX_H
 
-#include "index/impl/masstree_index.h"
+#include "index/masstree_index.h"
 #include "index/secondary_index_type.h"
 #include "silo/stable_read.h"
 #include "types/snapshot.h"

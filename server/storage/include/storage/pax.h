@@ -1,16 +1,19 @@
-#ifndef HELIOS_STORAGE_INCLUDE_STORAGE_PAX_STORE_H
-#define HELIOS_STORAGE_INCLUDE_STORAGE_PAX_STORE_H
+/** @file server/storage/include/storage/pax.h
+ * The PAX row format a table declares at creation, and the strips a reader
+ * scans in place.
+ */
+
+#ifndef HELIOS_STORAGE_INCLUDE_STORAGE_PAX_H
+#define HELIOS_STORAGE_INCLUDE_STORAGE_PAX_H
 
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
 #include <memory>
-#include <mutex>
 #include <string>
 #include <string_view>
 #include <unordered_map>
-#include <utility>
 #include <vector>
 
 namespace helios::storage {
@@ -20,13 +23,13 @@ namespace pax {
  * @brief Per-field storage kind for typed numeric cells.
  *
  * @details FK_UNTYPED keeps the cell verbatim (the original ASCII val_str
- * bytes). The typed kinds shred the numeric value into a fixed-width
- * little-endian binary payload whose width is `field_max_bytes[f]` (4 or 8). A
- * typed cell's u16 length prefix is 0 for SQL NULL and equal to the binary
- * width for a present value, so "empty cell == NULL" still holds. `ScatterRow`
- * parses the ASCII once (heap fallback on any parse/range failure);
- * `GatherRow` reformats the binary back into the exact original val_str ASCII
- * (byte-identical round trip -- the row-format contract).
+ * bytes the query layer wrote). The typed kinds shred the numeric value into a
+ * fixed-width little-endian binary payload whose width is `field_max_bytes[f]`
+ * (4 or 8). A typed cell's u16 length prefix is 0 for SQL NULL and equal to the
+ * binary width for a present value, so "empty cell == NULL" still holds.
+ * `ScatterRow` parses the ASCII once (heap fallback on any parse/range
+ * failure); `GatherRow` reformats the binary back into the exact original
+ * val_str ASCII (byte-identical round trip -- the row-format contract).
  */
 enum FieldKind : uint8_t {
   FK_UNTYPED =
@@ -38,17 +41,13 @@ enum FieldKind : uint8_t {
 };
 
 /**
- * @brief Describes the proxy row fields that a PAX-enabled table stores in
- * strips.
+ * @brief Describes the row format fields a PAX-enabled table stores in strips.
  *
- * @details The proxy row payload is laid out as one null-flags field followed
- * by one field per MySQL column. Each field is encoded as
- * `[byte_size:1][value_length:byte_size little-endian][value_bytes]`, with
- * `byte_size == 0xFF` representing an empty/no-value field. `PaxGroup` uses
- * the maximum payload byte widths here to split a row into fixed-width cells.
- * UNTYPED cells store `[u16 len][payload up to field_max_bytes]`; typed cells
- * store `[u16 len][fixed-width LE binary]` with `field_max_bytes` equal to the
- * binary width (4/8).
+ * @details A row is one null-flags field followed by one field per column;
+ * PaxGroup uses the maximum payload byte widths here to split it into
+ * fixed-width cells. UNTYPED cells store `[u16 len][payload up to
+ * field_max_bytes]`; typed cells store `[u16 len][fixed-width LE binary]`
+ * with `field_max_bytes` equal to the binary width (4/8).
  */
 struct TableSchema {
   // Max payload bytes per field, starting with the null-flags field.
@@ -62,7 +61,7 @@ struct TableSchema {
   std::string table_name;
 
   /**
-   * @brief Returns the number of encoded fields in a proxy row payload.
+   * @brief Returns the number of fields in a row.
    */
   size_t field_count() const { return field_max_bytes.size(); }
 
@@ -111,10 +110,10 @@ class PaxGroup {
   PaxGroup(const TableSchema &schema, PaxStore *store);
 
   /**
-   * @brief Scatters one proxy row payload into this group's strip cells.
+   * @brief Scatters one row into this group's strip cells.
    *
    * @param slot Target slot inside this group.
-   * @param row Proxy row payload bytes.
+   * @param row Row bytes.
    * @param size Number of bytes in `row`.
    * @return false without writing any cell when the payload does not match the
    * schema shape or when any field exceeds its configured cell width.
@@ -129,7 +128,7 @@ class PaxGroup {
   void RetireSlot(uint32_t slot);
 
   /**
-   * @brief Gathers one slot's strip cells back into a byte-identical proxy row.
+   * @brief Gathers one slot's strip cells back into a byte-identical row.
    *
    * @param slot Source slot inside this group.
    * @param dst Destination buffer with room for `expected_size` bytes.
@@ -198,7 +197,7 @@ class PaxGroup {
   }
 
   /**
-   * @brief Appends one field's proxy-format value into `out`.
+   * @brief Appends one field's row-format value into `out`.
    *
    * @details Verbatim for an UNTYPED cell; reformatted to the exact val_str
    * ASCII for a typed present cell. An empty cell is emitted as a NULL field.
@@ -248,85 +247,29 @@ class PaxGroup {
 };
 
 /**
- * @brief Owns all PAX row groups for one LineairDB table.
- *
- * @details `PaxStore` assigns append-only `(group, slot)` locations. It does
- * not publish rows to indexes and does not decide transaction visibility; those
- * remain in the existing LineairDB `DataItem`, Silo, and Masstree layers.
+ * @brief Returns the schema every group in `store` is sized from.
  */
-class PaxStore {
- public:
-  // 262,144 groups x 8,192 rows = 2^31 slots per table.
-  static constexpr size_t kMaxGroups = 1u << 18;
+const TableSchema &Schema(const PaxStore *store);
 
-  /**
-   * @brief Takes ownership of the table schema used by subsequently allocated
-   * groups.
-   *
-   * @param schema Schema copied into the store and referenced by its groups.
-   */
-  explicit PaxStore(TableSchema schema);
+/**
+ * @brief Returns group `idx` of `store`, or nullptr if it is not allocated.
+ */
+PaxGroup *Group(const PaxStore *store, size_t idx);
 
-  /**
-   * @brief Allocates the next append-only PAX slot.
-   *
-   * @details Slots are append-only and are not reused.
-   *
-   * @return `{nullptr, 0}` when the table has exhausted the fixed directory, so
-   * the caller can fall back to heap row storage without losing correctness.
-   */
-  std::pair<PaxGroup *, uint32_t> AllocateSlot();
+/**
+ * @brief Returns slots handed out, an upper bound on populated rows.
+ */
+uint64_t SlotsAllocated(const PaxStore *store);
 
-  /**
-   * @brief Returns the schema used to size every group in this store.
-   */
-  const TableSchema &schema() const { return schema_; }
+/**
+ * @brief Returns the number of row groups that may contain allocated slots.
+ */
+size_t GroupCount(const PaxStore *store);
 
-  /**
-   * @brief Returns group `idx`, or nullptr if it has not been allocated yet.
-   *
-   * @param idx Group index in the append-only directory.
-   */
-  PaxGroup *group(size_t idx) const {
-    return dir_[idx].load(std::memory_order_acquire);
-  }
-
-  /**
-   * @brief Returns slots handed out, an upper bound on populated rows.
-   */
-  uint64_t slots_allocated() const {
-    return next_slot_.load(std::memory_order_acquire);
-  }
-
-  /**
-   * @brief Returns the number of row groups that may contain allocated slots.
-   */
-  size_t group_count() const {
-    const uint64_t slots = slots_allocated();
-    return static_cast<size_t>((slots + PaxGroup::kRows - 1) / PaxGroup::kRows);
-  }
-
-  /**
-   * @brief Records one row that used heap fallback instead of PAX cells.
-   */
-  void RecordHeapFallback() {
-    overflow_count_.fetch_add(1, std::memory_order_relaxed);
-  }
-
-  /**
-   * @brief Returns the number of rows that used heap fallback.
-   */
-  uint64_t overflow_count() const {
-    return overflow_count_.load(std::memory_order_relaxed);
-  }
-
- private:
-  TableSchema schema_;
-  std::unique_ptr<std::atomic<PaxGroup *>[]> dir_;
-  std::atomic<uint64_t> next_slot_{0};
-  std::atomic<uint64_t> overflow_count_{0};
-  std::mutex grow_mutex_;
-};
+/**
+ * @brief Returns the number of rows that used heap fallback instead of cells.
+ */
+uint64_t HeapFallbacks(const PaxStore *store);
 
 // ---------------------------------------------------------------------------
 // Columnar read view surface.
@@ -347,7 +290,7 @@ class PaxStore {
 struct UndoEntry {
   uint32_t writer_epoch;  // commit epoch of the install that published this
   bool was_visible;       // false: the slot held no visible row before it
-  std::string old_row;    // proxy row payload; empty when !was_visible
+  std::string old_row;    // the row it held; empty when !was_visible
 };
 
 /**
@@ -387,4 +330,4 @@ std::vector<UndoEntry> UndoSlotEntries(const PaxGroup *group, uint32_t slot);
 }  // namespace pax
 }  // namespace helios::storage
 
-#endif  // HELIOS_STORAGE_INCLUDE_STORAGE_PAX_STORE_H
+#endif  // HELIOS_STORAGE_INCLUDE_STORAGE_PAX_H

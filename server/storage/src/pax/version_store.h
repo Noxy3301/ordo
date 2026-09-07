@@ -1,8 +1,6 @@
 #ifndef HELIOS_STORAGE_SRC_PAX_VERSION_STORE_H
 #define HELIOS_STORAGE_SRC_PAX_VERSION_STORE_H
 
-#include <storage/pax_store.h>
-
 #include <atomic>
 #include <cstdint>
 #include <memory>
@@ -11,6 +9,8 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
+
+#include "storage/pax.h"
 
 namespace helios::storage {
 namespace pax {

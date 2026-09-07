@@ -22,7 +22,7 @@
 #include <memory>
 
 #include "database_impl.h"
-#include "index/impl/masstree_index.h"
+#include "index/masstree_index.h"
 #include "index/secondary_index.h"
 #include "recovery/flush_trace.h"
 #include "util/logger.h"
@@ -137,10 +137,10 @@ bool Database::Commit(
     const std::vector<ExternalReadEntry> &reads,
     const std::vector<ExternalWriteEntry> &writes,
     const std::vector<ExternalSecondaryIndexEntry> &secondary_index_ops,
-    const std::vector<ExternalRangeReadEntry> &range_reads, CommitPolicy policy,
-    std::string *abort_reason) {
+    const std::vector<ExternalRangeReadEntry> &range_reads,
+    CommitDurability durability, std::string *abort_reason) {
   return db_pimpl_->Commit(reads, writes, secondary_index_ops, range_reads,
-                           policy, abort_reason);
+                           durability, abort_reason);
 }
 
 bool Database::WriteCheckpointImage(uint64_t *out_version_retries) {
@@ -313,12 +313,12 @@ bool Database::Impl::Commit(
     const std::vector<ExternalReadEntry> &reads,
     const std::vector<ExternalWriteEntry> &writes,
     const std::vector<ExternalSecondaryIndexEntry> &secondary_index_ops,
-    const std::vector<ExternalRangeReadEntry> &range_reads, CommitPolicy policy,
-    std::string *abort_reason) {
+    const std::vector<ExternalRangeReadEntry> &range_reads,
+    CommitDurability durability, std::string *abort_reason) {
   const silo::CommitPayload payload{reads, writes, secondary_index_ops,
                                     range_reads};
   return silo::Commit(table_dictionary_, schema_mutex_, epoch_framework_,
-                      reaper_, logger_, payload, policy, abort_reason);
+                      reaper_, logger_, payload, durability, abort_reason);
 }
 
 EpochNumber Database::Impl::GetDurableEpoch() const {

@@ -24,7 +24,7 @@
 #include <string>
 #include <string_view>
 
-#include "index/impl/masstree_index.h"
+#include "index/masstree_index.h"
 #include "types/data_item.h"
 #include "types/definitions.h"
 #include "types/snapshot.h"

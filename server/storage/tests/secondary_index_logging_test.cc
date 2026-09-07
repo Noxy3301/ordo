@@ -290,7 +290,7 @@ TEST_F(SecondaryIndexLoggingTest, SecondaryIndexAddTimingRecorded) {
     const bool committed =
         db_->Commit({}, {{table_name, primary_key, value, false, false}},
                     {{table_name, index_name, index_key, primary_key, false}},
-                    {}, helios::storage::CommitPolicy::Sync);
+                    {}, helios::storage::CommitDurability::kSync);
     const auto end = std::chrono::steady_clock::now();
     db_->ReleaseThreadEpoch();
     ASSERT_TRUE(committed);

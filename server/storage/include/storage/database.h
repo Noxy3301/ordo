@@ -17,9 +17,6 @@
 #ifndef HELIOS_STORAGE_INCLUDE_STORAGE_DATABASE_H
 #define HELIOS_STORAGE_INCLUDE_STORAGE_DATABASE_H
 
-#include <storage/config.h>
-#include <storage/read.h>
-
 #include <chrono>
 #include <functional>
 #include <memory>
@@ -28,7 +25,9 @@
 #include <utility>
 #include <vector>
 
-#include "config.h"
+#include "storage/commit.h"
+#include "storage/config.h"
+#include "storage/read.h"
 
 namespace helios::storage {
 
@@ -346,7 +345,7 @@ class Database {
    * @param secondary_index_ops Secondary-index adds/removes to install.
    * @param range_reads Range reads assembled by the caller from earlier
    *                    scans.
-   * @param policy When this commit is acknowledged, relative to its record
+   * @param durability When this commit is acknowledged, relative to its record
    *                    reaching the device.
    * @param abort_reason Optional out parameter. Set only when the function
    *                    returns false.
@@ -357,7 +356,7 @@ class Database {
       const std::vector<ExternalWriteEntry> &writes,
       const std::vector<ExternalSecondaryIndexEntry> &secondary_index_ops,
       const std::vector<ExternalRangeReadEntry> &range_reads,
-      CommitPolicy policy, std::string *abort_reason = nullptr);
+      CommitDurability durability, std::string *abort_reason = nullptr);
 
   /**
    * @brief Writes one image of the live rows, on the calling thread.

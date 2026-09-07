@@ -3,6 +3,7 @@
 #include <mutex>
 
 #include "index/secondary_index.h"
+#include "pax/store.h"
 #include "silo/packed_transaction_id.h"
 #include "silo/stable_read.h"
 #include "table/table.h"

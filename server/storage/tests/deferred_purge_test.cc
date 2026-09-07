@@ -24,8 +24,9 @@ helios::storage::Config MakeConfig(size_t epoch_duration_ms) {
 
 bool CommitWrite(helios::storage::Database &db, const std::string &key,
                  const std::string &value, std::string *reason = nullptr) {
-  const bool committed = db.Commit({}, {{kTable, key, value, false}}, {}, {},
-                                   helios::storage::CommitPolicy::Sync, reason);
+  const bool committed =
+      db.Commit({}, {{kTable, key, value, false}}, {}, {},
+                helios::storage::CommitDurability::kSync, reason);
   db.ReleaseThreadEpoch();
   return committed;
 }
@@ -34,15 +35,16 @@ bool CommitInsert(helios::storage::Database &db, const std::string &key,
                   const std::string &value, std::string *reason = nullptr) {
   const bool committed =
       db.Commit({}, {{kTable, key, value, false, true}}, {}, {},
-                helios::storage::CommitPolicy::Sync, reason);
+                helios::storage::CommitDurability::kSync, reason);
   db.ReleaseThreadEpoch();
   return committed;
 }
 
 bool CommitDelete(helios::storage::Database &db, const std::string &key,
                   std::string *reason = nullptr) {
-  const bool committed = db.Commit({}, {{kTable, key, "", true}}, {}, {},
-                                   helios::storage::CommitPolicy::Sync, reason);
+  const bool committed =
+      db.Commit({}, {{kTable, key, "", true}}, {}, {},
+                helios::storage::CommitDurability::kSync, reason);
   db.ReleaseThreadEpoch();
   return committed;
 }
@@ -59,7 +61,7 @@ bool ValidateRead(helios::storage::Database &db,
                   const std::string &key, std::string *reason) {
   const bool committed =
       db.Commit({{kTable, key, read.tid, read.found}}, {}, {}, {},
-                helios::storage::CommitPolicy::Sync, reason);
+                helios::storage::CommitDurability::kSync, reason);
   db.ReleaseThreadEpoch();
   return committed;
 }
@@ -173,7 +175,7 @@ TEST(DeferredPurgeTest, TwoInsertsOfOneKeyInARequestAreRefused) {
   std::string reason;
   EXPECT_FALSE(db.Commit(
       {}, {{kTable, key, "v1", false, true}, {kTable, key, "v2", false, true}},
-      {}, {}, helios::storage::CommitPolicy::Sync, &reason));
+      {}, {}, helios::storage::CommitDurability::kSync, &reason));
   db.ReleaseThreadEpoch();
   EXPECT_EQ(reason, helios::storage::kDuplicateKeyAbortReason);
   EXPECT_FALSE(Read(db, key).found);
@@ -184,7 +186,8 @@ TEST(DeferredPurgeTest, TwoInsertsOfOneKeyInARequestAreRefused) {
                         {{kTable, key, "v1", false, true},
                          {kTable, key, "", true, false},
                          {kTable, key, "v2", false, true}},
-                        {}, {}, helios::storage::CommitPolicy::Sync, &reason));
+                        {}, {}, helios::storage::CommitDurability::kSync,
+                        &reason));
   db.ReleaseThreadEpoch();
   const auto live = Read(db, key);
   EXPECT_TRUE(live.found);

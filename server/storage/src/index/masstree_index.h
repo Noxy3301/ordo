@@ -1,14 +1,13 @@
-#ifndef HELIOS_STORAGE_SRC_INDEX_IMPL_MASSTREE_INDEX_H
-#define HELIOS_STORAGE_SRC_INDEX_IMPL_MASSTREE_INDEX_H
-
-#include <storage/config.h>
-#include <storage/pax_store.h>
+#ifndef HELIOS_STORAGE_SRC_INDEX_MASSTREE_INDEX_H
+#define HELIOS_STORAGE_SRC_INDEX_MASSTREE_INDEX_H
 
 #include <functional>
 #include <memory>
 #include <optional>
 #include <string_view>
 
+#include "storage/config.h"
+#include "storage/pax.h"
 #include "types/data_item.h"
 #include "util/epoch_framework.h"
 
@@ -86,4 +85,4 @@ void MasstreeFullyDrainThread();
 }  // namespace index
 }  // namespace helios::storage
 
-#endif  // HELIOS_STORAGE_SRC_INDEX_IMPL_MASSTREE_INDEX_H
+#endif  // HELIOS_STORAGE_SRC_INDEX_MASSTREE_INDEX_H

@@ -120,7 +120,7 @@ class EpochScanCheckpointTest : public ::testing::Test {
   static bool CommitWrite(helios::storage::Database &db, const std::string &key,
                           const std::string &value) {
     const bool committed = db.Commit({}, {{kTable, key, value, false}}, {}, {},
-                                     helios::storage::CommitPolicy::Sync);
+                                     helios::storage::CommitDurability::kSync);
     db.ReleaseThreadEpoch();
     return committed;
   }
@@ -128,7 +128,7 @@ class EpochScanCheckpointTest : public ::testing::Test {
   static bool CommitDelete(helios::storage::Database &db,
                            const std::string &key) {
     const bool committed = db.Commit({}, {{kTable, key, "", true}}, {}, {},
-                                     helios::storage::CommitPolicy::Sync);
+                                     helios::storage::CommitDurability::kSync);
     db.ReleaseThreadEpoch();
     return committed;
   }
@@ -140,7 +140,7 @@ class EpochScanCheckpointTest : public ::testing::Test {
     const bool committed =
         db.Commit({}, {{kTable, key, value, false}},
                   {{kTable, kIndex, secondary_key, key, false}}, {},
-                  helios::storage::CommitPolicy::Sync);
+                  helios::storage::CommitDurability::kSync);
     db.ReleaseThreadEpoch();
     return committed;
   }
@@ -527,7 +527,7 @@ TEST_F(EpochScanCheckpointTest, ARowLockedDuringTheScanIsRetried) {
         db.Commit({},
                   {{kTable, "alice", std::string(64, 'b'), false},
                    {kTable, "bob", std::string(64, 'b'), false}},
-                  {}, {}, helios::storage::CommitPolicy::Sync);
+                  {}, {}, helios::storage::CommitDurability::kSync);
     db.ReleaseThreadEpoch();
     return committed;
   });

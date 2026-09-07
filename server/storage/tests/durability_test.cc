@@ -143,7 +143,7 @@ TEST_F(DurabilityTest, RecoveryWithNamedTable) {
 // flushed, inside the time an Async commit is allowed to take, so a return
 // that fast is proof it did not wait. The Sync commit beside it does wait,
 // which is what makes the comparison a contract and not a stopwatch reading.
-TEST(CommitPolicyTest, AsyncDoesNotWaitForTheDevice) {
+TEST(CommitDurabilityTest, AsyncDoesNotWaitForTheDevice) {
   constexpr size_t kEpochMs = 1000;
   helios::storage::Config config;
   config.work_dir = "./helios_commit_policy_test_logs";
@@ -156,10 +156,10 @@ TEST(CommitPolicyTest, AsyncDoesNotWaitForTheDevice) {
     ASSERT_TRUE(db.CreateTable(kTable));
 
     const auto commit = [&db](const std::string &key,
-                              helios::storage::CommitPolicy policy) {
+                              helios::storage::CommitDurability durability) {
       const auto started = std::chrono::steady_clock::now();
-      const bool committed =
-          db.Commit({}, {{kTable, key, "v", false}}, {}, {}, policy, nullptr);
+      const bool committed = db.Commit({}, {{kTable, key, "v", false}}, {}, {},
+                                       durability, nullptr);
       db.ReleaseThreadEpoch();
       EXPECT_TRUE(committed);
       return std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -168,12 +168,12 @@ TEST(CommitPolicyTest, AsyncDoesNotWaitForTheDevice) {
     };
 
     const auto async_ms =
-        commit("async_key", helios::storage::CommitPolicy::Async);
+        commit("async_key", helios::storage::CommitDurability::kAsync);
     EXPECT_LT(async_ms, static_cast<long>(kEpochMs))
         << "an Async commit waited for its epoch to become durable";
 
     const auto sync_ms =
-        commit("sync_key", helios::storage::CommitPolicy::Sync);
+        commit("sync_key", helios::storage::CommitDurability::kSync);
     EXPECT_GE(sync_ms, static_cast<long>(kEpochMs))
         << "a Sync commit returned before its epoch could close";
     EXPECT_LT(async_ms, sync_ms)

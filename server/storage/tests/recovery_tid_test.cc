@@ -32,7 +32,7 @@ TEST(RecoveryTidTest, ARecoveredKeyAcceptsTheNextWrite) {
     std::string reason;
     const bool committed =
         db.Commit({}, {{kTable, "alice", "v1", false}}, {}, {},
-                  helios::storage::CommitPolicy::Sync, &reason);
+                  helios::storage::CommitDurability::kSync, &reason);
     db.ReleaseThreadEpoch();
     ASSERT_TRUE(committed) << reason;
   }
@@ -50,7 +50,7 @@ TEST(RecoveryTidTest, ARecoveredKeyAcceptsTheNextWrite) {
     std::string reason;
     const bool committed =
         db.Commit({}, {{kTable, "alice", "v2", false}}, {}, {},
-                  helios::storage::CommitPolicy::Sync, &reason);
+                  helios::storage::CommitDurability::kSync, &reason);
     db.ReleaseThreadEpoch();
     EXPECT_TRUE(committed) << reason;
   }

@@ -22,14 +22,14 @@ helios::storage::Config MakeConfig() {
 bool CommitWrite(helios::storage::Database &db, const std::string &key,
                  const std::string &value) {
   const bool committed = db.Commit({}, {{kTable, key, value, false}}, {}, {},
-                                   helios::storage::CommitPolicy::Sync);
+                                   helios::storage::CommitDurability::kSync);
   db.ReleaseThreadEpoch();
   return committed;
 }
 
 bool CommitDelete(helios::storage::Database &db, const std::string &key) {
   const bool committed = db.Commit({}, {{kTable, key, "", true}}, {}, {},
-                                   helios::storage::CommitPolicy::Sync);
+                                   helios::storage::CommitDurability::kSync);
   db.ReleaseThreadEpoch();
   return committed;
 }
@@ -59,8 +59,8 @@ helios::storage::ExternalRangeReadEntry ScanRange(helios::storage::Database &db,
 bool Revalidate(helios::storage::Database &db,
                 const helios::storage::ExternalRangeReadEntry &range,
                 std::string *reason) {
-  const bool committed = db.Commit({}, {}, {}, {range},
-                                   helios::storage::CommitPolicy::Sync, reason);
+  const bool committed = db.Commit(
+      {}, {}, {}, {range}, helios::storage::CommitDurability::kSync, reason);
   db.ReleaseThreadEpoch();
   return committed;
 }
@@ -77,7 +77,7 @@ void LeaveBlankSlot(helios::storage::Database &db, const std::string &key) {
   std::string reason;
   const bool committed =
       db.Commit({{kTable, "k1", 0, true}}, {{kTable, key, "v", false}}, {}, {},
-                helios::storage::CommitPolicy::Sync, &reason);
+                helios::storage::CommitDurability::kSync, &reason);
   db.ReleaseThreadEpoch();
   ASSERT_FALSE(committed) << "the write was supposed to abort";
 }

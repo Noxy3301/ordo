@@ -1,4 +1,8 @@
-#include <storage/pax_store.h>
+/** @file server/storage/src/pax/store.cc
+ * Slot allocation and the typed cell round trip behind the PAX strips.
+ */
+
+#include "pax/store.h"
 
 #include <algorithm>
 #include <cassert>
@@ -452,6 +456,26 @@ std::pair<PaxGroup *, uint32_t> PaxStore::AllocateSlot() {
     }
   }
   return {grp, static_cast<uint32_t>(idx % PaxGroup::kRows)};
+}
+
+}  // namespace pax
+}  // namespace helios::storage
+
+namespace helios::storage {
+namespace pax {
+
+const TableSchema &Schema(const PaxStore *store) { return store->schema(); }
+
+PaxGroup *Group(const PaxStore *store, size_t idx) { return store->group(idx); }
+
+uint64_t SlotsAllocated(const PaxStore *store) {
+  return store->slots_allocated();
+}
+
+size_t GroupCount(const PaxStore *store) { return store->group_count(); }
+
+uint64_t HeapFallbacks(const PaxStore *store) {
+  return store->overflow_count();
 }
 
 }  // namespace pax

@@ -664,9 +664,10 @@ void Publish(Ctx &c, index::Reaper &reaper, WriteSetType &log_set) {
  * @return true when the caller must wait for the device.
  */
 bool Enqueue(wal::Logger &logger, WriteSetType &log_set,
-             EpochNumber commit_epoch, CommitPolicy policy) {
+             EpochNumber commit_epoch, CommitDurability durability) {
   if (log_set.empty()) return false;
-  return logger.Enqueue(log_set, commit_epoch) && policy == CommitPolicy::Sync;
+  return logger.Enqueue(log_set, commit_epoch) &&
+         durability == CommitDurability::kSync;
 }
 
 }  // namespace
@@ -674,7 +675,7 @@ bool Enqueue(wal::Logger &logger, WriteSetType &log_set,
 bool Commit(TableDictionary &tables, std::shared_mutex &schema_mutex,
             epoch::Framework &epoch_framework, index::Reaper &reaper,
             wal::Logger &logger, const CommitPayload &payload,
-            CommitPolicy policy, std::string *abort_reason) {
+            CommitDurability durability, std::string *abort_reason) {
   Ctx c{tables, epoch_framework, payload, abort_reason};
 
   // Epoch join.
@@ -721,7 +722,7 @@ bool Commit(TableDictionary &tables, std::shared_mutex &schema_mutex,
   WriteSetType log_set = BuildLog(c);
   Publish(c, reaper, log_set);
   const bool awaits_durability =
-      Enqueue(logger, log_set, c.commit_epoch, policy);
+      Enqueue(logger, log_set, c.commit_epoch, durability);
 
   HELIOS_DEBUG_SYNC("silo_commit.before_offline");
   epoch_framework.Leave();

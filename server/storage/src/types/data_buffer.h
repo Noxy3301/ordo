@@ -18,8 +18,6 @@
 #ifndef HELIOS_STORAGE_SRC_TYPES_DATA_BUFFER_H
 #define HELIOS_STORAGE_SRC_TYPES_DATA_BUFFER_H
 
-#include <storage/pax_store.h>
-
 #include <atomic>
 #include <cassert>
 #include <cstddef>
@@ -31,7 +29,9 @@
 #include <string>
 #include <vector>
 
+#include "pax/store.h"
 #include "pax/version_store.h"
+#include "storage/pax.h"
 #include "util/logger.h"
 
 namespace helios::storage {

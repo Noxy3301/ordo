@@ -1,9 +1,6 @@
 #ifndef HELIOS_STORAGE_TESTS_DB_HELPER_H
 #define HELIOS_STORAGE_TESTS_DB_HELPER_H
 
-#include <storage/database.h>
-#include <storage/read.h>
-
 #include <cstring>
 #include <optional>
 #include <string>
@@ -12,6 +9,9 @@
 #include <vector>
 
 #include "gtest/gtest.h"
+#include "storage/commit.h"
+#include "storage/database.h"
+#include "storage/read.h"
 
 /// Drives the API the way the query layer does: observe, then submit
 /// the observations as evidence along with the writes. Every call hands the
@@ -48,7 +48,7 @@ inline bool Commit(
     std::string *abort_reason = nullptr) {
   const bool committed =
       db.Commit(reads, writes, index_ops, ranges,
-                helios::storage::CommitPolicy::Sync, abort_reason);
+                helios::storage::CommitDurability::kSync, abort_reason);
   db.ReleaseThreadEpoch();
   return committed;
 }

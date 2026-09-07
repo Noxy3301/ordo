@@ -1,12 +1,13 @@
 #ifndef HELIOS_STORAGE_SRC_SILO_COMMIT_H
 #define HELIOS_STORAGE_SRC_SILO_COMMIT_H
 
-#include <storage/config.h>
-#include <storage/read.h>
-
 #include <shared_mutex>
 #include <string>
 #include <vector>
+
+#include "storage/commit.h"
+#include "storage/config.h"
+#include "storage/read.h"
 
 namespace helios::storage {
 
@@ -78,7 +79,7 @@ struct CommitPayload {
  * per-transaction state that could pin such a pointer across the RPC
  * boundary, so its lifetime cannot be guaranteed.
  *
- * @param policy Whether this commit's acknowledgement waits for its epoch
+ * @param durability Whether this commit's acknowledgement waits for its epoch
  * to reach the device. A logger that writes no records ignores it: step 3.5
  * has nothing to wait for.
  * @param[out] abort_reason When non-null and the attempt aborts,
@@ -91,7 +92,7 @@ struct CommitPayload {
 bool Commit(TableDictionary &tables, std::shared_mutex &schema_mutex,
             epoch::Framework &epoch_framework, index::Reaper &reaper,
             wal::Logger &logger, const CommitPayload &payload,
-            CommitPolicy policy, std::string *abort_reason);
+            CommitDurability durability, std::string *abort_reason);
 
 }  // namespace silo
 }  // namespace helios::storage

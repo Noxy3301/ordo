@@ -85,20 +85,26 @@ class Table {
     }
   }
 
-  bool GetOrCreateIndex(const std::string_view index_name,
-                        const index::IndexConstraint index_type,
-                        index::SecondaryIndex **out_index) {
+  /**
+   * @brief Returns the index of that name, creating it when there is none.
+   *
+   * @return The index, or nullptr when an index of that name is declared with
+   * a different constraint.
+   */
+  index::SecondaryIndex *GetOrCreateIndex(
+      const std::string_view index_name,
+      const index::IndexConstraint index_type) {
     std::unique_lock<std::shared_mutex> lk(table_lock_);
     auto it = secondary_indices_.find(std::string(index_name));
     if (it != secondary_indices_.end()) {
-      *out_index = it->second.get();
-      return false;
+      const bool same = it->second->GetIndexType().Raw() == index_type.Raw();
+      return same ? it->second.get() : nullptr;
     }
     auto new_index = std::make_unique<index::SecondaryIndex>(
         epoch_framework_, config_, index_type);
-    *out_index = new_index.get();
+    auto *created = new_index.get();
     secondary_indices_[std::string(index_name)] = std::move(new_index);
-    return true;
+    return created;
   }
 
  private:

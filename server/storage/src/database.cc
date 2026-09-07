@@ -392,9 +392,8 @@ void Database::Impl::Recovery() {
           recovery_set.key, std::move(recovery_set.data_item_copy));
     } else {
       // Secondary Index recovery
-      index::SecondaryIndex *idx = nullptr;
-      table.value()->GetOrCreateIndex(recovery_set.index_name,
-                                      recovery_set.index_type, &idx);
+      index::SecondaryIndex *idx = table.value()->GetOrCreateIndex(
+          recovery_set.index_name, recovery_set.index_type);
       if (idx != nullptr) {
         SPDLOG_DEBUG(
             "  Recovery: Secondary index '{0}' restoring key '{1}' with {2} "
@@ -403,10 +402,11 @@ void Database::Impl::Recovery() {
             recovery_set.data_item_copy.primary_keys_view().size());
         idx->Put(recovery_set.key, std::move(recovery_set.data_item_copy));
       } else {
-        SPDLOG_ERROR(
-            "Recovery failed: Could not create secondary index {0} for "
-            "table {1}",
+        SPDLOG_CRITICAL(
+            "Recovery failed: the log declares secondary index {0} of table "
+            "{1} with two different constraints",
             recovery_set.index_name, recovery_set.table_name);
+        exit(EXIT_FAILURE);
       }
     }
   }

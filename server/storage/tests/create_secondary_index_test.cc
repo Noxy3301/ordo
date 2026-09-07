@@ -17,7 +17,7 @@
 /**
  * @file server/storage/tests/create_secondary_index_test.cc
  * Declaring secondary indexes: key types, several per table, duplicates,
- * and a table that does not exist.
+ * a table that does not exist, and the constraint a name stays bound to.
  */
 
 #include <filesystem>
@@ -26,6 +26,7 @@
 #include "gtest/gtest.h"
 #include "storage/config.h"
 #include "storage/database.h"
+#include "table/table.h"
 
 class CreateSecondaryIndexTest : public ::testing::Test {
  protected:
@@ -69,4 +70,22 @@ TEST_F(CreateSecondaryIndexTest, CreateDuplicateSecondaryIndex) {
 
 TEST_F(CreateSecondaryIndexTest, CreateSecondaryIndexOnNonExistentTable) {
   ASSERT_FALSE(db_->CreateSecondaryIndex("non_existent_table", "index", 0));
+}
+
+TEST(SecondaryIndexConstraintTest, GetOrCreateRefusesADifferentConstraint) {
+  helios::storage::epoch::Framework epoch;
+  epoch.Start();
+  const helios::storage::Config config;
+  helios::storage::Table table(epoch, config, "users");
+  const helios::storage::index::IndexConstraint unique(
+      helios::storage::index::IndexConstraint::kUnique);
+  const helios::storage::index::IndexConstraint none;
+
+  helios::storage::index::SecondaryIndex *index =
+      table.GetOrCreateIndex("age_index", none);
+  ASSERT_NE(index, nullptr);
+
+  EXPECT_EQ(table.GetOrCreateIndex("age_index", unique), nullptr);
+  EXPECT_EQ(table.GetOrCreateIndex("age_index", none), index);
+  EXPECT_EQ(table.IndexCount(), 1u);
 }

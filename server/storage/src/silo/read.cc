@@ -88,7 +88,7 @@ StatelessRangeScanResult Scan(TableDictionary &tables,
 
 }  // namespace silo
 
-uint64_t PaxRowRefCurrentTid(const StatelessPaxRowRef &row) {
+uint64_t CurrentTid(const StatelessPaxRowRef &row) {
   const auto *item = static_cast<const DataItem *>(row.item);
   return silo::PackTransactionId(item->transaction_id.load());
 }
@@ -141,7 +141,7 @@ StatelessSecondaryRangeScanResult ScanIndex(
       return false;
     }
 
-    auto slot = StableReadPrimaryKeys(*item);
+    auto slot = StableReadKeys(*item);
     for (std::string_view primary_key : slot.primary_keys_view()) {
       if (append_base_row(secondary_key, primary_key)) return true;
     }

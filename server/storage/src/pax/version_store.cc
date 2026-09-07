@@ -30,14 +30,14 @@ VersionStore &VersionStore::Global() {
   return instance;
 }
 
-VersionStore::GroupUndo *VersionStore::GetOrCreateGroupUndo(PaxGroup *group) {
+VersionStore::GroupUndo *VersionStore::GetOrCreateUndo(PaxGroup *group) {
   std::lock_guard<std::mutex> lk(groups_mutex_);
   auto &slot = groups_[group];
   if (!slot) slot = std::make_unique<GroupUndo>();
   return slot.get();
 }
 
-const VersionStore::GroupUndo *VersionStore::FindGroupUndo(
+const VersionStore::GroupUndo *VersionStore::FindUndo(
     const PaxGroup *group) const {
   std::lock_guard<std::mutex> lk(groups_mutex_);
   auto it = groups_.find(group);
@@ -64,7 +64,7 @@ void VersionStore::Capture(PaxGroup *group, uint32_t slot,
     return;
   }
 
-  GroupUndo *undo = GetOrCreateGroupUndo(group);
+  GroupUndo *undo = GetOrCreateUndo(group);
   {
     std::lock_guard<std::mutex> glk(undo->m);
     undo->entries[slot].push_back(
@@ -112,14 +112,14 @@ void VersionStore::PoisonActiveGeneration(const char *reason) {
 }
 
 uint64_t VersionStore::GroupCaptureCount(const PaxGroup *group) const {
-  const GroupUndo *undo = FindGroupUndo(group);
+  const GroupUndo *undo = FindUndo(group);
   return undo == nullptr ? 0
                          : undo->capture_count.load(std::memory_order_acquire);
 }
 
 std::vector<VersionStore::Entry> VersionStore::EntriesFor(const PaxGroup *group,
                                                           uint32_t slot) const {
-  const GroupUndo *undo = FindGroupUndo(group);
+  const GroupUndo *undo = FindUndo(group);
   if (undo == nullptr) return {};
   std::lock_guard<std::mutex> glk(undo->m);
   auto it = undo->entries.find(slot);
@@ -129,7 +129,7 @@ std::vector<VersionStore::Entry> VersionStore::EntriesFor(const PaxGroup *group,
 
 std::unordered_map<uint32_t, std::vector<VersionStore::Entry>>
 VersionStore::GroupEntries(const PaxGroup *group) const {
-  const GroupUndo *undo = FindGroupUndo(group);
+  const GroupUndo *undo = FindUndo(group);
   if (undo == nullptr) return {};
   std::lock_guard<std::mutex> glk(undo->m);
   return undo->entries;
@@ -155,7 +155,7 @@ uint32_t &CurrentCommitEpoch::Get() {
   return epoch;
 }
 
-uint64_t UndoGroupCaptureCount(const PaxGroup *group) {
+uint64_t UndoCount(const PaxGroup *group) {
   return VersionStore::Global().GroupCaptureCount(group);
 }
 

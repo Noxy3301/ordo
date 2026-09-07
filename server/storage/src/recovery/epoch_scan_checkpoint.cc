@@ -132,7 +132,7 @@ struct OpenFile {
   int fd;
 };
 
-int FsyncRetryingOnInterrupt(int fd) {
+int Fsync(int fd) {
   int rc;
   do {
     rc = ::fsync(fd);
@@ -145,7 +145,7 @@ int FsyncRetryingOnInterrupt(int fd) {
 bool FsyncDirectory(const std::string &directory) {
   const int fd = ::open(directory.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
   if (fd < 0) return false;
-  const bool ok = FsyncRetryingOnInterrupt(fd) == 0;
+  const bool ok = Fsync(fd) == 0;
   ::close(fd);
   return ok;
 }
@@ -362,7 +362,7 @@ bool EpochScanCheckpoint::RunOnce(Stats *out_stats) {
 
 bool EpochScanCheckpoint::CaptureTable(Table &table, LogRecord *record,
                                        Stats *stats) {
-  const std::string &table_name = table.GetTableName();
+  const std::string &table_name = table.Name();
   std::vector<std::string> unstable_rows;
   std::vector<std::pair<std::string, std::string>> unstable_entries;
 
@@ -385,7 +385,7 @@ bool EpochScanCheckpoint::CaptureTable(Table &table, LogRecord *record,
     return false;
   });
 
-  table.ForEachSecondaryIndex(
+  table.ForEachIndex(
       [&](const std::string &index_name, index::SecondaryIndex &index) {
         const uint32_t index_type = index.GetIndexType().Raw();
         index.ForEach([&](std::string_view key, DataItem &item) {
@@ -518,7 +518,7 @@ bool EpochScanCheckpoint::Publish(const LogRecords &records, Stats *stats) {
   }
   const bool written = WriteAll(fd, header, sizeof(header)) &&
                        WriteAll(fd, payload.data(), payload.size()) &&
-                       FsyncRetryingOnInterrupt(fd) == 0;
+                       Fsync(fd) == 0;
   const int write_errno = errno;
   ::close(fd);
   if (!written) {

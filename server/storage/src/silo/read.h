@@ -20,7 +20,7 @@ class TableDictionary;
  * and the schema mutex from the caller instead of owning them. Every call
  * takes a shared lock on the schema, resolves index slots, and copies rows
  * with the Silo-style stable read; the returned packed TIDs are the read-set
- * evidence the caller later submits through ValidateAndCommit.
+ * evidence the caller later submits through Commit.
  */
 namespace silo {
 
@@ -31,7 +31,7 @@ namespace silo {
  * performs a Silo-style double TID read on the DataItem: load the TID,
  * yield while the lock bit (LSB) is set, copy the value, then re-load the
  * TID and only return it if it has not moved. The caller keeps the
- * returned `tid` and submits it through ValidateAndCommit later.
+ * returned `tid` and submits it through Commit later.
  */
 StatelessReadResult Read(
     TableDictionary &tables, std::shared_mutex &schema_mutex,

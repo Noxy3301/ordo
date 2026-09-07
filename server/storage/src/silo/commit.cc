@@ -104,7 +104,7 @@ struct Ctx {
   // Abort before the lock loop: nothing to release.
   bool Abort(const std::string &reason) {
     if (abort_reason != nullptr) *abort_reason = reason;
-    epoch.MakeMeOffline();
+    epoch.Leave();
     return false;
   }
 
@@ -118,7 +118,7 @@ struct Ctx {
         entry.item->transaction_id.store(current);
       }
     }
-    epoch.MakeMeOffline();
+    epoch.Leave();
     return false;
   }
 
@@ -540,7 +540,7 @@ void Install(Ctx &c) {
   {
     // Tags the install region with the commit epoch so the PAX
     // before-image capture can label its entries.
-    pax::ScopedCommitEpoch commit_epoch_scope(c.epoch.GetMyThreadLocalEpoch());
+    pax::ScopedCommitEpoch commit_epoch_scope(c.epoch.ThreadEpoch());
     size_t installed = 0;
     for (auto &write : c.writes) {
       if (installed > 0) {
@@ -563,9 +563,9 @@ void Install(Ctx &c) {
     const auto *primary_key =
         reinterpret_cast<const std::byte *>(op.primary_key.data());
     if (op.is_delete) {
-      op.item->RemoveSecondaryIndexValue(primary_key, op.primary_key.size());
+      op.item->RemoveIndexValue(primary_key, op.primary_key.size());
     } else {
-      op.item->AddSecondaryIndexValue(primary_key, op.primary_key.size());
+      op.item->AddIndexValue(primary_key, op.primary_key.size());
     }
   }
 
@@ -596,9 +596,9 @@ WriteSetType BuildLog(Ctx &c) {
     Snapshot snapshot(op.secondary_key, nullptr, 0, op.item, op.table_name,
                       op.index_name, 0, op.index_type);
     snapshot.data_item_copy = *op.item;
-    snapshot.RecordSecondaryIndexDelta(
-        op.primary_key,
-        op.is_delete ? SecondaryIndexOp::Remove : SecondaryIndexOp::Add);
+    snapshot.RecordIndexDelta(op.primary_key, op.is_delete
+                                                  ? SecondaryIndexOp::Remove
+                                                  : SecondaryIndexOp::Add);
     log_set.emplace_back(std::move(snapshot));
   }
   return log_set;
@@ -609,7 +609,7 @@ WriteSetType BuildLog(Ctx &c) {
 void Publish(Ctx &c, index::Reaper &reaper, WriteSetType &log_set) {
   // Unlock by writing the new TID. Carry the epoch forward when the captured
   // TID is from an earlier epoch.
-  c.commit_epoch = c.epoch.GetMyThreadLocalEpoch();
+  c.commit_epoch = c.epoch.ThreadEpoch();
   c.unlocked.reserve(c.items.size());
   for (auto *item : c.items) {
     TransactionId current = item->transaction_id.load();
@@ -678,7 +678,7 @@ bool Commit(TableDictionary &tables, std::shared_mutex &schema_mutex,
   Ctx c{tables, epoch_framework, payload, abort_reason};
 
   // Epoch join.
-  epoch_framework.MakeMeOnline();
+  epoch_framework.Join();
   if (abort_reason != nullptr) abort_reason->clear();
 
   c.has_insert = std::any_of(
@@ -709,8 +709,8 @@ bool Commit(TableDictionary &tables, std::shared_mutex &schema_mutex,
   // serial order only if the commit epoch is taken here. The thread-local
   // epoch is fixed at join time, so leaving and re-joining is the only way
   // to re-read it.
-  epoch_framework.MakeMeOffline();
-  epoch_framework.MakeMeOnline();
+  epoch_framework.Leave();
+  epoch_framework.Join();
 
   if (!ValidateReads(c)) return false;
   if (!ValidateRanges(c)) return false;
@@ -724,7 +724,7 @@ bool Commit(TableDictionary &tables, std::shared_mutex &schema_mutex,
       Enqueue(logger, log_set, c.commit_epoch, policy);
 
   HELIOS_DEBUG_SYNC("silo_commit.before_offline");
-  epoch_framework.MakeMeOffline();
+  epoch_framework.Leave();
 
   logger.AwaitCommitDurability(c.commit_epoch, awaits_durability);
   return true;

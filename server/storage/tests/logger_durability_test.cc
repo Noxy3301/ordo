@@ -92,7 +92,7 @@ TEST_F(LoggerDurabilityTest, AlreadyDurableReturnsImmediately) {
   // A second wait on a frontier already reached must not block at all.
   EXPECT_EQ(logger.WaitUntilDurable(5, std::chrono::steady_clock::now()),
             Logger::WaitResult::Durable);
-  logger.StopAndDrainFlusher();
+  logger.StopFlusher();
 }
 
 TEST_F(LoggerDurabilityTest, WaitersWakeAtEpochGranularity) {
@@ -124,7 +124,7 @@ TEST_F(LoggerDurabilityTest, WaitersWakeAtEpochGranularity) {
   logger.ScheduleFlush(7);
   ASSERT_EQ(later.wait_for(kTestTimeout), std::future_status::ready);
   EXPECT_EQ(later.get(), Logger::WaitResult::Durable);
-  logger.StopAndDrainFlusher();
+  logger.StopFlusher();
 }
 
 // The acknowledgement a Sync commit waits for cannot be given while the
@@ -167,7 +167,7 @@ TEST_F(LoggerDurabilityTest, SyncAcknowledgementFollowsTheFdatasync) {
         released = true;
       }
       held.notify_all();
-      logger.StopAndDrainFlusher();
+      logger.StopFlusher();
     }
   } release_on_exit{logger, mutex, held, released};
 
@@ -202,7 +202,7 @@ TEST_F(LoggerDurabilityTest, SyncAcknowledgementFollowsTheFdatasync) {
   ASSERT_EQ(committer.wait_for(kTestTimeout), std::future_status::ready);
   committer.get();
   EXPECT_EQ(logger.GetDurableEpoch(), 3u);
-  logger.StopAndDrainFlusher();
+  logger.StopFlusher();
 }
 
 // A caller that decided not to wait returns at once, whether because the
@@ -217,7 +217,7 @@ TEST_F(LoggerDurabilityTest, AsyncAndUnloggedCommitsDoNotWait) {
     // never be flushed still returns at once.
     logger.AwaitCommitDurability(99, false);
     EXPECT_EQ(logger.GetDurableEpoch(), 0u);
-    logger.StopAndDrainFlusher();
+    logger.StopFlusher();
   }
 
   // The log is held exclusively for as long as a logger owns it, so the
@@ -229,7 +229,7 @@ TEST_F(LoggerDurabilityTest, AsyncAndUnloggedCommitsDoNotWait) {
   // Sync, but nothing was enqueued: there is no record to wait for.
   sync_logger.AwaitCommitDurability(99, false);
   EXPECT_EQ(sync_logger.GetDurableEpoch(), 0u);
-  sync_logger.StopAndDrainFlusher();
+  sync_logger.StopFlusher();
 }
 
 // With the fail-stop armed, a write failure ends the process by abort: under
@@ -253,7 +253,7 @@ TEST_F(LoggerDurabilityTest, ArmedFailStopEndsTheProcessOnASyncFailure) {
       {
         Logger logger(config_, io);
         logger.Recover();
-        logger.EnableProcessFailStop();
+        logger.SetFailStop();
         logger.StartFlusher();
         logger.Enqueue(MakeWriteSet("alice"), 3);
         logger.ScheduleFlush(3);
@@ -275,7 +275,7 @@ TEST_F(LoggerDurabilityTest, RecordsAboveTheTargetAreCarriedForward) {
     logger.ScheduleFlush(9);
     ASSERT_EQ(logger.WaitUntilDurable(9, Logger::Deadline::max()),
               Logger::WaitResult::Durable);
-    logger.StopAndDrainFlusher();
+    logger.StopFlusher();
   }
 
   // Both epochs must be present, in order, after reopening.
@@ -303,7 +303,7 @@ TEST_F(LoggerDurabilityTest, StopWakesEveryWaiter) {
   });
   std::this_thread::sleep_for(std::chrono::milliseconds(50));
 
-  logger.StopAndDrainFlusher();
+  logger.StopFlusher();
   ASSERT_EQ(first.wait_for(kTestTimeout), std::future_status::ready);
   ASSERT_EQ(second.wait_for(kTestTimeout), std::future_status::ready);
   EXPECT_EQ(first.get(), Logger::WaitResult::Stopped);
@@ -337,7 +337,7 @@ TEST_F(LoggerDurabilityTest, FdatasyncFailureHoldsTheFrontierAndFailsWaiters) {
   // A waiter arriving after the failure learns of it rather than blocking.
   EXPECT_EQ(logger.WaitUntilDurable(3, Logger::Deadline::max()),
             Logger::WaitResult::Failed);
-  logger.StopAndDrainFlusher();
+  logger.StopFlusher();
 }
 
 TEST_F(LoggerDurabilityTest, WriteFailureFailsWaiters) {
@@ -356,7 +356,7 @@ TEST_F(LoggerDurabilityTest, WriteFailureFailsWaiters) {
   EXPECT_EQ(logger.WaitUntilDurable(3, Logger::Deadline::max()),
             Logger::WaitResult::Failed);
   EXPECT_EQ(logger.GetDurableEpoch(), 0u);
-  logger.StopAndDrainFlusher();
+  logger.StopFlusher();
 }
 
 TEST_F(LoggerDurabilityTest, TimeoutIsReportedWhenNothingIsScheduled) {
@@ -368,7 +368,7 @@ TEST_F(LoggerDurabilityTest, TimeoutIsReportedWhenNothingIsScheduled) {
       std::chrono::steady_clock::now() + std::chrono::milliseconds(100);
   EXPECT_EQ(logger.WaitUntilDurable(42, deadline),
             Logger::WaitResult::TimedOut);
-  logger.StopAndDrainFlusher();
+  logger.StopFlusher();
 }
 
 TEST_F(LoggerDurabilityTest, StopDrainsWhatWasAlreadyClosed) {
@@ -379,7 +379,7 @@ TEST_F(LoggerDurabilityTest, StopDrainsWhatWasAlreadyClosed) {
     ASSERT_TRUE(logger.Enqueue(MakeWriteSet("alice"), 6));
     logger.ScheduleFlush(6);
     // Stop without waiting: the drain must still write epoch 6.
-    logger.StopAndDrainFlusher();
+    logger.StopFlusher();
     EXPECT_EQ(logger.GetDurableEpoch(), 6u);
   }
 
@@ -400,7 +400,7 @@ TEST_F(LoggerDurabilityTest, RecoverReportsTheFrontierOfAnExistingLog) {
     logger.ScheduleFlush(8);
     ASSERT_EQ(logger.WaitUntilDurable(8, Logger::Deadline::max()),
               Logger::WaitResult::Durable);
-    logger.StopAndDrainFlusher();
+    logger.StopFlusher();
   }
 
   Logger reopened(config_);

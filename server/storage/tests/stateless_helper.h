@@ -47,9 +47,9 @@ inline bool Commit(
     const std::vector<helios::storage::ExternalRangeReadEntry> &ranges = {},
     std::string *abort_reason = nullptr) {
   const bool committed =
-      db.ValidateAndCommit(reads, writes, index_ops, ranges,
-                           helios::storage::CommitPolicy::Sync, abort_reason);
-  db.ReleaseMasstreeThreadEpoch();
+      db.Commit(reads, writes, index_ops, ranges,
+                helios::storage::CommitPolicy::Sync, abort_reason);
+  db.ReleaseThreadEpoch();
   return committed;
 }
 
@@ -81,7 +81,7 @@ inline std::optional<std::string> Read(helios::storage::Database &db,
                                        const std::string &table,
                                        const std::string &key) {
   auto result = db.Read(table, key);
-  db.ReleaseMasstreeThreadEpoch();
+  db.ReleaseThreadEpoch();
   if (!result.found) return std::nullopt;
   return std::move(result.value);
 }
@@ -100,7 +100,7 @@ inline std::vector<std::pair<std::string, std::string>> Scan(
     const std::string &start_key, const std::string &end_key,
     uint64_t row_limit = 0, bool reverse_scan = false) {
   auto scan = db.Scan(table, start_key, end_key, row_limit, reverse_scan);
-  db.ReleaseMasstreeThreadEpoch();
+  db.ReleaseThreadEpoch();
   std::vector<std::pair<std::string, std::string>> rows;
   EXPECT_TRUE(scan.ok);
   if (!scan.ok) return rows;
@@ -118,7 +118,7 @@ inline std::vector<std::pair<std::string, std::string>> ScanSecondaryIndex(
     bool reverse_scan = false) {
   auto scan = db.ScanIndex(table, index_name, start_key, end_key, row_limit,
                            reverse_scan);
-  db.ReleaseMasstreeThreadEpoch();
+  db.ReleaseThreadEpoch();
   std::vector<std::pair<std::string, std::string>> rows;
   EXPECT_TRUE(scan.ok);
   if (!scan.ok) return rows;

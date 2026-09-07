@@ -30,7 +30,7 @@
 
 namespace helios::storage {
 namespace util {
-static inline void SetUpSPDLog() {
+static inline void InitLog() {
 #ifdef NDEBUG
   spdlog::set_level(spdlog::level::info);
 #else

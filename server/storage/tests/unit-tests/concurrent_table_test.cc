@@ -92,7 +92,7 @@ TEST(ConcurrentTableTest, ConcurrentAndConflictedInserting) {
 }
 
 TEST(ConcurrentTableTest, Scan) {
-  helios::storage::util::SetUpSPDLog();
+  helios::storage::util::InitLog();
   helios::storage::epoch::EpochFramework epoch;
   epoch.Start();
   helios::storage::index::ConcurrentTable table(epoch);

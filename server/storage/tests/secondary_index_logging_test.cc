@@ -287,12 +287,12 @@ TEST_F(SecondaryIndexLoggingTest, SecondaryIndexAddTimingRecorded) {
     const auto size_before = GetLogDirectorySize(config);
 
     const auto start = std::chrono::steady_clock::now();
-    const bool committed = db_->ValidateAndCommit(
-        {}, {{table_name, primary_key, value, false, false}},
-        {{table_name, index_name, index_key, primary_key, false}}, {},
-        helios::storage::CommitPolicy::Sync);
+    const bool committed =
+        db_->Commit({}, {{table_name, primary_key, value, false, false}},
+                    {{table_name, index_name, index_key, primary_key, false}},
+                    {}, helios::storage::CommitPolicy::Sync);
     const auto end = std::chrono::steady_clock::now();
-    db_->ReleaseMasstreeThreadEpoch();
+    db_->ReleaseThreadEpoch();
     ASSERT_TRUE(committed);
 
     const auto elapsed =

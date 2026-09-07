@@ -126,7 +126,7 @@ struct DataItem {
     if (!tid.IsEmpty()) transaction_id.store(tid);
   }
 
-  void AddSecondaryIndexValue(const std::byte *v, size_t s) {
+  void AddIndexValue(const std::byte *v, size_t s) {
     std::string_view new_key(reinterpret_cast<const char *>(v), s);
     auto current = std::atomic_load(&primary_keys_);
     auto next = PackedPrimaryKeys::Insert(current, new_key);
@@ -135,7 +135,7 @@ struct DataItem {
     }
   }
 
-  void RemoveSecondaryIndexValue(const std::byte *v, size_t s) {
+  void RemoveIndexValue(const std::byte *v, size_t s) {
     std::string_view target(reinterpret_cast<const char *>(v), s);
     auto current = std::atomic_load(&primary_keys_);
     auto next = PackedPrimaryKeys::Erase(current, target);

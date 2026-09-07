@@ -24,35 +24,33 @@ helios::storage::Config MakeConfig(size_t epoch_duration_ms) {
 
 bool CommitWrite(helios::storage::Database &db, const std::string &key,
                  const std::string &value, std::string *reason = nullptr) {
-  const bool committed =
-      db.ValidateAndCommit({}, {{kTable, key, value, false}}, {}, {},
-                           helios::storage::CommitPolicy::Sync, reason);
-  db.ReleaseMasstreeThreadEpoch();
+  const bool committed = db.Commit({}, {{kTable, key, value, false}}, {}, {},
+                                   helios::storage::CommitPolicy::Sync, reason);
+  db.ReleaseThreadEpoch();
   return committed;
 }
 
 bool CommitInsert(helios::storage::Database &db, const std::string &key,
                   const std::string &value, std::string *reason = nullptr) {
   const bool committed =
-      db.ValidateAndCommit({}, {{kTable, key, value, false, true}}, {}, {},
-                           helios::storage::CommitPolicy::Sync, reason);
-  db.ReleaseMasstreeThreadEpoch();
+      db.Commit({}, {{kTable, key, value, false, true}}, {}, {},
+                helios::storage::CommitPolicy::Sync, reason);
+  db.ReleaseThreadEpoch();
   return committed;
 }
 
 bool CommitDelete(helios::storage::Database &db, const std::string &key,
                   std::string *reason = nullptr) {
-  const bool committed =
-      db.ValidateAndCommit({}, {{kTable, key, "", true}}, {}, {},
-                           helios::storage::CommitPolicy::Sync, reason);
-  db.ReleaseMasstreeThreadEpoch();
+  const bool committed = db.Commit({}, {{kTable, key, "", true}}, {}, {},
+                                   helios::storage::CommitPolicy::Sync, reason);
+  db.ReleaseThreadEpoch();
   return committed;
 }
 
 helios::storage::StatelessReadResult Read(helios::storage::Database &db,
                                           const std::string &key) {
   auto result = db.Read(kTable, key);
-  db.ReleaseMasstreeThreadEpoch();
+  db.ReleaseThreadEpoch();
   return result;
 }
 
@@ -60,9 +58,9 @@ bool ValidateRead(helios::storage::Database &db,
                   const helios::storage::StatelessReadResult &read,
                   const std::string &key, std::string *reason) {
   const bool committed =
-      db.ValidateAndCommit({{kTable, key, read.tid, read.found}}, {}, {}, {},
-                           helios::storage::CommitPolicy::Sync, reason);
-  db.ReleaseMasstreeThreadEpoch();
+      db.Commit({{kTable, key, read.tid, read.found}}, {}, {}, {},
+                helios::storage::CommitPolicy::Sync, reason);
+  db.ReleaseThreadEpoch();
   return committed;
 }
 
@@ -73,7 +71,7 @@ bool StartsWith(const std::string &value, const std::string &prefix) {
 void WaitForEpochReaper(helios::storage::Database &db,
                         std::chrono::milliseconds duration) {
   std::this_thread::sleep_for(duration);
-  db.ReleaseMasstreeThreadEpoch();
+  db.ReleaseThreadEpoch();
   std::this_thread::sleep_for(duration);
 }
 
@@ -173,22 +171,21 @@ TEST(DeferredPurgeTest, TwoInsertsOfOneKeyInARequestAreRefused) {
 
   const std::string key = "twice_inserted_key";
   std::string reason;
-  EXPECT_FALSE(db.ValidateAndCommit(
+  EXPECT_FALSE(db.Commit(
       {}, {{kTable, key, "v1", false, true}, {kTable, key, "v2", false, true}},
       {}, {}, helios::storage::CommitPolicy::Sync, &reason));
-  db.ReleaseMasstreeThreadEpoch();
+  db.ReleaseThreadEpoch();
   EXPECT_EQ(reason, helios::storage::kDuplicateKeyAbortReason);
   EXPECT_FALSE(Read(db, key).found);
 
   // Deleted in between, the second insert is not a duplicate.
   reason.clear();
-  EXPECT_TRUE(db.ValidateAndCommit({},
-                                   {{kTable, key, "v1", false, true},
-                                    {kTable, key, "", true, false},
-                                    {kTable, key, "v2", false, true}},
-                                   {}, {}, helios::storage::CommitPolicy::Sync,
-                                   &reason));
-  db.ReleaseMasstreeThreadEpoch();
+  EXPECT_TRUE(db.Commit({},
+                        {{kTable, key, "v1", false, true},
+                         {kTable, key, "", true, false},
+                         {kTable, key, "v2", false, true}},
+                        {}, {}, helios::storage::CommitPolicy::Sync, &reason));
+  db.ReleaseThreadEpoch();
   const auto live = Read(db, key);
   EXPECT_TRUE(live.found);
   EXPECT_EQ(live.value, "v2");

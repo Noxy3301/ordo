@@ -34,7 +34,7 @@ class SecondaryIndex {
     // OCC guards existing entries. A key whose slot carries no live PK list
     // still needs a blank entry the write can fill in.
     auto *item = secondary_index_.Get(key);
-    if (item == nullptr || !silo::StableReadPrimaryKeys(*item).found) {
+    if (item == nullptr || !silo::StableReadKeys(*item).found) {
       secondary_index_.PutBlank(key);
       item = secondary_index_.Get(key);
       assert(item != nullptr);

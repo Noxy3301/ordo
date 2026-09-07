@@ -17,7 +17,7 @@ void Reaper::Enqueue(ConcurrentTable *primary_index,
   if (item == nullptr || delete_commit_tid.IsEmpty()) return;
   if (primary_index == nullptr && secondary_index == nullptr) return;
 
-  DeferredPurgeCandidate candidate;
+  Candidate candidate;
   candidate.kind = secondary_index == nullptr
                        ? DeferredPurgeIndexKind::Primary
                        : DeferredPurgeIndexKind::Secondary;
@@ -31,8 +31,7 @@ void Reaper::Enqueue(ConcurrentTable *primary_index,
   deferred_purge_candidates_.emplace_back(std::move(candidate));
 }
 
-DataItem *Reaper::ResolveDeferredPurgeCandidate(
-    const DeferredPurgeCandidate &candidate) {
+DataItem *Reaper::Resolve(const Candidate &candidate) {
   if (candidate.kind == DeferredPurgeIndexKind::Primary) {
     return candidate.primary_index == nullptr
                ? nullptr
@@ -43,8 +42,7 @@ DataItem *Reaper::ResolveDeferredPurgeCandidate(
              : candidate.secondary_index->Get(candidate.key);
 }
 
-bool Reaper::PurgeDeferredPurgeCandidate(
-    const DeferredPurgeCandidate &candidate, TransactionId retired_tid) {
+bool Reaper::Erase(const Candidate &candidate, TransactionId retired_tid) {
   if (candidate.kind == DeferredPurgeIndexKind::Primary) {
     return candidate.primary_index != nullptr &&
            candidate.primary_index->Purge(candidate.key, candidate.item,
@@ -56,12 +54,12 @@ bool Reaper::PurgeDeferredPurgeCandidate(
 }
 
 void Reaper::Reap(EpochNumber published_epoch) {
-  std::vector<DeferredPurgeCandidate> ready;
+  std::vector<Candidate> ready;
   size_t pending_before = 0;
   {
     std::lock_guard<std::mutex> lk(deferred_purge_mtx_);
     pending_before = deferred_purge_candidates_.size();
-    std::vector<DeferredPurgeCandidate> pending;
+    std::vector<Candidate> pending;
     pending.reserve(deferred_purge_candidates_.size());
     for (auto &candidate : deferred_purge_candidates_) {
       const EpochNumber delete_epoch = candidate.delete_commit_tid.epoch;
@@ -87,14 +85,14 @@ void Reaper::Reap(EpochNumber published_epoch) {
     return;
   }
 
-  std::vector<DeferredPurgeCandidate> requeue;
+  std::vector<Candidate> requeue;
   requeue.reserve(ready.size());
   size_t reaped = 0;
   size_t requeued = 0;
   size_t dropped = 0;
 
   for (auto &candidate : ready) {
-    DataItem *item = ResolveDeferredPurgeCandidate(candidate);
+    DataItem *item = Resolve(candidate);
     if (item != candidate.item) {
       ++dropped;
       continue;
@@ -136,7 +134,7 @@ void Reaper::Reap(EpochNumber published_epoch) {
       ++dropped;
       continue;
     }
-    if (ResolveDeferredPurgeCandidate(candidate) != item) {
+    if (Resolve(candidate) != item) {
       unlock_candidate();
       ++dropped;
       continue;
@@ -149,7 +147,7 @@ void Reaper::Reap(EpochNumber published_epoch) {
 
     TransactionId retired = candidate.delete_commit_tid;
     retired.tid = (retired.tid + 2u) & ~1u;
-    if (PurgeDeferredPurgeCandidate(candidate, retired)) {
+    if (Erase(candidate, retired)) {
       ++reaped;
     } else {
       unlock_candidate();

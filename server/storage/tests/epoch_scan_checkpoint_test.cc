@@ -119,19 +119,17 @@ class EpochScanCheckpointTest : public ::testing::Test {
 
   static bool CommitWrite(helios::storage::Database &db, const std::string &key,
                           const std::string &value) {
-    const bool committed =
-        db.ValidateAndCommit({}, {{kTable, key, value, false}}, {}, {},
-                             helios::storage::CommitPolicy::Sync);
-    db.ReleaseMasstreeThreadEpoch();
+    const bool committed = db.Commit({}, {{kTable, key, value, false}}, {}, {},
+                                     helios::storage::CommitPolicy::Sync);
+    db.ReleaseThreadEpoch();
     return committed;
   }
 
   static bool CommitDelete(helios::storage::Database &db,
                            const std::string &key) {
-    const bool committed =
-        db.ValidateAndCommit({}, {{kTable, key, "", true}}, {}, {},
-                             helios::storage::CommitPolicy::Sync);
-    db.ReleaseMasstreeThreadEpoch();
+    const bool committed = db.Commit({}, {{kTable, key, "", true}}, {}, {},
+                                     helios::storage::CommitPolicy::Sync);
+    db.ReleaseThreadEpoch();
     return committed;
   }
 
@@ -140,17 +138,17 @@ class EpochScanCheckpointTest : public ::testing::Test {
                                  const std::string &value,
                                  const std::string &secondary_key) {
     const bool committed =
-        db.ValidateAndCommit({}, {{kTable, key, value, false}},
-                             {{kTable, kIndex, secondary_key, key, false}}, {},
-                             helios::storage::CommitPolicy::Sync);
-    db.ReleaseMasstreeThreadEpoch();
+        db.Commit({}, {{kTable, key, value, false}},
+                  {{kTable, kIndex, secondary_key, key, false}}, {},
+                  helios::storage::CommitPolicy::Sync);
+    db.ReleaseThreadEpoch();
     return committed;
   }
 
   static helios::storage::StatelessReadResult Read(
       helios::storage::Database &db, const std::string &key) {
     auto result = db.Read(kTable, key);
-    db.ReleaseMasstreeThreadEpoch();
+    db.ReleaseThreadEpoch();
     return result;
   }
 
@@ -167,7 +165,7 @@ class EpochScanCheckpointTest : public ::testing::Test {
   /** Every secondary-index hit, as `secondary_key/primary_key=value`. */
   static std::vector<std::string> ReadIndex(helios::storage::Database &db) {
     auto result = db.ScanIndex(kTable, kIndex, "", "\xff", 0, false);
-    db.ReleaseMasstreeThreadEpoch();
+    db.ReleaseThreadEpoch();
     std::vector<std::string> hits;
     for (const auto &row : result.rows) {
       hits.emplace_back(row.secondary_key + "/" + row.primary_key + "=" +
@@ -526,11 +524,11 @@ TEST_F(EpochScanCheckpointTest, ARowLockedDuringTheScanIsRetried) {
 
   auto writer = std::async(std::launch::async, [&db] {
     const bool committed =
-        db.ValidateAndCommit({},
-                             {{kTable, "alice", std::string(64, 'b'), false},
-                              {kTable, "bob", std::string(64, 'b'), false}},
-                             {}, {}, helios::storage::CommitPolicy::Sync);
-    db.ReleaseMasstreeThreadEpoch();
+        db.Commit({},
+                  {{kTable, "alice", std::string(64, 'b'), false},
+                   {kTable, "bob", std::string(64, 'b'), false}},
+                  {}, {}, helios::storage::CommitPolicy::Sync);
+    db.ReleaseThreadEpoch();
     return committed;
   });
   ReleaseOnExit release_write_on_exit{write_release.write_fd()};

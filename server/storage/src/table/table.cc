@@ -28,7 +28,7 @@ index::SecondaryIndex *Table::GetSecondaryIndex(
   return it->second.get();
 }
 
-const std::string &Table::GetTableName() const { return table_name_; }
+const std::string &Table::Name() const { return table_name_; }
 index::ConcurrentTable &Table::GetPrimaryIndex() { return primary_index_; }
 
 }  // namespace helios::storage

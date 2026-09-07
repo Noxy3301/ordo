@@ -57,7 +57,7 @@ uint32_t GetLe32(const uint8_t *in) {
 // own frame: a prefix of the constant fields followed by zeroes. Anything
 // else was not produced by writing a frame. A write that stops after the
 // constants is left to the checksum to catch.
-bool HeaderIsTornPrefix(const uint8_t *header) {
+bool IsTorn(const uint8_t *header) {
   uint8_t expected[8];
   PutLe32(expected, Wal::kMagic);
   PutLe16(expected + 4, Wal::kVersion);
@@ -74,7 +74,7 @@ bool HeaderIsTornPrefix(const uint8_t *header) {
   return true;
 }
 
-int FsyncRetryingOnInterrupt(int fd) {
+int Fsync(int fd) {
   int rc;
   do {
     rc = ::fsync(fd);
@@ -91,7 +91,7 @@ bool FsyncDirectory(const std::string &directory, int *error) {
     *error = errno;
     return false;
   }
-  const bool ok = FsyncRetryingOnInterrupt(dir_fd) == 0;
+  const bool ok = Fsync(dir_fd) == 0;
   if (!ok) *error = errno;
   ::close(dir_fd);
   return ok;
@@ -189,7 +189,7 @@ Wal::Wal(const std::string &work_dir, WalIo io, uint64_t initial_capacity_bytes)
   // create the directory or the file, and the one that loses a create can
   // still win the lock; it is then the only one left to persist what the
   // loser was going to.
-  if (FsyncRetryingOnInterrupt(fd_) != 0) {
+  if (Fsync(fd_) != 0) {
     const int error = errno;
     ::close(fd_);
     fd_ = -1;
@@ -314,7 +314,7 @@ bool Wal::WriteZeroesAndSync(off_t from, off_t to, int *error) {
 
   // The size and the blocks have to reach the device here, so that none of
   // this initialisation work lands on a group's own fdatasync.
-  if (FsyncRetryingOnInterrupt(fd_) != 0) {
+  if (Fsync(fd_) != 0) {
     *error = errno;
     return false;
   }
@@ -374,8 +374,8 @@ Wal::Probe Wal::ProbeFrameAt(off_t offset, off_t file_size, uint64_t *io_budget,
 // a frame may begin (a magic cannot begin among the zeroes), `file_size`
 // bounds where one may end. Reads stop at `kProbeBudget` bytes and report
 // Undecidable rather than continuing unboundedly.
-Wal::Probe Wal::SearchForFrameAfter(off_t offset, off_t search_end,
-                                    off_t file_size, int *error) const {
+Wal::Probe Wal::FindFrameAfter(off_t offset, off_t search_end, off_t file_size,
+                               int *error) const {
   constexpr size_t kChunkSize = 1ull << 20;
   constexpr size_t kOverlap = sizeof(uint32_t) - 1;
   std::vector<uint8_t> chunk(kChunkSize);
@@ -518,7 +518,7 @@ bool Wal::HopCoveredFrames(EpochNumber min_epoch, off_t file_size,
       // Unwritten capacity's zeroes read exactly like a torn header; that is
       // not a lie to fall back over, just the hop reaching the true end of
       // the log, which the caller's own torn-tail handling already covers.
-      if (HeaderIsTornPrefix(header)) break;
+      if (IsTorn(header)) break;
       return false;
     }
     const uint64_t frame_end =
@@ -663,7 +663,7 @@ WalScanResult Wal::ScanAndRepair(EpochNumber min_epoch) {
       header_anomaly = "payload too large";
     }
     if (header_anomaly != nullptr) {
-      if (!HeaderIsTornPrefix(header)) return Corrupt(header_anomaly);
+      if (!IsTorn(header)) return Corrupt(header_anomaly);
       anomaly = header_anomaly;
       break;
     }
@@ -763,8 +763,7 @@ WalScanResult Wal::ScanAndRepair(EpochNumber min_epoch) {
         return Corrupt(anomaly + " at offset " + std::to_string(offset) +
                        ", with data beyond the frame");
       }
-      switch (
-          SearchForFrameAfter(offset, last_non_zero + 1, file_size, &error)) {
+      switch (FindFrameAfter(offset, last_non_zero + 1, file_size, &error)) {
         case Probe::Frame:
           return Corrupt(anomaly + " at offset " + std::to_string(offset) +
                          ", with a frame surviving beyond it");

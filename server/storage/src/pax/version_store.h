@@ -151,8 +151,8 @@ class VersionStore {
   uint64_t byte_budget_;
 
   VersionStore();
-  GroupUndo *GetOrCreateGroupUndo(PaxGroup *group);
-  const GroupUndo *FindGroupUndo(const PaxGroup *group) const;
+  GroupUndo *GetOrCreateUndo(PaxGroup *group);
+  const GroupUndo *FindUndo(const PaxGroup *group) const;
   void ClearAllLocked();
 };
 

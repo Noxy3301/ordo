@@ -82,16 +82,16 @@ class Database {
    * release) implicitly re-opens a section at the then-current
    * globalepoch; there is no separate "begin" call.
    */
-  void ReleaseMasstreeThreadEpoch();
+  void ReleaseThreadEpoch();
 
   /**
-   * @brief Like ReleaseMasstreeThreadEpoch but pessimistically advances
+   * @brief Like ReleaseThreadEpoch but pessimistically advances
    * the global masstree epoch so the calling thread's RCU limbo is fully
    * drained before it returns. Intended for the connection-close path
    * only; substantially heavier than a regular release at high
    * concurrency.
    */
-  void FullyDrainMasstreeThread();
+  void DrainThread();
 
   bool CreateSecondaryIndex(const std::string_view table_name,
                             const std::string_view index_name,
@@ -145,7 +145,7 @@ class Database {
    *
    * @details `cut_epoch` is the read view's serialization point: commits
    * with epoch <= cut are visible, later ones resolve to before-images.
-   * `token` must be passed back to ReleasePaxReadView exactly once.
+   * `token` must be passed back to ReleasePaxView exactly once.
    */
   struct PaxReadView {
     bool valid = false;
@@ -168,13 +168,13 @@ class Database {
    * @param fence_timeout_ms Upper bound on the fence wait.
    * @return A valid handle, or an invalid one carrying the reason.
    */
-  PaxReadView AcquirePaxReadView(uint32_t fence_timeout_ms);
+  PaxReadView AcquirePaxView(uint32_t fence_timeout_ms);
 
   /**
    * @brief Releases a read view; the last active release clears the undo
    * maps. Safe to call with an invalid handle (no-op).
    */
-  void ReleasePaxReadView(const PaxReadView &view);
+  void ReleasePaxView(const PaxReadView &view);
 
   /**
    * @brief Returns whether this read view's results must be discarded.
@@ -183,7 +183,7 @@ class Database {
    * outlived its epoch-lifetime bound. Callers gate every result on this
    * before accepting it.
    */
-  bool PaxReadViewPoisoned(const PaxReadView &view) const;
+  bool PaxViewPoisoned(const PaxReadView &view) const;
 
   // ----------------------------------------------------------------------
   // Stateless read / validate-and-commit API.
@@ -191,7 +191,7 @@ class Database {
   // The methods below hold no state between calls. Each returns the snapshot
   // the caller needs (value, packed TID) so that the caller can keep its own
   // read set across independent RPCs. The collected snapshot is replayed
-  // through ValidateAndCommit when the logical transaction is ready to
+  // through Commit when the logical transaction is ready to
   // commit.
   // See @ref stateless.h for the supporting types.
   // ----------------------------------------------------------------------
@@ -202,7 +202,7 @@ class Database {
    * Looks the key up in the primary index of `table_name` and returns the
    * current value together with the packed TID observed at read time. The
    * caller should later pass the same TID back inside an ExternalReadEntry
-   * so that ValidateAndCommit can confirm the row was not modified
+   * so that Commit can confirm the row was not modified
    * concurrently.
    *
    * @param table_name Target table.
@@ -307,9 +307,9 @@ class Database {
    * not in the Helios integer key encoding, leaving the caller to use its
    * existing heuristic.
    */
-  bool ComputeIndexNdvInt(const std::string_view table_name,
-                          const std::string_view index_name, uint32_t num_parts,
-                          std::vector<uint64_t> &out_ndv);
+  bool IndexNdv(const std::string_view table_name,
+                const std::string_view index_name, uint32_t num_parts,
+                std::vector<uint64_t> &out_ndv);
 
   /**
    * @brief Build an equi-depth histogram for one index's leading key part.
@@ -352,7 +352,7 @@ class Database {
    *                    returns false.
    * @return true on commit; false on validation failure or schema mismatch.
    */
-  bool ValidateAndCommit(
+  bool Commit(
       const std::vector<ExternalReadEntry> &reads,
       const std::vector<ExternalWriteEntry> &writes,
       const std::vector<ExternalSecondaryIndexEntry> &secondary_index_ops,

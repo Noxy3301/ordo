@@ -57,28 +57,28 @@ class Table {
    */
   pax::PaxStore *GetPaxStore() const { return pax_store_.get(); }
 
-  const std::string &GetTableName() const;
+  const std::string &Name() const;
 
   index::ConcurrentTable &GetPrimaryIndex();
 
   index::SecondaryIndex *GetSecondaryIndex(const std::string_view index_name);
 
-  size_t GetSecondaryIndexCount() const {
+  size_t IndexCount() const {
     std::shared_lock<std::shared_mutex> lk(table_lock_);
     return secondary_indices_.size();
   }
 
   template <typename Func>
-  void ForEachSecondaryIndex(Func &&f) {
+  void ForEachIndex(Func &&f) {
     std::shared_lock<std::shared_mutex> lk(table_lock_);
     for (auto &[index_name, index_ptr] : secondary_indices_) {
       f(index_name, *index_ptr);
     }
   }
 
-  bool GetOrCreateSecondaryIndex(const std::string_view index_name,
-                                 const index::SecondaryIndexType index_type,
-                                 index::SecondaryIndex **out_index) {
+  bool GetOrCreateIndex(const std::string_view index_name,
+                        const index::SecondaryIndexType index_type,
+                        index::SecondaryIndex **out_index) {
     std::unique_lock<std::shared_mutex> lk(table_lock_);
     auto it = secondary_indices_.find(std::string(index_name));
     if (it != secondary_indices_.end()) {

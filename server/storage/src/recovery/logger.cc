@@ -254,7 +254,7 @@ WriteSetType BuildRecoverySet(const LogRecords &image, const LogRecords &tail) {
 
 Logger::Logger(const Config &config, WalIo io)
     : work_dir_(config.work_dir), replays_(config.enable_recovery) {
-  helios::storage::util::SetUpSPDLog();
+  helios::storage::util::InitLog();
   logger_ = std::make_unique<ThreadLocalLogger>(
       config, [this](EpochNumber frontier) { PublishDurable(frontier); },
       [this](int error_number) { PublishFailure(error_number); },
@@ -262,7 +262,7 @@ Logger::Logger(const Config &config, WalIo io)
 }
 
 Logger::~Logger() {
-  StopAndDrainFlusher();
+  StopFlusher();
   logger_.reset();
 }
 
@@ -288,7 +288,7 @@ Logger::RecoveryResult Logger::Recover() {
     }
   }
 
-  auto scan = logger_->ScanAndRepairWal(image.cut_epoch);
+  auto scan = logger_->ScanAndRepair(image.cut_epoch);
   RecoveryResult result;
   if (scan.status != WalScanResult::Status::Ok) {
     SPDLOG_CRITICAL(
@@ -311,7 +311,7 @@ Logger::RecoveryResult Logger::Recover() {
           "holds",
           image.wal_frontier_at_publish, scan.frontier);
       image.records.clear();
-      scan = logger_->ScanAndRepairWal(0);
+      scan = logger_->ScanAndRepair(0);
       if (scan.status != WalScanResult::Status::Ok) {
         SPDLOG_CRITICAL("Durability Error: {0} ({1}), errno {2}", scan.detail,
                         scan.status == WalScanResult::Status::Corrupt
@@ -346,8 +346,8 @@ EpochNumber Logger::GetWalFrontier() const { return logger_->WalFrontier(); }
 
 bool Logger::IsQuiescent() { return logger_->IsQuiescent(); }
 
-void Logger::StopAndDrainFlusher() {
-  if (logger_) logger_->StopAndDrainFlusher();
+void Logger::StopFlusher() {
+  if (logger_) logger_->StopFlusher();
   PublishStopped();
 }
 
@@ -392,7 +392,7 @@ void Logger::PublishFailure(int error_number) {
   if (fail_stop) std::abort();
 }
 
-void Logger::EnableProcessFailStop() {
+void Logger::SetFailStop() {
   std::lock_guard<std::mutex> lock(durability_mutex_);
   process_fail_stop_ = true;
 }

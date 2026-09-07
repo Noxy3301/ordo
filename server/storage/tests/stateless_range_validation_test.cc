@@ -21,18 +21,16 @@ helios::storage::Config MakeConfig() {
 
 bool CommitWrite(helios::storage::Database &db, const std::string &key,
                  const std::string &value) {
-  const bool committed =
-      db.ValidateAndCommit({}, {{kTable, key, value, false}}, {}, {},
-                           helios::storage::CommitPolicy::Sync);
-  db.ReleaseMasstreeThreadEpoch();
+  const bool committed = db.Commit({}, {{kTable, key, value, false}}, {}, {},
+                                   helios::storage::CommitPolicy::Sync);
+  db.ReleaseThreadEpoch();
   return committed;
 }
 
 bool CommitDelete(helios::storage::Database &db, const std::string &key) {
-  const bool committed =
-      db.ValidateAndCommit({}, {{kTable, key, "", true}}, {}, {},
-                           helios::storage::CommitPolicy::Sync);
-  db.ReleaseMasstreeThreadEpoch();
+  const bool committed = db.Commit({}, {{kTable, key, "", true}}, {}, {},
+                                   helios::storage::CommitPolicy::Sync);
+  db.ReleaseThreadEpoch();
   return committed;
 }
 
@@ -43,7 +41,7 @@ helios::storage::ExternalRangeReadEntry ScanRange(helios::storage::Database &db,
                                                   uint64_t row_limit = 0,
                                                   bool reverse_scan = false) {
   auto scan = db.Scan(kTable, start_key, end_key, row_limit, reverse_scan);
-  db.ReleaseMasstreeThreadEpoch();
+  db.ReleaseThreadEpoch();
   EXPECT_TRUE(scan.ok);
 
   helios::storage::ExternalRangeReadEntry range;
@@ -61,9 +59,9 @@ helios::storage::ExternalRangeReadEntry ScanRange(helios::storage::Database &db,
 bool Revalidate(helios::storage::Database &db,
                 const helios::storage::ExternalRangeReadEntry &range,
                 std::string *reason) {
-  const bool committed = db.ValidateAndCommit(
-      {}, {}, {}, {range}, helios::storage::CommitPolicy::Sync, reason);
-  db.ReleaseMasstreeThreadEpoch();
+  const bool committed = db.Commit({}, {}, {}, {range},
+                                   helios::storage::CommitPolicy::Sync, reason);
+  db.ReleaseThreadEpoch();
   return committed;
 }
 
@@ -77,10 +75,10 @@ void SeedRows(helios::storage::Database &db) {
 /// the slot before validation runs, and an aborted commit leaves it behind.
 void LeaveBlankSlot(helios::storage::Database &db, const std::string &key) {
   std::string reason;
-  const bool committed = db.ValidateAndCommit(
-      {{kTable, "k1", 0, true}}, {{kTable, key, "v", false}}, {}, {},
-      helios::storage::CommitPolicy::Sync, &reason);
-  db.ReleaseMasstreeThreadEpoch();
+  const bool committed =
+      db.Commit({{kTable, "k1", 0, true}}, {{kTable, key, "v", false}}, {}, {},
+                helios::storage::CommitPolicy::Sync, &reason);
+  db.ReleaseThreadEpoch();
   ASSERT_FALSE(committed) << "the write was supposed to abort";
 }
 

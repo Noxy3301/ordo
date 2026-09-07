@@ -240,8 +240,8 @@ class Wal {
                         int *error) const;
   Probe ProbeFrameAt(off_t offset, off_t file_size, uint64_t *io_budget,
                      int *error) const;
-  Probe SearchForFrameAfter(off_t offset, off_t search_end, off_t file_size,
-                            int *error) const;
+  Probe FindFrameAfter(off_t offset, off_t search_end, off_t file_size,
+                       int *error) const;
   bool FindLastNonZero(off_t from, off_t to, off_t *last_non_zero,
                        int *error) const;
   bool EnsureCapacityFor(off_t end_of_log, size_t group_size, int *error);
@@ -249,7 +249,7 @@ class Wal {
   bool WriteAllAt(const uint8_t *data, size_t size, off_t offset, int *error);
   bool PreadAll(uint8_t *out, size_t size, off_t offset, int *error) const;
 
-  // Cumulative bytes SearchForFrameAfter and the ProbeFrameAt calls it makes
+  // Cumulative bytes FindFrameAfter and the ProbeFrameAt calls it makes
   // may read while looking for a survivor past one damaged tail. Bounds the
   // search: each false-positive magic match costs a fresh checksum re-read,
   // and without a bound that cost is unbounded in the number of candidates.

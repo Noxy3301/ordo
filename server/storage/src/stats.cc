@@ -34,10 +34,10 @@ bool StableLive(const DataItem &item) {
 
 }  // namespace
 
-bool Database::Impl::ComputeIndexNdvInt(const std::string_view table_name,
-                                        const std::string_view index_name,
-                                        uint32_t num_parts,
-                                        std::vector<uint64_t> &out_ndv) {
+bool Database::Impl::IndexNdv(const std::string_view table_name,
+                              const std::string_view index_name,
+                              uint32_t num_parts,
+                              std::vector<uint64_t> &out_ndv) {
   out_ndv.assign(num_parts, 0);
   if (num_parts == 0) return false;
 

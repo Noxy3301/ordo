@@ -66,7 +66,7 @@ class Reaper {
    * deleting commit published on the slot; it acts both as the grace-period
    * clock and as evidence that the slot still holds the deleted version.
    */
-  struct DeferredPurgeCandidate {
+  struct Candidate {
     DeferredPurgeIndexKind kind;
     ConcurrentTable *primary_index = nullptr;
     SecondaryIndex *secondary_index = nullptr;
@@ -94,8 +94,7 @@ class Reaper {
    * Reap compares the result with `candidate.item`: a mismatch means the
    * slot was already purged and re-created, so the candidate is stale.
    */
-  DataItem *ResolveDeferredPurgeCandidate(
-      const DeferredPurgeCandidate &candidate);
+  DataItem *Resolve(const Candidate &candidate);
 
   /**
    * @brief Physically erases the slot through the owning index's Purge.
@@ -104,13 +103,12 @@ class Reaper {
    * slot so an in-place reuse continues the slot's TID sequence instead of
    * restarting below the delete TID.
    */
-  bool PurgeDeferredPurgeCandidate(const DeferredPurgeCandidate &candidate,
-                                   TransactionId retired_tid);
+  bool Erase(const Candidate &candidate, TransactionId retired_tid);
 
   /** Guards the queue: Enqueue runs on committers, Reap on the epoch
    * thread. */
   std::mutex deferred_purge_mtx_;
-  std::vector<DeferredPurgeCandidate> deferred_purge_candidates_;
+  std::vector<Candidate> deferred_purge_candidates_;
   /** Cumulative totals for the debug log emitted by Reap. */
   uint64_t deferred_purge_reaped_ = 0;
   uint64_t deferred_purge_requeued_ = 0;

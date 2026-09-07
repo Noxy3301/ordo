@@ -20,7 +20,7 @@ namespace helios::storage {
  * @brief Outcome of a single Database::Read.
  *
  * `tid` is the packed (epoch:32 | tid:32) version observed at read time.
- * Resubmit the same `tid` through ValidateAndCommit inside an
+ * Resubmit the same `tid` through Commit inside an
  * ExternalReadEntry to assert that the row did not move before commit.
  */
 struct StatelessReadResult {
@@ -71,7 +71,7 @@ struct StatelessRangeScanResult {
  *
  * @details `group` is a `pax::PaxGroup*` and `item` is a `DataItem*`, kept
  * opaque so this public header does not expose internal storage headers.
- * Callers read the cells they need, then call PaxRowRefCurrentTid() and compare
+ * Callers read the cells they need, then call CurrentTid() and compare
  * the result with `tid` to reject torn reads.
  */
 struct StatelessPaxRowRef {
@@ -101,7 +101,7 @@ struct StatelessPaxRowRefScanResult {
  *
  * @param row Row reference returned by Database::ScanPax.
  */
-uint64_t PaxRowRefCurrentTid(const StatelessPaxRowRef &row);
+uint64_t CurrentTid(const StatelessPaxRowRef &row);
 
 /**
  * @brief Outcome of Database::ScanIndex.
@@ -112,14 +112,14 @@ struct StatelessSecondaryRangeScanResult {
 };
 
 // ---------------------------------------------------------------------
-// ValidateAndCommit inputs: the caller assembles these from the
+// Commit inputs: the caller assembles these from the
 // observations above.
 // ---------------------------------------------------------------------
 
 /**
  * @brief Point read to revalidate at commit.
  *
- * `tid` and `found` come from an earlier read or scan row. ValidateAndCommit
+ * `tid` and `found` come from an earlier read or scan row. Commit
  * aborts when the row's TID moved; `found == false` asserts the key was
  * absent and aborts when a row appeared.
  */
@@ -131,11 +131,11 @@ struct ExternalReadEntry {
 };
 
 /**
- * @brief Row write or delete to install during ValidateAndCommit.
+ * @brief Row write or delete to install during Commit.
  *
  * When `is_delete` is true, `value` is ignored and the row is removed.
  * When `is_insert` is true, the key must hold no live row at commit; if it
- * does, ValidateAndCommit aborts with @ref kDuplicateKeyAbortReason.
+ * does, Commit aborts with @ref kDuplicateKeyAbortReason.
  */
 struct ExternalWriteEntry {
   std::string table_name;
@@ -145,7 +145,7 @@ struct ExternalWriteEntry {
   bool is_insert = false;
 };
 
-/// Abort reason ValidateAndCommit reports when an insert entry finds a live
+/// Abort reason Commit reports when an insert entry finds a live
 /// row.
 inline constexpr char kDuplicateKeyAbortReason[] = "duplicate_primary_key";
 
@@ -167,7 +167,7 @@ enum class CommitPolicy {
 };
 
 /**
- * @brief Secondary-index add or remove to install during ValidateAndCommit.
+ * @brief Secondary-index add or remove to install during Commit.
  */
 struct ExternalSecondaryIndexEntry {
   std::string table_name;
@@ -183,7 +183,7 @@ struct ExternalSecondaryIndexEntry {
  * Assemble it from the scan request and the returned rows: the bounds
  * describe the scan to re-run, `result_keys` (plus `result_primary_keys`
  * on a secondary index) is the key set the scan returned, in scan order.
- * ValidateAndCommit replays the scan and aborts when the key set changed.
+ * Commit replays the scan and aborts when the key set changed.
  * Row TIDs are not part of this entry; register every returned row as an
  * ExternalReadEntry instead.
  */

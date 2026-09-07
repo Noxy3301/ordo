@@ -39,10 +39,10 @@ ThreadLocalLogger::ThreadLocalLogger(const Config &config,
       publish_durable_(std::move(publish_durable)),
       publish_failure_(std::move(publish_failure)),
       read_durable_(std::move(read_durable)) {
-  helios::storage::util::SetUpSPDLog();
+  helios::storage::util::InitLog();
 }
 
-ThreadLocalLogger::~ThreadLocalLogger() { StopAndDrainFlusher(); }
+ThreadLocalLogger::~ThreadLocalLogger() { StopFlusher(); }
 
 bool ThreadLocalLogger::Enqueue(const WriteSetType &ws_ref, EpochNumber epoch) {
   LogRecord record;
@@ -89,7 +89,7 @@ bool ThreadLocalLogger::Enqueue(const WriteSetType &ws_ref, EpochNumber epoch) {
   return true;
 }
 
-WalScanResult ThreadLocalLogger::ScanAndRepairWal(EpochNumber min_epoch) {
+WalScanResult ThreadLocalLogger::ScanAndRepair(EpochNumber min_epoch) {
   return wal_.ScanAndRepair(min_epoch);
 }
 
@@ -121,7 +121,7 @@ bool ThreadLocalLogger::IsQuiescent() {
   return failed_ || pending_closed_ <= read_durable_();
 }
 
-void ThreadLocalLogger::StopAndDrainFlusher() {
+void ThreadLocalLogger::StopFlusher() {
   {
     std::lock_guard<std::mutex> lock(state_mutex_);
     stop_requested_ = true;

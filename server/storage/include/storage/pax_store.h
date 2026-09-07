@@ -331,7 +331,7 @@ class PaxStore {
 // ---------------------------------------------------------------------------
 // Columnar read view surface.
 //
-// While a read view acquired through Database::AcquirePaxReadView is active,
+// While a read view acquired through Database::AcquirePaxView is active,
 // every PAX install publishes the replaced row image into a per-group undo
 // map before its first strip mutation, or poisons the active capture
 // generation when it cannot (src/pax/version_store.h holds the full
@@ -368,7 +368,7 @@ inline bool EpochAfterCut(uint32_t epoch, uint32_t cut) { return epoch > cut; }
  * first strip mutation; an unchanged value across an in-place read means
  * no concurrent capture.
  */
-uint64_t UndoGroupCaptureCount(const PaxGroup *group);
+uint64_t UndoCount(const PaxGroup *group);
 
 /**
  * @brief Copies every undo entry recorded for `group`, keyed by slot.

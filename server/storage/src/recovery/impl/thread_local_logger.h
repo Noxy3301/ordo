@@ -63,7 +63,7 @@ class ThreadLocalLogger final {
   bool Enqueue(const WriteSetType &ws_ref, EpochNumber epoch);
 
   /** @brief Reads and repairs the log. Completes before the flusher starts. */
-  WalScanResult ScanAndRepairWal(EpochNumber min_epoch);
+  WalScanResult ScanAndRepair(EpochNumber min_epoch);
 
   /** @brief The epoch of the last frame actually written to the log. */
   EpochNumber WalFrontier() const;
@@ -82,7 +82,7 @@ class ThreadLocalLogger final {
    * flusher. After a write failure nothing more is flushed and the join is
    * immediate.
    */
-  void StopAndDrainFlusher();
+  void StopFlusher();
 
   /**
    * @brief True while every closed epoch handed over is durable, and

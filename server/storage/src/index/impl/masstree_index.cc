@@ -122,19 +122,19 @@ inline void ensure_thread_active() {
 // frees itself in operator() after deleting the wrapped DataItem (the
 // same shape as masstree's own gc_layer_rcu_callback, see
 // masstree_remove.hh:135-146).
-struct DataItemRcuCallback : public threadinfo::mrcu_callback {
+struct RcuFreeCallback : public threadinfo::mrcu_callback {
   DataItem *item;
-  explicit DataItemRcuCallback(DataItem *it) : item(it) {}
+  explicit RcuFreeCallback(DataItem *it) : item(it) {}
   void operator()(threadinfo &ti) override {
     delete item;
-    ti.deallocate(this, sizeof(DataItemRcuCallback), memtag_masstree_gc);
+    ti.deallocate(this, sizeof(RcuFreeCallback), memtag_masstree_gc);
   }
 };
 
-inline void schedule_data_item_rcu_free(DataItem *item) {
+inline void RcuFree(DataItem *item) {
   if (item == nullptr) return;
-  void *mem = tls_ti->allocate(sizeof(DataItemRcuCallback), memtag_masstree_gc);
-  auto *cb = new (mem) DataItemRcuCallback(item);
+  void *mem = tls_ti->allocate(sizeof(RcuFreeCallback), memtag_masstree_gc);
+  auto *cb = new (mem) RcuFreeCallback(item);
   tls_ti->rcu_register(cb);
 }
 
@@ -296,7 +296,7 @@ struct MasstreeIndex::Impl {
     if (!retired_tid.IsEmpty()) {
       current->transaction_id.store(retired_tid);
     }
-    schedule_data_item_rcu_free(current);
+    RcuFree(current);
     return true;
   }
 

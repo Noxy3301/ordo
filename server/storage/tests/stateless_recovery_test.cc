@@ -50,10 +50,9 @@ class StatelessRecoveryTest : public ::testing::Test {
 
   static bool CommitWrite(helios::storage::Database &db, const std::string &key,
                           const std::string &value) {
-    const bool committed =
-        db.ValidateAndCommit({}, {{kTable, key, value, false}}, {}, {},
-                             helios::storage::CommitPolicy::Sync);
-    db.ReleaseMasstreeThreadEpoch();
+    const bool committed = db.Commit({}, {{kTable, key, value, false}}, {}, {},
+                                     helios::storage::CommitPolicy::Sync);
+    db.ReleaseThreadEpoch();
     return committed;
   }
 
@@ -62,17 +61,17 @@ class StatelessRecoveryTest : public ::testing::Test {
                                         const std::string &value,
                                         const std::string &secondary_key) {
     const bool committed =
-        db.ValidateAndCommit({}, {{kTable, key, value, false}},
-                             {{kTable, kIndex, secondary_key, key, false}}, {},
-                             helios::storage::CommitPolicy::Sync);
-    db.ReleaseMasstreeThreadEpoch();
+        db.Commit({}, {{kTable, key, value, false}},
+                  {{kTable, kIndex, secondary_key, key, false}}, {},
+                  helios::storage::CommitPolicy::Sync);
+    db.ReleaseThreadEpoch();
     return committed;
   }
 
   static helios::storage::StatelessReadResult Read(
       helios::storage::Database &db, const std::string &key) {
     auto result = db.Read(kTable, key);
-    db.ReleaseMasstreeThreadEpoch();
+    db.ReleaseThreadEpoch();
     return result;
   }
 

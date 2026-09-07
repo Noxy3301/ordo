@@ -29,10 +29,10 @@
 namespace helios::storage {
 
 Database::Database() : db_pimpl_(std::make_unique<Impl>()) {
-  helios::storage::util::SetUpSPDLog();
+  helios::storage::util::InitLog();
 }
 Database::Database(const Config &c) : db_pimpl_(std::make_unique<Impl>(c)) {
-  helios::storage::util::SetUpSPDLog();
+  helios::storage::util::InitLog();
 }
 
 Database::~Database() noexcept = default;
@@ -41,10 +41,8 @@ const Config Database::GetConfig() const noexcept {
   return db_pimpl_->GetConfig();
 }
 
-void Database::ReleaseMasstreeThreadEpoch() {
-  index::MasstreeReleaseThreadEpoch();
-}
-void Database::FullyDrainMasstreeThread() { index::MasstreeFullyDrainThread(); }
+void Database::ReleaseThreadEpoch() { index::MasstreeReleaseThreadEpoch(); }
+void Database::DrainThread() { index::MasstreeFullyDrainThread(); }
 bool Database::CreateTable(const std::string_view table_name) {
   return db_pimpl_->CreateTable(table_name);
 }
@@ -61,16 +59,16 @@ pax::PaxStore *Database::GetPaxStore(const std::string_view table_name) {
   return db_pimpl_->GetPaxStore(table_name);
 }
 
-Database::PaxReadView Database::AcquirePaxReadView(uint32_t fence_timeout_ms) {
-  return db_pimpl_->AcquirePaxReadView(fence_timeout_ms);
+Database::PaxReadView Database::AcquirePaxView(uint32_t fence_timeout_ms) {
+  return db_pimpl_->AcquirePaxView(fence_timeout_ms);
 }
 
-void Database::ReleasePaxReadView(const PaxReadView &view) {
-  db_pimpl_->ReleasePaxReadView(view);
+void Database::ReleasePaxView(const PaxReadView &view) {
+  db_pimpl_->ReleasePaxView(view);
 }
 
-bool Database::PaxReadViewPoisoned(const PaxReadView &view) const {
-  return db_pimpl_->PaxReadViewPoisoned(view);
+bool Database::PaxViewPoisoned(const PaxReadView &view) const {
+  return db_pimpl_->PaxViewPoisoned(view);
 }
 
 bool Database::CreateSecondaryIndex(const std::string_view table_name,
@@ -118,12 +116,10 @@ StatelessPaxRowRefScanResult Database::ScanPax(
                             reverse_scan);
 }
 
-bool Database::ComputeIndexNdvInt(const std::string_view table_name,
-                                  const std::string_view index_name,
-                                  uint32_t num_parts,
-                                  std::vector<uint64_t> &out_ndv) {
-  return db_pimpl_->ComputeIndexNdvInt(table_name, index_name, num_parts,
-                                       out_ndv);
+bool Database::IndexNdv(const std::string_view table_name,
+                        const std::string_view index_name, uint32_t num_parts,
+                        std::vector<uint64_t> &out_ndv) {
+  return db_pimpl_->IndexNdv(table_name, index_name, num_parts, out_ndv);
 }
 
 bool Database::ComputeIndexHistogram(const std::string_view table_name,
@@ -135,14 +131,14 @@ bool Database::ComputeIndexHistogram(const std::string_view table_name,
                                           out_bounds, out_cum);
 }
 
-bool Database::ValidateAndCommit(
+bool Database::Commit(
     const std::vector<ExternalReadEntry> &reads,
     const std::vector<ExternalWriteEntry> &writes,
     const std::vector<ExternalSecondaryIndexEntry> &secondary_index_ops,
     const std::vector<ExternalRangeReadEntry> &range_reads, CommitPolicy policy,
     std::string *abort_reason) {
-  return db_pimpl_->ValidateAndCommit(reads, writes, secondary_index_ops,
-                                      range_reads, policy, abort_reason);
+  return db_pimpl_->Commit(reads, writes, secondary_index_ops, range_reads,
+                           policy, abort_reason);
 }
 
 bool Database::WriteCheckpointImage(uint64_t *out_version_retries) {
@@ -163,7 +159,7 @@ EpochNumber Database::Impl::ResumeEpochAbove(EpochNumber frontier) {
 Database::Impl::Impl(const Config &c)
     : config_(c),
       logger_(config_),
-      epoch_framework_(config_.epoch_duration_ms, EventsOnEpochIsUpdated()),
+      epoch_framework_(config_.epoch_duration_ms, EpochHook()),
       scan_checkpoint_(config_, table_dictionary_, epoch_framework_, logger_) {
   if (Database::Impl::CurrentDBInstance == nullptr) {
     Database::Impl::CurrentDBInstance = this;
@@ -196,7 +192,7 @@ Database::Impl::Impl(const Config &c)
   }
   // Armed after recovery, which reports its own failures by refusing to
   // start, and before the flusher that can raise one at run time.
-  logger_.EnableProcessFailStop();
+  logger_.SetFailStop();
   // Built before any thread records, so its storage and its dump signal are
   // in place rather than raised by whichever path happens to reach it first.
   wal::FlushTrace::Instance();
@@ -215,7 +211,7 @@ Database::Impl::~Impl() {
   // After the epoch writer has joined no further closed epoch arrives, so the
   // flusher can drain what it already owns and be joined before the log is
   // closed.
-  logger_.StopAndDrainFlusher();
+  logger_.StopFlusher();
   SPDLOG_DEBUG(
       "Epoch number and Durable epoch number are ended at {0}, and {1}, "
       "respectively.",
@@ -228,13 +224,13 @@ Database::Impl::~Impl() {
   Database::Impl::CurrentDBInstance = nullptr;
 }
 
-EpochNumber Database::Impl::GetMyThreadLocalEpoch() {
-  return epoch_framework_.GetMyThreadLocalEpoch();
+EpochNumber Database::Impl::ThreadEpoch() {
+  return epoch_framework_.ThreadEpoch();
 }
 
 const Config &Database::Impl::GetConfig() const { return config_; }
 
-std::function<void(EpochNumber)> Database::Impl::EventsOnEpochIsUpdated() {
+std::function<void(EpochNumber)> Database::Impl::EpochHook() {
   return [&](EpochNumber updated_epoch) {
     // Logging. The global epoch advances from U-1 to U while threads may
     // still be online in U-1, so U-2 is the newest epoch that is certainly
@@ -247,7 +243,7 @@ std::function<void(EpochNumber)> Database::Impl::EventsOnEpochIsUpdated() {
     // Tick masstree's globalepoch so RCU can free retired leaves and
     // DataItem* limbo once min_active_epoch() catches up. Workers
     // release their epoch at tx/RPC boundaries via
-    // ReleaseMasstreeThreadEpoch; we only move the watermark here.
+    // ReleaseThreadEpoch; we only move the watermark here.
     reaper_.Reap(updated_epoch);
     index::MasstreeAdvanceEpoch();
   };
@@ -309,7 +305,7 @@ StatelessPaxRowRefScanResult Database::Impl::ScanPax(
                        end_key, row_limit, reverse_scan);
 }
 
-bool Database::Impl::ValidateAndCommit(
+bool Database::Impl::Commit(
     const std::vector<ExternalReadEntry> &reads,
     const std::vector<ExternalWriteEntry> &writes,
     const std::vector<ExternalSecondaryIndexEntry> &secondary_index_ops,
@@ -319,6 +315,14 @@ bool Database::Impl::ValidateAndCommit(
                                     range_reads};
   return silo::Commit(table_dictionary_, schema_mutex_, epoch_framework_,
                       reaper_, logger_, payload, policy, abort_reason);
+}
+
+EpochNumber Database::Impl::GetDurableEpoch() const {
+  return logger_.GetDurableEpoch();
+}
+
+EpochNumber Database::Impl::GetGlobalEpoch() const {
+  return epoch_framework_.GetGlobalEpoch();
 }
 
 std::optional<Table *> Database::Impl::GetTable(
@@ -347,8 +351,8 @@ void Database::Impl::Recovery() {
   EpochNumber highest_epoch = std::max<EpochNumber>(1, durable_epoch);
   SPDLOG_DEBUG("  Durable epoch is resumed from {0}", durable_epoch);
 
-  epoch_framework_.MakeMeOnline();
-  epoch_framework_.SetMyThreadLocalEpochForRecovery(durable_epoch);
+  epoch_framework_.Join();
+  epoch_framework_.SetThreadEpoch(durable_epoch);
 
   auto &&recovery_sets = std::move(recovered.recovery_set);
 
@@ -377,8 +381,8 @@ void Database::Impl::Recovery() {
     } else {
       // Secondary Index recovery
       index::SecondaryIndex *idx = nullptr;
-      table.value()->GetOrCreateSecondaryIndex(recovery_set.index_name,
-                                               recovery_set.index_type, &idx);
+      table.value()->GetOrCreateIndex(recovery_set.index_name,
+                                      recovery_set.index_type, &idx);
       if (idx != nullptr) {
         SPDLOG_DEBUG(
             "  Recovery: Secondary index '{0}' restoring key '{1}' with {2} "
@@ -394,7 +398,7 @@ void Database::Impl::Recovery() {
       }
     }
   }
-  epoch_framework_.MakeMeOffline();
+  epoch_framework_.Leave();
 
   const EpochNumber resumed_epoch = ResumeEpochAbove(highest_epoch);
   SPDLOG_DEBUG("  Global epoch is resumed from {0}", resumed_epoch);

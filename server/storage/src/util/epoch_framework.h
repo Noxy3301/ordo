@@ -76,7 +76,7 @@ class EpochFramework {
    * none. The slot stays private so that every access to it shares one
    * sequentially consistent order with #GetSmallestEpoch's scan.
    */
-  EpochNumber GetMyThreadLocalEpoch() {
+  EpochNumber ThreadEpoch() {
     std::atomic<EpochNumber> *my_epoch =
         tls_.Get<EpochNumber>([]() { return THREAD_OFFLINE; });
     return my_epoch->load(std::memory_order_seq_cst);
@@ -86,7 +86,7 @@ class EpochFramework {
    * Overwrites this thread's epoch with a replayed one. Valid only before
    * #Start(), where the epoch writer has not begun scanning slots.
    */
-  void SetMyThreadLocalEpochForRecovery(const EpochNumber epoch) {
+  void SetThreadEpoch(const EpochNumber epoch) {
     assert(!start_.load(std::memory_order_seq_cst));
     assert(epoch != THREAD_OFFLINE);
     std::atomic<EpochNumber> *my_epoch =
@@ -108,7 +108,7 @@ class EpochFramework {
    * still inside the loop carries no such guarantee, which is why the
    * contract above exists.
    */
-  EpochNumber MakeMeOnline() {
+  EpochNumber Join() {
     std::atomic<EpochNumber> *my_epoch =
         tls_.Get<EpochNumber>([]() { return THREAD_OFFLINE; });
     assert(my_epoch->load(std::memory_order_seq_cst) == THREAD_OFFLINE);
@@ -127,7 +127,7 @@ class EpochFramework {
     }
   }
 
-  void MakeMeOffline() {
+  void Leave() {
     std::atomic<EpochNumber> *my_epoch =
         tls_.Get<EpochNumber>([]() { return THREAD_OFFLINE; });
     assert(my_epoch->load(std::memory_order_seq_cst) != THREAD_OFFLINE);
@@ -135,7 +135,7 @@ class EpochFramework {
   }
 
   EpochNumber Sync() {
-    assert(GetMyThreadLocalEpoch() == THREAD_OFFLINE);
+    assert(ThreadEpoch() == THREAD_OFFLINE);
     size_t reload_count = 0;
     for (;;) {
       auto current_epoch = global_epoch_.load();
@@ -184,17 +184,15 @@ class EpochFramework {
   // Already-reached targets succeed even after Stop() or above the
   // high-water mark; otherwise false on timeout, Stop(), or a target
   // beyond the mark.
-  bool WaitGlobalEpochAtLeast(EpochNumber target,
-                              std::chrono::milliseconds timeout) {
-    return WaitGlobalEpochAtLeastUntil(
-        target, std::chrono::steady_clock::now() + timeout);
+  bool WaitEpoch(EpochNumber target, std::chrono::milliseconds timeout) {
+    return WaitEpochUntil(target, std::chrono::steady_clock::now() + timeout);
   }
 
   // As above, against a deadline the caller already holds, so a wait that is
   // one step of a longer bounded operation cannot restart the clock.
-  bool WaitGlobalEpochAtLeastUntil(
-      EpochNumber target, std::chrono::steady_clock::time_point deadline) {
-    assert(GetMyThreadLocalEpoch() == THREAD_OFFLINE);
+  bool WaitEpochUntil(EpochNumber target,
+                      std::chrono::steady_clock::time_point deadline) {
+    assert(ThreadEpoch() == THREAD_OFFLINE);
     if (global_epoch_.load() >= target) return true;
     if (target > kEpochHighWater) return false;
     std::unique_lock<std::mutex> lk(epoch_mtx_);

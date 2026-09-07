@@ -68,7 +68,7 @@ class Database::Impl {
   Impl(const Config &c = Config());
   ~Impl();
 
-  EpochNumber GetMyThreadLocalEpoch();
+  EpochNumber ThreadEpoch();
 
   // The durable frontier and the epoch it is compared against.
   EpochNumber GetDurableEpoch() const;
@@ -77,22 +77,22 @@ class Database::Impl {
   const Config &GetConfig() const;
 
   // NOTE: Called by a special thread managed by epoch::EpochFramework.
-  std::function<void(EpochNumber)> EventsOnEpochIsUpdated();
+  std::function<void(EpochNumber)> EpochHook();
 
   bool CreateTable(const std::string_view table_name);
 
   pax::PaxStore *GetPaxStore(const std::string_view table_name);
-  Database::PaxReadView AcquirePaxReadView(uint32_t fence_timeout_ms);
-  void ReleasePaxReadView(const Database::PaxReadView &view);
+  Database::PaxReadView AcquirePaxView(uint32_t fence_timeout_ms);
+  void ReleasePaxView(const Database::PaxReadView &view);
 
   // Read view expiry, half the high-water margin. Enforces the wrap-free
   // window behind plain epoch comparisons: readers gate every attempt on
-  // PaxReadViewPoisoned, and the cut-to-global distance grows
+  // PaxViewPoisoned, and the cut-to-global distance grows
   // monotonically over any practical read view lifetime (a full uint32
   // epoch cycle takes years), keeping accepted results inside the bound.
   static constexpr EpochNumber kPaxReadViewEpochLifetime = 1u << 19;
 
-  bool PaxReadViewPoisoned(const Database::PaxReadView &view) const;
+  bool PaxViewPoisoned(const Database::PaxReadView &view) const;
 
   bool InstallPaxSchema(const std::string_view table_name,
                         const std::vector<uint32_t> &field_max_bytes,
@@ -133,9 +133,9 @@ class Database::Impl {
    * live index entries only. If any live key cannot be split as Helios integer
    * key parts, the method returns false so the proxy keeps its old estimate.
    */
-  bool ComputeIndexNdvInt(const std::string_view table_name,
-                          const std::string_view index_name, uint32_t num_parts,
-                          std::vector<uint64_t> &out_ndv);
+  bool IndexNdv(const std::string_view table_name,
+                const std::string_view index_name, uint32_t num_parts,
+                std::vector<uint64_t> &out_ndv);
 
   /**
    * @brief Build an equi-depth histogram for one index's leading key part.
@@ -155,7 +155,7 @@ class Database::Impl {
                              std::vector<std::string> &out_bounds,
                              std::vector<uint64_t> &out_cum);
 
-  bool ValidateAndCommit(
+  bool Commit(
       const std::vector<ExternalReadEntry> &reads,
       const std::vector<ExternalWriteEntry> &writes,
       const std::vector<ExternalSecondaryIndexEntry> &secondary_index_ops,

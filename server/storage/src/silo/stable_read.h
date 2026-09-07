@@ -128,7 +128,7 @@ inline StableValue StableReadValueMasked(const DataItem &item,
  *
  * `found` is false when the slot is uninitialized or the list is empty.
  */
-inline StablePrimaryKeys StableReadPrimaryKeys(const DataItem &item) {
+inline StablePrimaryKeys StableReadKeys(const DataItem &item) {
   for (;;) {
     TransactionId tid = item.transaction_id.load();
     if (tid.tid & 1u) {

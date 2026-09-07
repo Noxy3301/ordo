@@ -31,9 +31,9 @@ TEST(StatelessRecoveryTidTest, ARecoveredKeyAcceptsTheNextWrite) {
     db.CreateTable(kTable);
     std::string reason;
     const bool committed =
-        db.ValidateAndCommit({}, {{kTable, "alice", "v1", false}}, {}, {},
-                             helios::storage::CommitPolicy::Sync, &reason);
-    db.ReleaseMasstreeThreadEpoch();
+        db.Commit({}, {{kTable, "alice", "v1", false}}, {}, {},
+                  helios::storage::CommitPolicy::Sync, &reason);
+    db.ReleaseThreadEpoch();
     ASSERT_TRUE(committed) << reason;
   }
 
@@ -42,16 +42,16 @@ TEST(StatelessRecoveryTidTest, ARecoveredKeyAcceptsTheNextWrite) {
     db.CreateTable(kTable);
 
     auto read = db.Read(kTable, "alice");
-    db.ReleaseMasstreeThreadEpoch();
+    db.ReleaseThreadEpoch();
     ASSERT_TRUE(read.found);
     EXPECT_EQ(read.tid % 2, 0u)
         << "the recovered TID still carries the lock bit";
 
     std::string reason;
     const bool committed =
-        db.ValidateAndCommit({}, {{kTable, "alice", "v2", false}}, {}, {},
-                             helios::storage::CommitPolicy::Sync, &reason);
-    db.ReleaseMasstreeThreadEpoch();
+        db.Commit({}, {{kTable, "alice", "v2", false}}, {}, {},
+                  helios::storage::CommitPolicy::Sync, &reason);
+    db.ReleaseThreadEpoch();
     EXPECT_TRUE(committed) << reason;
   }
 

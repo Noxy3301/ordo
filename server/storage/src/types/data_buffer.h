@@ -221,7 +221,7 @@ struct DataBuffer {
    * outside an epoch-tagged commit (recovery replay); a read view observed
    * active in that state poisons the generation, fail-closed.
    */
-  void CaptureBeforeImageForReadView() {
+  void CaptureBeforeImage() {
     auto &version_store = pax::VersionStore::Global();
     if (!version_store.CaptureActive()) return;
     const uint32_t epoch = pax::CurrentCommitEpoch::Get();
@@ -247,7 +247,7 @@ struct DataBuffer {
   void ResetPax(const std::byte *v, const size_t s) {
     if (v == nullptr || s == 0) {
       if (pax_allocated() && size != 0) {
-        CaptureBeforeImageForReadView();
+        CaptureBeforeImage();
         pax_group()->RetireSlot(pax_slot());
       }
       size = 0;  // tombstone; keep the slot for the (possible) re-insert
@@ -280,7 +280,7 @@ struct DataBuffer {
                                             kPaxTag | kPaxAllocated);
       capacity = slot;
     }
-    CaptureBeforeImageForReadView();
+    CaptureBeforeImage();
     if (pax_group()->ScatterRow(pax_slot(), v, s)) {
       size = s;
       return;

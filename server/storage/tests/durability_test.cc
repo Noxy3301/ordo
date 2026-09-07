@@ -158,9 +158,9 @@ TEST(CommitPolicyTest, AsyncDoesNotWaitForTheDevice) {
     const auto commit = [&db](const std::string &key,
                               helios::storage::CommitPolicy policy) {
       const auto started = std::chrono::steady_clock::now();
-      const bool committed = db.ValidateAndCommit(
-          {}, {{kTable, key, "v", false}}, {}, {}, policy, nullptr);
-      db.ReleaseMasstreeThreadEpoch();
+      const bool committed =
+          db.Commit({}, {{kTable, key, "v", false}}, {}, {}, policy, nullptr);
+      db.ReleaseThreadEpoch();
       EXPECT_TRUE(committed);
       return std::chrono::duration_cast<std::chrono::milliseconds>(
                  std::chrono::steady_clock::now() - started)

@@ -56,8 +56,8 @@ struct Snapshot {
   Snapshot(Snapshot &&) = default;
   Snapshot &operator=(Snapshot &&) = default;
 
-  void RecordSecondaryIndexDelta(const std::string_view primary_key,
-                                 SecondaryIndexOp op) {
+  void RecordIndexDelta(const std::string_view primary_key,
+                        SecondaryIndexOp op) {
     for (auto &delta : secondary_index_deltas) {
       if (delta.primary_key == primary_key) {
         delta.op = op;

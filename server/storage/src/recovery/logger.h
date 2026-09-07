@@ -150,7 +150,7 @@ class Logger {
    * flusher. After a write failure nothing more is flushed and the join is
    * immediate.
    */
-  void StopAndDrainFlusher();
+  void StopFlusher();
 
   /**
    * @brief Makes an I/O failure stop the process, once the log is the
@@ -163,7 +163,7 @@ class Logger {
    * @note Armed explicitly, so a test that constructs a Logger directly can
    * still observe the failure state instead of dying with it.
    */
-  void EnableProcessFailStop();
+  void SetFailStop();
 
  private:
   void PublishDurable(EpochNumber frontier);

@@ -17,7 +17,7 @@ pax::PaxStore *Database::Impl::GetPaxStore(const std::string_view table_name) {
   return table.value()->GetPaxStore();
 }
 
-Database::PaxReadView Database::Impl::AcquirePaxReadView(
+Database::PaxReadView Database::Impl::AcquirePaxView(
     uint32_t fence_timeout_ms) {
   Database::PaxReadView handle;
   auto token = pax::VersionStore::Global().BeginCapture();
@@ -43,7 +43,7 @@ Database::PaxReadView Database::Impl::AcquirePaxReadView(
         "high-water mark, restart the server";
     return handle;
   }
-  if (!epoch_framework_.WaitGlobalEpochAtLeast(
+  if (!epoch_framework_.WaitEpoch(
           cut + 2, std::chrono::milliseconds(fence_timeout_ms))) {
     pax::VersionStore::Global().EndCapture(token);
     handle.error =
@@ -66,7 +66,7 @@ Database::PaxReadView Database::Impl::AcquirePaxReadView(
   return handle;
 }
 
-void Database::Impl::ReleasePaxReadView(const Database::PaxReadView &view) {
+void Database::Impl::ReleasePaxView(const Database::PaxReadView &view) {
   if (!view.valid) return;
   pax::VersionStore::ReadViewToken token;
   token.id = view.token;
@@ -74,8 +74,7 @@ void Database::Impl::ReleasePaxReadView(const Database::PaxReadView &view) {
   pax::VersionStore::Global().EndCapture(token);
 }
 
-bool Database::Impl::PaxReadViewPoisoned(
-    const Database::PaxReadView &view) const {
+bool Database::Impl::PaxViewPoisoned(const Database::PaxReadView &view) const {
   if (!view.valid) return true;
   if (epoch_framework_.GetGlobalEpoch() - view.cut_epoch >=
       kPaxReadViewEpochLifetime) {

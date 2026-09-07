@@ -154,7 +154,10 @@ bool FsyncDirectory(const std::string &directory) {
   const int fd = ::open(directory.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
   if (fd < 0) return false;
   const bool ok = Fsync(fd) == 0;
+  const int fsync_errno = errno;
   ::close(fd);
+  // The caller reports errno, and close is free to overwrite it.
+  if (!ok) errno = fsync_errno;
   return ok;
 }
 
@@ -351,9 +354,18 @@ bool EpochScanCheckpoint::RunOnce(Stats *out_stats) {
 
   if (abandoned) {
     ::unlink(working_path_.c_str());
-    SPDLOG_WARN(
-        "Checkpoint {0} abandoned: a row did not present a stable version",
-        stats.generation);
+    const bool stopping = [&] {
+      std::lock_guard<std::mutex> lock(mutex_);
+      return stop_;
+    }();
+    if (stopping) {
+      SPDLOG_INFO("Checkpoint {0} abandoned: the capture thread is stopping",
+                  stats.generation);
+    } else {
+      SPDLOG_WARN(
+          "Checkpoint {0} abandoned: a row did not present a stable version",
+          stats.generation);
+    }
     if (out_stats != nullptr) *out_stats = stats;
     return false;
   }

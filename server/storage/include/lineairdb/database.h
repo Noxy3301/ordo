@@ -97,6 +97,9 @@ class Database {
                             const std::string_view index_name,
                             const uint index_type);
 
+  // True when the dictionary holds this table.
+  bool HasTable(const std::string_view table_name);
+
   /**
    * @brief
    * Creates a new table.

@@ -151,31 +151,33 @@ TEST(CommitPolicyTest, AsyncDoesNotWaitForTheDevice) {
   config.enable_recovery = false;
   config.epoch_duration_ms = kEpochMs;
 
-  LineairDB::Database db(config);
-  ASSERT_TRUE(db.CreateTable(kTable));
+  {
+    LineairDB::Database db(config);
+    ASSERT_TRUE(db.CreateTable(kTable));
 
-  const auto commit = [&db](const std::string &key,
-                            LineairDB::CommitPolicy policy) {
-    const auto started = std::chrono::steady_clock::now();
-    const bool committed = db.ValidateAndCommit({}, {{kTable, key, "v", false}},
-                                                {}, {}, policy, nullptr);
-    db.ReleaseMasstreeThreadEpoch();
-    EXPECT_TRUE(committed);
-    return std::chrono::duration_cast<std::chrono::milliseconds>(
-               std::chrono::steady_clock::now() - started)
-        .count();
-  };
+    const auto commit = [&db](const std::string &key,
+                              LineairDB::CommitPolicy policy) {
+      const auto started = std::chrono::steady_clock::now();
+      const bool committed = db.ValidateAndCommit(
+          {}, {{kTable, key, "v", false}}, {}, {}, policy, nullptr);
+      db.ReleaseMasstreeThreadEpoch();
+      EXPECT_TRUE(committed);
+      return std::chrono::duration_cast<std::chrono::milliseconds>(
+                 std::chrono::steady_clock::now() - started)
+          .count();
+    };
 
-  const auto async_ms = commit("async_key", LineairDB::CommitPolicy::Async);
-  EXPECT_LT(async_ms, static_cast<long>(kEpochMs))
-      << "an Async commit waited for its epoch to become durable";
+    const auto async_ms = commit("async_key", LineairDB::CommitPolicy::Async);
+    EXPECT_LT(async_ms, static_cast<long>(kEpochMs))
+        << "an Async commit waited for its epoch to become durable";
 
-  const auto sync_ms = commit("sync_key", LineairDB::CommitPolicy::Sync);
-  EXPECT_GE(sync_ms, 1)
-      << "a Sync commit returned before any epoch could close";
-  EXPECT_LT(async_ms, sync_ms)
-      << "Async did not return sooner than Sync (async " << async_ms
-      << " ms, sync " << sync_ms << " ms)";
-
+    const auto sync_ms = commit("sync_key", LineairDB::CommitPolicy::Sync);
+    EXPECT_GE(sync_ms, static_cast<long>(kEpochMs))
+        << "a Sync commit returned before its epoch could close";
+    EXPECT_LT(async_ms, sync_ms)
+        << "Async did not return sooner than Sync (async " << async_ms
+        << " ms, sync " << sync_ms << " ms)";
+  }
+  // After the database is destroyed: it holds the log open until then.
   std::filesystem::remove_all(config.work_dir);
 }

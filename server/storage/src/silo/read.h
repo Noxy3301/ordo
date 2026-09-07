@@ -19,9 +19,8 @@ class TableDictionary;
  * functions hold no state between calls, so they take the table dictionary
  * and the schema mutex from the caller instead of owning them. Every call
  * takes a shared lock on the schema, resolves index slots, and copies rows
- * with the Silo-style stable read; the
- * returned packed TIDs are the read-set evidence the caller later submits
- * through ValidateAndCommit.
+ * with the Silo-style stable read; the returned packed TIDs are the read-set
+ * evidence the caller later submits through ValidateAndCommit.
  */
 namespace Silo {
 

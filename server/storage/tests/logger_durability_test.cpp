@@ -221,8 +221,7 @@ TEST_F(LoggerDurabilityTest, AsyncAndUnloggedCommitsDoNotWait) {
   }
 
   // The log is held exclusively for as long as a logger owns it, so the
-  // second contract gets its own scope rather than overlapping with the
-  // first.
+  // second logger gets its own scope rather than overlapping with the first.
   Logger sync_logger(config_);
   ASSERT_EQ(sync_logger.Recover().status, Logger::RecoveryStatus::Ok);
   sync_logger.StartFlusher();

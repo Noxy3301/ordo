@@ -79,6 +79,10 @@ bool Database::CreateSecondaryIndex(const std::string_view table_name,
   return db_pimpl_->CreateSecondaryIndex(table_name, index_name, index_type);
 }
 
+bool Database::HasTable(const std::string_view table_name) {
+  return db_pimpl_->GetTable(table_name).has_value();
+}
+
 StatelessReadResult Database::Read(
     const std::string_view table_name, const std::string_view key,
     const std::vector<uint32_t> *selected_columns) {

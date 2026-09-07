@@ -70,7 +70,7 @@ class Database::Impl {
 
   EpochNumber GetMyThreadLocalEpoch();
 
-  // The two clocks the durable barrier reasons about.
+  // The durable frontier and the epoch it is compared against.
   EpochNumber GetDurableEpoch() const;
   EpochNumber GetGlobalEpoch() const;
 

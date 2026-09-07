@@ -32,8 +32,8 @@ class ScanSecondaryIndexTest : public ::testing::Test {
 };
 
 TEST_F(ScanSecondaryIndexTest, Delete) {
-  db_->CreateTable("users");
-  db_->CreateSecondaryIndex("users", "age_index", 0);
+  ASSERT_TRUE(db_->CreateTable("users"));
+  ASSERT_TRUE(db_->CreateSecondaryIndex("users", "age_index", 0));
 
   ASSERT_TRUE(TestHelper::CommitWrites(
       *db_, {{"users", "user1", "Alice", false, false}},
@@ -52,8 +52,8 @@ TEST_F(ScanSecondaryIndexTest, Delete) {
 }
 
 TEST_F(ScanSecondaryIndexTest, DeleteAndScan) {
-  db_->CreateTable("users");
-  db_->CreateSecondaryIndex("users", "alpha_index", 0);
+  ASSERT_TRUE(db_->CreateTable("users"));
+  ASSERT_TRUE(db_->CreateSecondaryIndex("users", "alpha_index", 0));
 
   ASSERT_TRUE(TestHelper::CommitWrites(
       *db_,
@@ -80,8 +80,8 @@ TEST_F(ScanSecondaryIndexTest, DeleteAndScan) {
 }
 
 TEST_F(ScanSecondaryIndexTest, ScanShouldIncludeInsertedKeys) {
-  db_->CreateTable("users");
-  db_->CreateSecondaryIndex("users", "name_index", 0);
+  ASSERT_TRUE(db_->CreateTable("users"));
+  ASSERT_TRUE(db_->CreateSecondaryIndex("users", "name_index", 0));
 
   ASSERT_TRUE(TestHelper::CommitWrites(
       *db_, {{"users", "user1", "Alice", false, false}},
@@ -104,8 +104,8 @@ TEST_F(ScanSecondaryIndexTest, ScanShouldIncludeInsertedKeys) {
 }
 
 TEST_F(ScanSecondaryIndexTest, ScanShouldReturnKeysInOrder) {
-  db_->CreateTable("users");
-  db_->CreateSecondaryIndex("users", "name_index", 0);
+  ASSERT_TRUE(db_->CreateTable("users"));
+  ASSERT_TRUE(db_->CreateSecondaryIndex("users", "name_index", 0));
 
   ASSERT_TRUE(TestHelper::CommitWrites(
       *db_,
@@ -133,8 +133,8 @@ TEST_F(ScanSecondaryIndexTest, ScanShouldReturnKeysInOrder) {
 
 TEST_F(ScanSecondaryIndexTest,
        ScanReverseShouldReturnSecondaryKeysInReverseOrder) {
-  db_->CreateTable("users");
-  db_->CreateSecondaryIndex("users", "group_index", 0);
+  ASSERT_TRUE(db_->CreateTable("users"));
+  ASSERT_TRUE(db_->CreateSecondaryIndex("users", "group_index", 0));
 
   ASSERT_TRUE(TestHelper::CommitWrites(
       *db_,
@@ -153,8 +153,8 @@ TEST_F(ScanSecondaryIndexTest,
 }
 
 TEST_F(ScanSecondaryIndexTest, ScanShouldStopAtCorrectPosition) {
-  db_->CreateTable("users");
-  db_->CreateSecondaryIndex("users", "name_index", 0);
+  ASSERT_TRUE(db_->CreateTable("users"));
+  ASSERT_TRUE(db_->CreateSecondaryIndex("users", "name_index", 0));
 
   ASSERT_TRUE(TestHelper::CommitWrites(
       *db_,
@@ -182,8 +182,8 @@ TEST_F(ScanSecondaryIndexTest, ScanShouldStopAtCorrectPosition) {
 }
 
 TEST_F(ScanSecondaryIndexTest, ScanShouldExcludeDeletedKeys) {
-  db_->CreateTable("users");
-  db_->CreateSecondaryIndex("users", "name_index", 0);
+  ASSERT_TRUE(db_->CreateTable("users"));
+  ASSERT_TRUE(db_->CreateSecondaryIndex("users", "name_index", 0));
 
   ASSERT_TRUE(TestHelper::CommitWrites(
       *db_,

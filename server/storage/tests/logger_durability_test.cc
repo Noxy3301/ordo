@@ -258,10 +258,12 @@ TEST_F(LoggerDurabilityTest, ArmedFailStopEndsTheProcessOnASyncFailure) {
   EXPECT_EXIT(
       {
         Logger logger(config_, io);
-        logger.Recover();
+        // Leaving early ends the child with an exit status the death test
+        // reports, rather than passing on a failure of the setup.
+        if (logger.Recover().status != Logger::RecoveryStatus::Ok) return;
         logger.SetFailStop();
         logger.StartFlusher();
-        logger.Enqueue(MakeWriteSet("alice"), 3);
+        if (!logger.Enqueue(MakeWriteSet("alice"), 3)) return;
         logger.ScheduleFlush(3);
         std::this_thread::sleep_for(kTestTimeout);
       },
@@ -307,7 +309,12 @@ TEST_F(LoggerDurabilityTest, StopWakesEveryWaiter) {
   auto second = std::async(std::launch::async, [&logger] {
     return logger.WaitUntilDurable(12, Logger::Deadline::max());
   });
-  std::this_thread::sleep_for(std::chrono::milliseconds(50));
+  // Both are inside the wait, rather than merely started, when the stop
+  // arrives: neither epoch is durable, so neither may be ready.
+  ASSERT_EQ(first.wait_for(std::chrono::milliseconds(50)),
+            std::future_status::timeout);
+  ASSERT_EQ(second.wait_for(std::chrono::milliseconds(50)),
+            std::future_status::timeout);
 
   logger.StopFlusher();
   ASSERT_EQ(first.wait_for(kTestTimeout), std::future_status::ready);
@@ -331,7 +338,8 @@ TEST_F(LoggerDurabilityTest, FdatasyncFailureHoldsTheFrontierAndFailsWaiters) {
   auto waiting = std::async(std::launch::async, [&logger] {
     return logger.WaitUntilDurable(3, Logger::Deadline::max());
   });
-  std::this_thread::sleep_for(std::chrono::milliseconds(50));
+  ASSERT_EQ(waiting.wait_for(std::chrono::milliseconds(50)),
+            std::future_status::timeout);
 
   logger.ScheduleFlush(3);
   ASSERT_EQ(waiting.wait_for(kTestTimeout), std::future_status::ready);

@@ -124,6 +124,8 @@ TEST_F(DebugSyncTest, SleepStillWorks) {
 TEST_F(DebugSyncTest, ClosedReleasePipeIsAFailure) {
   Pipe arrived;
   Pipe release;
+  ASSERT_GE(arrived.write_fd(), 0);
+  ASSERT_GE(release.read_fd(), 0);
   Arm("HELIOS_DEBUG_SYNC_TEST_EOF",
       "arrive_and_wait:" + std::to_string(arrived.write_fd()) + ":" +
           std::to_string(release.read_fd()));

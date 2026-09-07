@@ -27,16 +27,22 @@ helios::storage::Config MakeConfig() {
 
 bool CommitWrite(helios::storage::Database &db, const std::string &key,
                  const std::string &value) {
-  const bool committed = db.Commit({}, {{kTable, key, value, false}}, {}, {},
-                                   helios::storage::CommitDurability::kSync);
+  std::string reason;
+  const bool committed =
+      db.Commit({}, {{kTable, key, value, false}}, {}, {},
+                helios::storage::CommitDurability::kSync, &reason);
   db.ReleaseThreadEpoch();
+  EXPECT_TRUE(committed) << "write " << key << " aborted: " << reason;
   return committed;
 }
 
 bool CommitDelete(helios::storage::Database &db, const std::string &key) {
-  const bool committed = db.Commit({}, {{kTable, key, "", true}}, {}, {},
-                                   helios::storage::CommitDurability::kSync);
+  std::string reason;
+  const bool committed =
+      db.Commit({}, {{kTable, key, "", true}}, {}, {},
+                helios::storage::CommitDurability::kSync, &reason);
   db.ReleaseThreadEpoch();
+  EXPECT_TRUE(committed) << "delete " << key << " aborted: " << reason;
   return committed;
 }
 
@@ -48,7 +54,7 @@ helios::storage::ExternalRangeReadEntry ScanRange(helios::storage::Database &db,
                                                   bool reverse_scan = false) {
   auto scan = db.Scan(kTable, start_key, end_key, row_limit, reverse_scan);
   db.ReleaseThreadEpoch();
-  EXPECT_TRUE(scan.ok);
+  EXPECT_TRUE(scan.ok) << "scan [" << start_key << ", " << end_key << ")";
 
   helios::storage::ExternalRangeReadEntry range;
   range.table_name = kTable;
@@ -56,6 +62,9 @@ helios::storage::ExternalRangeReadEntry ScanRange(helios::storage::Database &db,
   range.end_key = end_key;
   range.row_limit = row_limit;
   range.reverse_scan = reverse_scan;
+  // A refused scan has no rows to submit as evidence; returning the empty
+  // range keeps the caller's own expectations from passing on it.
+  if (!scan.ok) return range;
   for (const auto &row : scan.rows) {
     range.result_keys.emplace_back(row.key);
   }
@@ -86,6 +95,7 @@ void LeaveBlankSlot(helios::storage::Database &db, const std::string &key) {
                 helios::storage::CommitDurability::kSync, &reason);
   db.ReleaseThreadEpoch();
   ASSERT_FALSE(committed) << "the write was supposed to abort";
+  EXPECT_FALSE(reason.empty()) << "an abort names its reason";
 }
 
 }  // namespace

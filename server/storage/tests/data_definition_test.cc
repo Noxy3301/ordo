@@ -38,7 +38,7 @@ class DataDefinitionTest : public ::testing::Test {
     std::filesystem::remove_all(config_.work_dir);
     config_.epoch_duration_ms = 100;
     db_.reset(nullptr);
-    db_ = std::make_unique<helios::storage::Database>();
+    db_ = std::make_unique<helios::storage::Database>(config_);
   }
 };
 
@@ -50,7 +50,7 @@ TEST_F(DataDefinitionTest, CreateTable) {
 }
 
 TEST_F(DataDefinitionTest, ReadWrite) {
-  db_->CreateTable("users");
+  ASSERT_TRUE(db_->CreateTable("users"));
 
   ASSERT_TRUE(TestHelper::Write<int>(*db_, "users", "user1", 42));
 
@@ -60,8 +60,8 @@ TEST_F(DataDefinitionTest, ReadWrite) {
 }
 
 TEST_F(DataDefinitionTest, ConcurrencyControlBetweenMultipleTables) {
-  db_->CreateTable("users");
-  db_->CreateTable("accounts");
+  ASSERT_TRUE(db_->CreateTable("users"));
+  ASSERT_TRUE(db_->CreateTable("accounts"));
 
   std::atomic<bool> tx1_ready = false;
   std::atomic<bool> tx2_ready = false;
@@ -98,8 +98,8 @@ TEST_F(DataDefinitionTest, ConcurrencyControlBetweenMultipleTables) {
 }
 
 TEST_F(DataDefinitionTest, WriteSameKeyIntoTwoTables) {
-  db_->CreateTable("users");
-  db_->CreateTable("accounts");
+  ASSERT_TRUE(db_->CreateTable("users"));
+  ASSERT_TRUE(db_->CreateTable("accounts"));
 
   ASSERT_TRUE(TestHelper::CommitWrites(
       *db_,

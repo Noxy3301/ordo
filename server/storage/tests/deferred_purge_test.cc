@@ -100,6 +100,7 @@ TEST(DeferredPurgeTest, SameEpochDeleteReinsertInvalidatesStaleRead) {
 
   std::string reason;
   EXPECT_FALSE(ValidateRead(db, stale, "k", &reason));
+  EXPECT_TRUE(StartsWith(reason, "exact_read_tid_moved")) << reason;
 }
 
 TEST(DeferredPurgeTest, FoundReadAbortsAfterDeferredPurgeRemovesSlot) {

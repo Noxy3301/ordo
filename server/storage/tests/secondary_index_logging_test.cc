@@ -72,12 +72,15 @@ SecondaryLogStats GetSecondaryIndexLogStatsForLatestEpoch(
     const helios::storage::Config &conf) {
   namespace fs = std::filesystem;
   SecondaryLogStats stats{};
-  if (!fs::exists(fs::path(conf.work_dir) / "wal.log")) return stats;
+  const bool log_exists = fs::exists(fs::path(conf.work_dir) / "wal.log");
+  EXPECT_TRUE(log_exists) << conf.work_dir << ": no log to read";
+  if (!log_exists) return stats;
 
   // Read the log through the writer's own format rather than re-deriving the
   // frame format here.
   helios::storage::wal::Wal wal(conf.work_dir);
   const auto scan = wal.ScanAndRepair();
+  EXPECT_EQ(scan.status, helios::storage::wal::WalScanResult::Status::Ok);
   if (scan.status != helios::storage::wal::WalScanResult::Status::Ok) {
     return stats;
   }

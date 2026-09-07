@@ -50,15 +50,18 @@ TEST_F(ConcurrentCreateTableTest, ConcurrentCreateTableAcrossEpochs) {
   constexpr size_t kTablesPerSec = 100;
 
   std::atomic<bool> stop{false};
+  // One name may be created once, whichever worker wins the race for it.
+  std::vector<std::atomic<size_t>> created(kTablesPerSec);
+  for (auto &count : created) count.store(0);
 
   std::vector<std::thread> workers;
   for (size_t t = 0; t < kNumWorkers; ++t) {
     workers.emplace_back([&]() {
       size_t i = 0;
       while (!stop.load()) {
-        const std::string table_name =
-            "table_" + std::to_string(i % kTablesPerSec);
-        db_->CreateTable(table_name);
+        const size_t slot = i % kTablesPerSec;
+        const std::string table_name = "table_" + std::to_string(slot);
+        if (db_->CreateTable(table_name)) created[slot].fetch_add(1);
         ++i;
         if (i % 128 == 0) std::this_thread::yield();
       }
@@ -71,5 +74,10 @@ TEST_F(ConcurrentCreateTableTest, ConcurrentCreateTableAcrossEpochs) {
   stop.store(true);
   for (auto &w : workers) {
     w.join();
+  }
+
+  for (size_t slot = 0; slot < kTablesPerSec; ++slot) {
+    const std::string table_name = "table_" + std::to_string(slot);
+    EXPECT_EQ(created[slot].load(), 1u) << table_name;
   }
 }

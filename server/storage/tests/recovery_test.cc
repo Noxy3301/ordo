@@ -139,13 +139,15 @@ TEST_F(RecoveryTest, ARecoveredKeyAcceptsAFurtherWrite) {
     Wal wal(work_dir_, helios::storage::wal::WalIo::Posix(), 1ull << 20);
     auto scan = wal.ScanAndRepair();
     ASSERT_EQ(scan.status, WalScanResult::Status::Ok);
+    bool seen = false;
     for (const auto &record : scan.records) {
       for (const auto &kvp : record.key_value_pairs) {
-        if (kvp.key == "k") {
-          ASSERT_EQ(kvp.tid.tid % 2, 0u);
-        }
+        if (kvp.key != "k") continue;
+        seen = true;
+        ASSERT_EQ(kvp.tid.tid % 2, 0u);
       }
     }
+    ASSERT_TRUE(seen) << "the log holds no record of the key";
   }
 
   auto config = MakeConfig(true);

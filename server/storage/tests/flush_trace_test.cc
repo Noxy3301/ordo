@@ -42,8 +42,9 @@ class ScopedTraceDir {
             .string();
     std::vector<char> buffer(pattern.begin(), pattern.end());
     buffer.push_back('\0');
-    EXPECT_NE(::mkdtemp(buffer.data()), nullptr);
-    path_ = buffer.data();
+    const char *dir = ::mkdtemp(buffer.data());
+    EXPECT_NE(dir, nullptr) << pattern;
+    if (dir != nullptr) path_ = dir;
   }
   ~ScopedTraceDir() {
     std::error_code ec;
@@ -57,29 +58,36 @@ class ScopedTraceDir {
 
 Meta ReadMeta(const std::string &prefix) {
   Meta meta;
-  std::ifstream file(prefix + "_meta.csv");
-  EXPECT_TRUE(file.is_open()) << prefix + "_meta.csv";
+  const std::string path = prefix + "_meta.csv";
+  std::ifstream file(path);
+  EXPECT_TRUE(file.is_open()) << path;
   std::string header;
   std::getline(file, header);
   std::string line;
-  EXPECT_TRUE(static_cast<bool>(std::getline(file, line)));
+  if (!std::getline(file, line)) {
+    ADD_FAILURE() << path << ": no data row";
+    return meta;
+  }
   std::istringstream row(line);
-  std::string field;
-  std::getline(row, field, ',');
-  meta.generation = std::stoull(field);
-  std::getline(row, field, ',');
-  meta.groups = std::stoull(field);
-  std::getline(row, field, ',');  // group_drops
-  std::getline(row, field, ',');
-  meta.closes = std::stoull(field);
-  std::getline(row, field, ',');  // close_drops
-  std::getline(row, field, ',');
-  meta.commits = std::stoull(field);
+  std::vector<std::string> fields;
+  for (std::string field; std::getline(row, field, ',');) {
+    fields.emplace_back(std::move(field));
+  }
+  // generation, groups, group_drops, closes, close_drops, commits.
+  if (fields.size() < 6) {
+    ADD_FAILURE() << path << ": " << line;
+    return meta;
+  }
+  meta.generation = std::stoull(fields[0]);
+  meta.groups = std::stoull(fields[1]);
+  meta.closes = std::stoull(fields[3]);
+  meta.commits = std::stoull(fields[5]);
   return meta;
 }
 
 std::string ReadWholeFile(const std::string &path) {
   std::ifstream file(path, std::ios::binary);
+  EXPECT_TRUE(file.is_open()) << path;
   std::ostringstream contents;
   contents << file.rdbuf();
   return contents.str();

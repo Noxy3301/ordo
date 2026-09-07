@@ -45,7 +45,7 @@ class DurabilityTest : public ::testing::Test {
     std::filesystem::remove_all("helios_wal");
     config_.enable_recovery = true;
     db_ = std::make_unique<helios::storage::Database>(config_);
-    db_->CreateTable(kTable);
+    ASSERT_TRUE(db_->CreateTable(kTable));
   }
 };
 
@@ -90,10 +90,14 @@ TEST_F(DurabilityTest, RecoveryKeepsDeletedKeysAbsent) {
 }
 
 TEST_F(DurabilityTest, RecoveryLargeObject) {
+  const helios::storage::Config config = db_->GetConfig();
   std::string initial_value(4096, 'a');
   ASSERT_TRUE(TestHelper::Write(*db_, kTable, "alice", initial_value));
 
   for (size_t i = 0; i < 3; i++) {
+    db_.reset(nullptr);
+    db_ = std::make_unique<helios::storage::Database>(config);
+
     auto alice = TestHelper::Read(*db_, kTable, "alice");
     ASSERT_TRUE(alice.has_value());
     ASSERT_EQ(initial_value, alice.value());

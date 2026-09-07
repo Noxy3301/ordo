@@ -15,8 +15,8 @@
  *   limitations under the License.
  */
 
-#ifndef LINEAIRDB_DATA_BUFFER_HPP
-#define LINEAIRDB_DATA_BUFFER_HPP
+#ifndef HELIOS_DATA_BUFFER_HPP
+#define HELIOS_DATA_BUFFER_HPP
 
 #include <lineairdb/pax_store.h>
 
@@ -310,4 +310,4 @@ struct DataBuffer {
   }
 };
 }  // namespace LineairDB
-#endif /* LINEAIRDB_DATA_BUFFER_HPP */
+#endif /* HELIOS_DATA_BUFFER_HPP */

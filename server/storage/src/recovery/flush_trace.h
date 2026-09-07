@@ -1,5 +1,5 @@
-#ifndef LINEAIRDB_RECOVERY_FLUSH_TRACE_H
-#define LINEAIRDB_RECOVERY_FLUSH_TRACE_H
+#ifndef HELIOS_RECOVERY_FLUSH_TRACE_H
+#define HELIOS_RECOVERY_FLUSH_TRACE_H
 
 #include <fcntl.h>
 #include <sys/file.h>
@@ -31,7 +31,7 @@ namespace Recovery {
  * published) are not separable from outside the process. This records the
  * boundaries of each phase and leaves the arithmetic to offline analysis.
  *
- * Enabled by setting LINEAIRDB_FLUSH_TRACE to a path prefix. The gate is read
+ * Enabled by setting HELIOS_FLUSH_TRACE to a path prefix. The gate is read
  * once at construction, and every call site tests it before reading a clock.
  * All storage, including each thread's commit buffer, is reserved during
  * construction: no recording path allocates, locks, or writes to a file.
@@ -278,7 +278,7 @@ class FlushTrace {
   };
 
   FlushTrace() {
-    const char *prefix = std::getenv("LINEAIRDB_FLUSH_TRACE");
+    const char *prefix = std::getenv("HELIOS_FLUSH_TRACE");
     enabled_ = prefix != nullptr && prefix[0] != '\0';
     if (!enabled_) return;
     prefix_ = prefix;
@@ -402,4 +402,4 @@ class FlushTrace {
 }  // namespace Recovery
 }  // namespace LineairDB
 
-#endif /* LINEAIRDB_RECOVERY_FLUSH_TRACE_H */
+#endif /* HELIOS_RECOVERY_FLUSH_TRACE_H */

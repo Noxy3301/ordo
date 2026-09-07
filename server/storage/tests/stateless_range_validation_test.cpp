@@ -14,7 +14,7 @@ constexpr const char *kTable = "range_validation_test";
 LineairDB::Config MakeConfig() {
   LineairDB::Config config;
   config.enable_recovery = false;
-  config.work_dir = "./lineairdb_stateless_range_validation_test_logs";
+  config.work_dir = "./helios_stateless_range_validation_test_logs";
   std::filesystem::remove_all(config.work_dir);
   return config;
 }

@@ -32,7 +32,7 @@ class ScopedTraceDir {
   explicit ScopedTraceDir(const char *tag) {
     std::string pattern =
         (std::filesystem::temp_directory_path() /
-         (std::string("lineairdb_flush_trace_") + tag + "_XXXXXX"))
+         (std::string("helios_flush_trace_") + tag + "_XXXXXX"))
             .string();
     std::vector<char> buffer(pattern.begin(), pattern.end());
     buffer.push_back('\0');
@@ -113,7 +113,7 @@ TEST(FlushTraceTest, DumpWritesAManifestNamingExistingDataFiles) {
   const std::string prefix = dir.prefix();
   EXPECT_EXIT(
       {
-        ASSERT_EQ(::setenv("LINEAIRDB_FLUSH_TRACE", prefix.c_str(), 1), 0);
+        ASSERT_EQ(::setenv("HELIOS_FLUSH_TRACE", prefix.c_str(), 1), 0);
         RecordAndDump();
       },
       ::testing::ExitedWithCode(0), "");
@@ -133,7 +133,7 @@ TEST(FlushTraceTest, ASecondDumpDoesNotReplaceTheFirstGeneration) {
   const std::string prefix = dir.prefix();
   EXPECT_EXIT(
       {
-        ASSERT_EQ(::setenv("LINEAIRDB_FLUSH_TRACE", prefix.c_str(), 1), 0);
+        ASSERT_EQ(::setenv("HELIOS_FLUSH_TRACE", prefix.c_str(), 1), 0);
         RecordAndDump();
       },
       ::testing::ExitedWithCode(0), "");
@@ -148,7 +148,7 @@ TEST(FlushTraceTest, ASecondDumpDoesNotReplaceTheFirstGeneration) {
   // generation the filesystem does not already hold.
   EXPECT_EXIT(
       {
-        ASSERT_EQ(::setenv("LINEAIRDB_FLUSH_TRACE", prefix.c_str(), 1), 0);
+        ASSERT_EQ(::setenv("HELIOS_FLUSH_TRACE", prefix.c_str(), 1), 0);
         RecordAndDump();
       },
       ::testing::ExitedWithCode(0), "");
@@ -174,7 +174,7 @@ TEST(FlushTraceTest, ALockedPrefixLeavesTracingDisabled) {
 
   EXPECT_EXIT(
       {
-        ASSERT_EQ(::setenv("LINEAIRDB_FLUSH_TRACE", prefix.c_str(), 1), 0);
+        ASSERT_EQ(::setenv("HELIOS_FLUSH_TRACE", prefix.c_str(), 1), 0);
         ASSERT_FALSE(FlushTrace::Instance().Enabled());
         _exit(0);
       },
@@ -196,7 +196,7 @@ TEST(FlushTraceTest, AnUnusableGenerationScanReleasesTheLock) {
 
   EXPECT_EXIT(
       {
-        ASSERT_EQ(::setenv("LINEAIRDB_FLUSH_TRACE", prefix.c_str(), 1), 0);
+        ASSERT_EQ(::setenv("HELIOS_FLUSH_TRACE", prefix.c_str(), 1), 0);
         if (FlushTrace::Instance().Enabled()) _exit(1);
         // flock is per open file description, so a leaked construction-time
         // lock would still block this second descriptor in the same process.

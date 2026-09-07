@@ -82,12 +82,12 @@ class EpochScanCheckpointTest : public ::testing::Test {
   // The sync facility decides once per process whether anything is armed, so
   // one variable stays set for every test in this binary.
   static void SetUpTestSuite() {
-    ::setenv("LINEAIRDB_DEBUG_SYNC_KEEPS_THE_FACILITY_ARMED", "sleep:0", 1);
+    ::setenv("HELIOS_DEBUG_SYNC_KEEPS_THE_FACILITY_ARMED", "sleep:0", 1);
   }
 
   void SetUp() override {
     std::string pattern =
-        (std::filesystem::temp_directory_path() / "lineairdb_ckpt_XXXXXX")
+        (std::filesystem::temp_directory_path() / "helios_ckpt_XXXXXX")
             .string();
     std::vector<char> buffer(pattern.begin(), pattern.end());
     buffer.push_back('\0');
@@ -497,10 +497,10 @@ TEST_F(EpochScanCheckpointTest, ARowLockedDuringTheScanIsRetried) {
   ASSERT_TRUE(CommitWrite(db, "alice", std::string(64, 'a')));
   ASSERT_TRUE(CommitWrite(db, "bob", std::string(64, 'a')));
 
-  Arm("LINEAIRDB_DEBUG_SYNC_CHECKPOINT_BEFORE_ROW_COPY",
+  Arm("HELIOS_DEBUG_SYNC_CHECKPOINT_BEFORE_ROW_COPY",
       "arrive_and_wait:" + std::to_string(scan_arrived.write_fd()) + ":" +
           std::to_string(scan_release.read_fd()));
-  Arm("LINEAIRDB_DEBUG_SYNC_SILO_COMMIT_BETWEEN_ROW_INSTALLS",
+  Arm("HELIOS_DEBUG_SYNC_SILO_COMMIT_BETWEEN_ROW_INSTALLS",
       "arrive_and_wait:" + std::to_string(write_arrived.write_fd()) + ":" +
           std::to_string(write_release.read_fd()));
 

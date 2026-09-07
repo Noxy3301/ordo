@@ -288,7 +288,7 @@ struct MasstreeIndex::Impl {
     }
     // A reader that resolved this entry parks on its lock bit until the
     // retired TID is published below.
-    LINEAIRDB_DEBUG_SYNC("reaper.purge_locked_window");
+    HELIOS_DEBUG_SYNC("reaper.purge_locked_window");
     // finish(-1) calls finish_remove which removes the permutation slot and
     // RCU-frees the leaf if it becomes empty. The DataItem* itself rides on
     // a separate RCU callback below.

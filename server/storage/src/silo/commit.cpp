@@ -544,7 +544,7 @@ void Install(Ctx &c) {
     size_t installed = 0;
     for (auto &write : c.writes) {
       if (installed > 0) {
-        LINEAIRDB_DEBUG_SYNC("silo_commit.between_row_installs");
+        HELIOS_DEBUG_SYNC("silo_commit.between_row_installs");
       }
       if (write.is_delete) {
         write.item->Reset(nullptr, 0);
@@ -699,7 +699,7 @@ bool Commit(TableDictionary &tables, std::shared_mutex &schema_mutex,
   // against another connection, and holding a shared lock on the schema would
   // block that connection's DDL rather than only its insert.
   if (c.has_insert) {
-    LINEAIRDB_DEBUG_SYNC("silo_commit.after_index_claim");
+    HELIOS_DEBUG_SYNC("silo_commit.after_index_claim");
   }
 
   if (!Lock(c)) return false;
@@ -723,7 +723,7 @@ bool Commit(TableDictionary &tables, std::shared_mutex &schema_mutex,
   const bool awaits_durability =
       Enqueue(logger, log_set, c.commit_epoch, policy);
 
-  LINEAIRDB_DEBUG_SYNC("silo_commit.before_offline");
+  HELIOS_DEBUG_SYNC("silo_commit.before_offline");
   epoch_framework.MakeMeOffline();
 
   logger.AwaitCommitDurability(c.commit_epoch, awaits_durability);

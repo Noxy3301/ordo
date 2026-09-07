@@ -1,5 +1,5 @@
-#ifndef LINEAIRDB_INDEX_REAPER_H
-#define LINEAIRDB_INDEX_REAPER_H
+#ifndef HELIOS_INDEX_REAPER_H
+#define HELIOS_INDEX_REAPER_H
 
 #include <cstdint>
 #include <mutex>
@@ -120,4 +120,4 @@ class Reaper {
 }  // namespace Index
 }  // namespace LineairDB
 
-#endif  // LINEAIRDB_INDEX_REAPER_H
+#endif  // HELIOS_INDEX_REAPER_H

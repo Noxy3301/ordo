@@ -1,5 +1,5 @@
-#ifndef LINEAIRDB_SILO_COMMIT_H
-#define LINEAIRDB_SILO_COMMIT_H
+#ifndef HELIOS_SILO_COMMIT_H
+#define HELIOS_SILO_COMMIT_H
 
 #include <lineairdb/config.h>
 #include <lineairdb/stateless.h>
@@ -94,4 +94,4 @@ bool Commit(TableDictionary &tables, std::shared_mutex &schema_mutex,
 }  // namespace Silo
 }  // namespace LineairDB
 
-#endif  // LINEAIRDB_SILO_COMMIT_H
+#endif  // HELIOS_SILO_COMMIT_H

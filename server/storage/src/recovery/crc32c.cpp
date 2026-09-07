@@ -5,7 +5,7 @@
 
 #if defined(__x86_64__)
 #include <nmmintrin.h>
-#define LINEAIRDB_CRC32C_X86_SSE42 1
+#define HELIOS_CRC32C_X86_SSE42 1
 #endif
 
 namespace LineairDB {
@@ -36,7 +36,7 @@ uint32_t UpdateWithTable(uint32_t state, const uint8_t *bytes, size_t size) {
   return state;
 }
 
-#if LINEAIRDB_CRC32C_X86_SSE42
+#if HELIOS_CRC32C_X86_SSE42
 
 // Compiled via the target attribute, not -msse4.2/-march=native, so it builds
 // in every configuration; HasSse42() is what keeps it off CPUs without it.
@@ -64,13 +64,13 @@ bool HasSse42() {
   return has_sse42;
 }
 
-#endif  // LINEAIRDB_CRC32C_X86_SSE42
+#endif  // HELIOS_CRC32C_X86_SSE42
 
 }  // namespace
 
 void Crc32c::Update(const void *data, size_t size) {
   const auto *bytes = static_cast<const uint8_t *>(data);
-#if LINEAIRDB_CRC32C_X86_SSE42
+#if HELIOS_CRC32C_X86_SSE42
   if (HasSse42()) {
     state_ = UpdateWithSse42(state_, bytes, size);
     return;
@@ -92,7 +92,7 @@ uint32_t UpdateWithTableForTesting(uint32_t state, const void *data,
 
 uint32_t UpdateWithSse42ForTesting(uint32_t state, const void *data,
                                    size_t size) {
-#if LINEAIRDB_CRC32C_X86_SSE42
+#if HELIOS_CRC32C_X86_SSE42
   if (HasSse42()) {
     return UpdateWithSse42(state, static_cast<const uint8_t *>(data), size);
   }
@@ -101,7 +101,7 @@ uint32_t UpdateWithSse42ForTesting(uint32_t state, const void *data,
 }
 
 bool HasSse42ForTesting() {
-#if LINEAIRDB_CRC32C_X86_SSE42
+#if HELIOS_CRC32C_X86_SSE42
   return HasSse42();
 #else
   return false;

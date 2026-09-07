@@ -14,8 +14,8 @@
  *   limitations under the License.
  */
 
-#ifndef LINEAIRDB_TYPES_H
-#define LINEAIRDB_TYPES_H
+#ifndef HELIOS_TYPES_H
+#define HELIOS_TYPES_H
 
 #include <cstdint>
 
@@ -32,4 +32,4 @@ enum class SecondaryIndexOp : uint8_t {
 
 }  // namespace LineairDB
 
-#endif /* LINEAIRDB_TYPES_H */
+#endif /* HELIOS_TYPES_H */

@@ -14,8 +14,8 @@
  *   limitations under the License.
  */
 
-#ifndef LINEAIRDB_CONCURRENT_TABLE_H
-#define LINEAIRDB_CONCURRENT_TABLE_H
+#ifndef HELIOS_CONCURRENT_TABLE_H
+#define HELIOS_CONCURRENT_TABLE_H
 
 #include <lineairdb/config.h>
 
@@ -71,4 +71,4 @@ class ConcurrentTable {
 }  // namespace Index
 }  // namespace LineairDB
 
-#endif /* LINEAIRDB_CONCURRENT_TABLE_H */
+#endif /* HELIOS_CONCURRENT_TABLE_H */

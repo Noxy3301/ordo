@@ -1,5 +1,5 @@
-#ifndef LINEAIRDB_SILO_STABLE_READ_HPP
-#define LINEAIRDB_SILO_STABLE_READ_HPP
+#ifndef HELIOS_SILO_STABLE_READ_HPP
+#define HELIOS_SILO_STABLE_READ_HPP
 
 #include <xmmintrin.h>
 
@@ -148,4 +148,4 @@ inline StablePrimaryKeys StableReadPrimaryKeys(const DataItem &item) {
 }  // namespace Silo
 }  // namespace LineairDB
 
-#endif  // LINEAIRDB_SILO_STABLE_READ_HPP
+#endif  // HELIOS_SILO_STABLE_READ_HPP

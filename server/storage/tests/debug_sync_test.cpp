@@ -53,7 +53,7 @@ struct ReleaseOnExit {
 class DebugSyncTest : public ::testing::Test {
  protected:
   static void SetUpTestSuite() {
-    ::setenv("LINEAIRDB_DEBUG_SYNC_KEEPS_THE_FACILITY_ARMED", "sleep:0", 1);
+    ::setenv("HELIOS_DEBUG_SYNC_KEEPS_THE_FACILITY_ARMED", "sleep:0", 1);
   }
 
   void Arm(const std::string &variable, const std::string &action) {
@@ -77,12 +77,12 @@ TEST_F(DebugSyncTest, ArriveAndWaitBlocksUntilReleased) {
   Pipe release;
   ASSERT_GE(arrived.write_fd(), 0);
   ASSERT_GE(release.read_fd(), 0);
-  Arm("LINEAIRDB_DEBUG_SYNC_TEST_HANDSHAKE",
+  Arm("HELIOS_DEBUG_SYNC_TEST_HANDSHAKE",
       "arrive_and_wait:" + std::to_string(arrived.write_fd()) + ":" +
           std::to_string(release.read_fd()));
 
   auto reached = std::async(std::launch::async,
-                            [] { LINEAIRDB_DEBUG_SYNC("test.handshake"); });
+                            [] { HELIOS_DEBUG_SYNC("test.handshake"); });
   ReleaseOnExit always_release{release.write_fd()};
 
   char announcement = 0;
@@ -102,15 +102,15 @@ TEST_F(DebugSyncTest, AnUnarmedPointFallsThrough) {
   // process is armed by the sentinel, so this exercises the lookup-miss path
   // of an armed process, not the cached fast path of an unarmed one.
   auto start = std::chrono::steady_clock::now();
-  LINEAIRDB_DEBUG_SYNC("test.not_armed");
+  HELIOS_DEBUG_SYNC("test.not_armed");
   EXPECT_LT(std::chrono::steady_clock::now() - start,
             std::chrono::milliseconds(50));
 }
 
 TEST_F(DebugSyncTest, SleepStillWorks) {
-  Arm("LINEAIRDB_DEBUG_SYNC_TEST_SLEEP", "sleep:120");
+  Arm("HELIOS_DEBUG_SYNC_TEST_SLEEP", "sleep:120");
   auto start = std::chrono::steady_clock::now();
-  LINEAIRDB_DEBUG_SYNC("test.sleep");
+  HELIOS_DEBUG_SYNC("test.sleep");
   EXPECT_GE(std::chrono::steady_clock::now() - start,
             std::chrono::milliseconds(100));
 }
@@ -118,27 +118,27 @@ TEST_F(DebugSyncTest, SleepStillWorks) {
 TEST_F(DebugSyncTest, ClosedReleasePipeIsAFailure) {
   Pipe arrived;
   Pipe release;
-  Arm("LINEAIRDB_DEBUG_SYNC_TEST_EOF",
+  Arm("HELIOS_DEBUG_SYNC_TEST_EOF",
       "arrive_and_wait:" + std::to_string(arrived.write_fd()) + ":" +
           std::to_string(release.read_fd()));
   release.CloseWrite();
 
   // Read of a pipe with no writer returns 0. Continuing would run the code
   // after the point as if the observer had released it.
-  EXPECT_DEATH(LINEAIRDB_DEBUG_SYNC("test.eof"), "was never released");
+  EXPECT_DEATH(HELIOS_DEBUG_SYNC("test.eof"), "was never released");
 }
 
 TEST_F(DebugSyncTest, BrokenArrivalPipeIsAFailure) {
   Pipe arrived;
   Pipe release;
-  Arm("LINEAIRDB_DEBUG_SYNC_TEST_NO_READER",
+  Arm("HELIOS_DEBUG_SYNC_TEST_NO_READER",
       "arrive_and_wait:" + std::to_string(arrived.write_fd()) + ":" +
           std::to_string(release.read_fd()));
   arrived.CloseRead();
 
   // With no reader, write raises SIGPIPE; the point must still die through
   // its own diagnostic rather than the signal's default action.
-  EXPECT_DEATH(LINEAIRDB_DEBUG_SYNC("test.no_reader"),
+  EXPECT_DEATH(HELIOS_DEBUG_SYNC("test.no_reader"),
                "could not announce arrival");
 }
 
@@ -147,13 +147,12 @@ TEST_F(DebugSyncTest, AnUnusableDescriptorIsAFailure) {
   // about something other than announcement failure.
   ASSERT_EQ(::fcntl(987654, F_GETFD), -1);
   ASSERT_EQ(::fcntl(987655, F_GETFD), -1);
-  Arm("LINEAIRDB_DEBUG_SYNC_TEST_BAD_FD", "arrive_and_wait:987654:987655");
-  EXPECT_DEATH(LINEAIRDB_DEBUG_SYNC("test.bad_fd"),
-               "could not announce arrival");
+  Arm("HELIOS_DEBUG_SYNC_TEST_BAD_FD", "arrive_and_wait:987654:987655");
+  EXPECT_DEATH(HELIOS_DEBUG_SYNC("test.bad_fd"), "could not announce arrival");
 }
 
 TEST_F(DebugSyncTest, MalformedActivationsAreFailures) {
-  const std::string variable = "LINEAIRDB_DEBUG_SYNC_TEST_MALFORMED";
+  const std::string variable = "HELIOS_DEBUG_SYNC_TEST_MALFORMED";
   const char *const malformed[] = {
       "arrive_and_wait:",       // no descriptors
       "arrive_and_wait:3",      // only one
@@ -181,7 +180,7 @@ TEST_F(DebugSyncTest, MalformedActivationsAreFailures) {
   };
   for (const char *action : malformed) {
     Arm(variable, action);
-    EXPECT_DEATH(LINEAIRDB_DEBUG_SYNC("test.malformed"),
+    EXPECT_DEATH(HELIOS_DEBUG_SYNC("test.malformed"),
                  "LineairDB debug sync point")
         << "action: " << action;
   }

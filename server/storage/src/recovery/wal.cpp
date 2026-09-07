@@ -111,7 +111,7 @@ WalIo WalIo::Posix() {
 
   // Armed from the environment, like a debug sync point, so an out-of-process
   // test can arrange an EIO. Unset means the bare syscall.
-  const char *raw = std::getenv("LINEAIRDB_WAL_FDATASYNC_FAIL_AFTER");
+  const char *raw = std::getenv("HELIOS_WAL_FDATASYNC_FAIL_AFTER");
   if (raw == nullptr) {
     io.fdatasync = [](int fd) { return ::fdatasync(fd); };
     return io;
@@ -124,7 +124,7 @@ WalIo WalIo::Posix() {
   if (!std::isdigit(static_cast<unsigned char>(raw[0])) || *end != '\0' ||
       errno == ERANGE) {
     SPDLOG_CRITICAL(
-        "Invalid LINEAIRDB_WAL_FDATASYNC_FAIL_AFTER='{0}': expected a "
+        "Invalid HELIOS_WAL_FDATASYNC_FAIL_AFTER='{0}': expected a "
         "non-negative count of calls to let through",
         raw);
     exit(EXIT_FAILURE);
@@ -877,7 +877,7 @@ WalAppendResult Wal::AppendGroup(
   // The records are written but not yet known durable: a Sync commit
   // waiting on this group must not have been acknowledged when this point
   // is reached.
-  LINEAIRDB_DEBUG_SYNC("wal.before_fdatasync");
+  HELIOS_DEBUG_SYNC("wal.before_fdatasync");
 
   const int64_t sync_begin = traced ? FlushTrace::Now() : 0;
   int rc;

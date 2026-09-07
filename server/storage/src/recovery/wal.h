@@ -1,5 +1,5 @@
-#ifndef LINEAIRDB_RECOVERY_WAL_H
-#define LINEAIRDB_RECOVERY_WAL_H
+#ifndef HELIOS_RECOVERY_WAL_H
+#define HELIOS_RECOVERY_WAL_H
 
 #include <sys/types.h>
 
@@ -79,7 +79,7 @@ struct WalAppendResult {
  * the scan and the tail search read through.
  * @note Everything else (open, flock, fstat, and the fsync that follows a
  * zero write) is always the real syscall.
- * @note LINEAIRDB_WAL_FDATASYNC_FAIL_AFTER=<count> makes the fdatasync that
+ * @note HELIOS_WAL_FDATASYNC_FAIL_AFTER=<count> makes the fdatasync that
  * Posix() returns let that many calls through and fail every later call with
  * EIO. Each Posix() call creates one counter, shared by every copy of the
  * WalIo it returned. A value that is not decimal digits, or that does not
@@ -274,4 +274,4 @@ class Wal {
 }  // namespace Recovery
 }  // namespace LineairDB
 
-#endif /* LINEAIRDB_RECOVERY_WAL_H */
+#endif /* HELIOS_RECOVERY_WAL_H */

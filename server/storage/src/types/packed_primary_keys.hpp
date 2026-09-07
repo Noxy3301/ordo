@@ -1,5 +1,5 @@
-#ifndef LINEAIRDB_PACKED_PRIMARY_KEYS_HPP
-#define LINEAIRDB_PACKED_PRIMARY_KEYS_HPP
+#ifndef HELIOS_PACKED_PRIMARY_KEYS_HPP
+#define HELIOS_PACKED_PRIMARY_KEYS_HPP
 
 #include <algorithm>
 #include <cassert>
@@ -436,4 +436,4 @@ class PackedPrimaryKeysView {
 
 }  // namespace LineairDB
 
-#endif  // LINEAIRDB_PACKED_PRIMARY_KEYS_HPP
+#endif  // HELIOS_PACKED_PRIMARY_KEYS_HPP

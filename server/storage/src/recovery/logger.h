@@ -13,8 +13,8 @@
  *   See the License for the specific language governing permissions and
  *   limitations under the License.
  */
-#ifndef LINEAIRDB_RECOVERY_LOGGER_H
-#define LINEAIRDB_RECOVERY_LOGGER_H
+#ifndef HELIOS_RECOVERY_LOGGER_H
+#define HELIOS_RECOVERY_LOGGER_H
 
 #include <lineairdb/config.h>
 
@@ -190,4 +190,4 @@ class Logger {
 
 }  // namespace Recovery
 }  // namespace LineairDB
-#endif /* LINEAIRDB_RECOVERY_LOGGER_H */
+#endif /* HELIOS_RECOVERY_LOGGER_H */

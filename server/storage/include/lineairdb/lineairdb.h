@@ -14,10 +14,10 @@
  *   limitations under the License.
  */
 
-#ifndef LINEAIRDB_H
-#define LINEAIRDB_H
+#ifndef HELIOS_H
+#define HELIOS_H
 
 #include <lineairdb/config.h>
 #include <lineairdb/database.h>
 
-#endif /* LINEAIRDB_H */
+#endif /* HELIOS_H */

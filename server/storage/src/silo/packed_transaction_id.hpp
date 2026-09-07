@@ -1,5 +1,5 @@
-#ifndef LINEAIRDB_SILO_PACKED_TRANSACTION_ID_HPP
-#define LINEAIRDB_SILO_PACKED_TRANSACTION_ID_HPP
+#ifndef HELIOS_SILO_PACKED_TRANSACTION_ID_HPP
+#define HELIOS_SILO_PACKED_TRANSACTION_ID_HPP
 
 #include <cstdint>
 
@@ -32,4 +32,4 @@ inline TransactionId UnpackTransactionId(uint64_t packed) {
 }  // namespace Silo
 }  // namespace LineairDB
 
-#endif  // LINEAIRDB_SILO_PACKED_TRANSACTION_ID_HPP
+#endif  // HELIOS_SILO_PACKED_TRANSACTION_ID_HPP

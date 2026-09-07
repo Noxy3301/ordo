@@ -14,8 +14,8 @@
  *   limitations under the License.
  */
 
-#ifndef LINEAIRDB_LOGGER_HPP
-#define LINEAIRDB_LOGGER_HPP
+#ifndef HELIOS_LOGGER_HPP
+#define HELIOS_LOGGER_HPP
 
 #ifdef NDEBUG
 #define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_INFO
@@ -41,4 +41,4 @@ static inline void SetUpSPDLog() {
 }  // namespace Util
 }  // namespace LineairDB
 
-#endif /* LINEAIRDB_LOGGER_HPP */
+#endif /* HELIOS_LOGGER_HPP */

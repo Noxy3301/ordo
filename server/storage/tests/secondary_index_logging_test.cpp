@@ -121,7 +121,7 @@ class SecondaryIndexLoggingTest : public ::testing::Test {
 
   void SetUp() override {
     spdlog::set_level(spdlog::level::info);
-    std::filesystem::remove_all("lineairdb_logs");
+    std::filesystem::remove_all("helios_wal");
     config_.enable_recovery = true;
     db_ = std::make_unique<LineairDB::Database>(config_);
     db_->CreateTable("users");

@@ -14,8 +14,8 @@
  *   limitations under the License.
  */
 
-#ifndef LINEAIRDB_EPOCH_FRAMEWORK_H_
-#define LINEAIRDB_EPOCH_FRAMEWORK_H_
+#ifndef HELIOS_EPOCH_FRAMEWORK_H_
+#define HELIOS_EPOCH_FRAMEWORK_H_
 
 #include <assert.h>
 #include <stdio.h>

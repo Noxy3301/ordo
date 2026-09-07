@@ -35,7 +35,7 @@ class LoggerDurabilityTest : public ::testing::Test {
  protected:
   void SetUp() override {
     std::string pattern =
-        (std::filesystem::temp_directory_path() / "lineairdb_logger_XXXXXX")
+        (std::filesystem::temp_directory_path() / "helios_walger_XXXXXX")
             .string();
     std::vector<char> buffer(pattern.begin(), pattern.end());
     buffer.push_back('\0');

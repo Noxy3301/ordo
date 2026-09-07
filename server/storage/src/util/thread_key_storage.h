@@ -14,8 +14,8 @@
  *   limitations under the License.
  */
 
-#ifndef LINEAIRDB_THREAD_KEY_STORAGE_H
-#define LINEAIRDB_THREAD_KEY_STORAGE_H
+#ifndef HELIOS_THREAD_KEY_STORAGE_H
+#define HELIOS_THREAD_KEY_STORAGE_H
 
 #define LIKELY(x) __builtin_expect(!!(x), 1)
 #define UNLIKELY(x) __builtin_expect(!!(x), 0)
@@ -147,4 +147,4 @@ class ThreadKeyStorage {
   std::atomic<TlsNode *> head_node_;
 };
 
-#endif  // LINEAIRDB_THREAD_KEY_STORAGE_H
+#endif  // HELIOS_THREAD_KEY_STORAGE_H

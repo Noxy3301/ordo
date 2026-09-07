@@ -1,5 +1,5 @@
-#ifndef LINEAIRDB_STATELESS_HELPER_HPP
-#define LINEAIRDB_STATELESS_HELPER_HPP
+#ifndef HELIOS_STATELESS_HELPER_HPP
+#define HELIOS_STATELESS_HELPER_HPP
 
 #include <lineairdb/database.h>
 #include <lineairdb/stateless.h>
@@ -139,4 +139,4 @@ inline std::vector<std::string> ReadSecondaryIndex(
 }
 
 }  // namespace TestHelper
-#endif /* LINEAIRDB_STATELESS_HELPER_HPP */
+#endif /* HELIOS_STATELESS_HELPER_HPP */

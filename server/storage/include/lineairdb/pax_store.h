@@ -1,5 +1,5 @@
-#ifndef LINEAIRDB_PAX_STORE_H
-#define LINEAIRDB_PAX_STORE_H
+#ifndef HELIOS_PAX_STORE_H
+#define HELIOS_PAX_STORE_H
 
 #include <atomic>
 #include <cstddef>
@@ -387,4 +387,4 @@ std::vector<UndoEntry> UndoSlotEntries(const PaxGroup *group, uint32_t slot);
 }  // namespace Pax
 }  // namespace LineairDB
 
-#endif  // LINEAIRDB_PAX_STORE_H
+#endif  // HELIOS_PAX_STORE_H

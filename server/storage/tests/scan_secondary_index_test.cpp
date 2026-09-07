@@ -20,7 +20,7 @@ class ScanSecondaryIndexTest : public ::testing::Test {
   std::unique_ptr<LineairDB::Database> db_;
   virtual void SetUp() {
     config_.enable_recovery = false;
-    config_.work_dir = "./lineairdb_scan_secondary_index_test_logs";
+    config_.work_dir = "./helios_scan_secondary_index_test_logs";
     std::filesystem::remove_all(config_.work_dir);
     db_ = std::make_unique<LineairDB::Database>(config_);
   }

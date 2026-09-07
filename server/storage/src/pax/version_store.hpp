@@ -1,5 +1,5 @@
-#ifndef LINEAIRDB_PAX_VERSION_STORE_HPP
-#define LINEAIRDB_PAX_VERSION_STORE_HPP
+#ifndef HELIOS_PAX_VERSION_STORE_HPP
+#define HELIOS_PAX_VERSION_STORE_HPP
 
 #include <lineairdb/pax_store.h>
 
@@ -188,4 +188,4 @@ class ScopedCommitEpoch {
 }  // namespace Pax
 }  // namespace LineairDB
 
-#endif  // LINEAIRDB_PAX_VERSION_STORE_HPP
+#endif  // HELIOS_PAX_VERSION_STORE_HPP

@@ -39,8 +39,7 @@ class WalFrameTest : public ::testing::Test {
  protected:
   void SetUp() override {
     std::string pattern =
-        (std::filesystem::temp_directory_path() / "lineairdb_wal_XXXXXX")
-            .string();
+        (std::filesystem::temp_directory_path() / "helios_wal_XXXXXX").string();
     std::vector<char> buffer(pattern.begin(), pattern.end());
     buffer.push_back('\0');
     ASSERT_NE(::mkdtemp(buffer.data()), nullptr);
@@ -1355,11 +1354,11 @@ TEST_F(WalFrameTest,
 }
 
 TEST_F(WalFrameTest, InjectedFdatasyncFailsAfterTheAllowedCalls) {
-  ASSERT_EQ(::setenv("LINEAIRDB_WAL_FDATASYNC_FAIL_AFTER", "2", 1), 0);
+  ASSERT_EQ(::setenv("HELIOS_WAL_FDATASYNC_FAIL_AFTER", "2", 1), 0);
   LineairDB::Recovery::WalIo io = LineairDB::Recovery::WalIo::Posix();
   // The factory captured the count; the variable must not leak to later
   // tests.
-  ASSERT_EQ(::unsetenv("LINEAIRDB_WAL_FDATASYNC_FAIL_AFTER"), 0);
+  ASSERT_EQ(::unsetenv("HELIOS_WAL_FDATASYNC_FAIL_AFTER"), 0);
 
   Wal wal(work_dir_, io, kCapacity);
   ASSERT_EQ(wal.ScanAndRepair().status, WalScanResult::Status::Ok);
@@ -1395,12 +1394,12 @@ TEST_F(WalFrameTest, AnUnparsableInjectionCountStopsStartup) {
       "99999999999999999999",  // out of long range
   };
   for (const char *value : malformed) {
-    ASSERT_EQ(::setenv("LINEAIRDB_WAL_FDATASYNC_FAIL_AFTER", value, 1), 0);
+    ASSERT_EQ(::setenv("HELIOS_WAL_FDATASYNC_FAIL_AFTER", value, 1), 0);
     EXPECT_EXIT(LineairDB::Recovery::WalIo::Posix(),
                 ::testing::ExitedWithCode(EXIT_FAILURE), "")
         << "value: " << value;
   }
-  ASSERT_EQ(::unsetenv("LINEAIRDB_WAL_FDATASYNC_FAIL_AFTER"), 0);
+  ASSERT_EQ(::unsetenv("HELIOS_WAL_FDATASYNC_FAIL_AFTER"), 0);
 }
 
 }  // namespace

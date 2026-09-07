@@ -16,7 +16,7 @@ namespace {
  */
 uint64_t ByteBudgetFromEnv() {
   constexpr uint64_t kDefault = 256ull << 20;
-  const char *v = std::getenv("LINEAIRDB_VERSION_STORE_BUDGET_BYTES");
+  const char *v = std::getenv("HELIOS_VERSION_STORE_BUDGET_BYTES");
   if (v == nullptr) return kDefault;
   const long long parsed = std::strtoll(v, nullptr, 10);
   return parsed > 0 ? static_cast<uint64_t>(parsed) : kDefault;

@@ -13,8 +13,8 @@
  *   See the License for the specific language governing permissions and
  *   limitations under the License.
  */
-#ifndef LINEAIRDB_DATABASE_IMPL_H
-#define LINEAIRDB_DATABASE_IMPL_H
+#ifndef HELIOS_DATABASE_IMPL_H
+#define HELIOS_DATABASE_IMPL_H
 
 #include <lineairdb/config.h>
 #include <lineairdb/database.h>
@@ -180,4 +180,4 @@ class Database::Impl {
 };
 
 }  // namespace LineairDB
-#endif /** LINEAIRDB_DATABASE_IMPL_H **/
+#endif /** HELIOS_DATABASE_IMPL_H **/

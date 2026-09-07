@@ -29,15 +29,15 @@ class UniqueSecondaryIndexTest : public ::testing::Test {
   LineairDB::Config config_;
 
   void SetUp() override {
-    std::filesystem::remove_all("lineairdb_logs");
+    std::filesystem::remove_all("helios_wal");
     config_.epoch_duration_ms = 100;
   }
 
-  void TearDown() override { std::filesystem::remove_all("lineairdb_logs"); }
+  void TearDown() override { std::filesystem::remove_all("helios_wal"); }
 };
 
 TEST_F(UniqueSecondaryIndexTest, DictUniqueFlagRejectsDuplicateSecondaryKey) {
-  config_.work_dir = "./lineairdb_unique_secondary_index_test_logs";
+  config_.work_dir = "./helios_unique_secondary_index_test_logs";
   std::filesystem::remove_all(config_.work_dir);
   config_.enable_recovery = false;
 

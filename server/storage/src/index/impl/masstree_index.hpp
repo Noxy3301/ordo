@@ -1,5 +1,5 @@
-#ifndef LINEAIRDB_INDEX_IMPL_MASSTREE_INDEX_HPP
-#define LINEAIRDB_INDEX_IMPL_MASSTREE_INDEX_HPP
+#ifndef HELIOS_INDEX_IMPL_MASSTREE_INDEX_HPP
+#define HELIOS_INDEX_IMPL_MASSTREE_INDEX_HPP
 
 #include <lineairdb/config.h>
 #include <lineairdb/pax_store.h>
@@ -86,4 +86,4 @@ void MasstreeFullyDrainThread();
 }  // namespace Index
 }  // namespace LineairDB
 
-#endif /* LINEAIRDB_INDEX_IMPL_MASSTREE_INDEX_HPP */
+#endif /* HELIOS_INDEX_IMPL_MASSTREE_INDEX_HPP */

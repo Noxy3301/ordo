@@ -1,5 +1,5 @@
-#ifndef LINEAIRDB_SECONDARY_INDEX_H
-#define LINEAIRDB_SECONDARY_INDEX_H
+#ifndef HELIOS_SECONDARY_INDEX_H
+#define HELIOS_SECONDARY_INDEX_H
 
 #include "index/impl/masstree_index.hpp"
 #include "index/secondary_index_type.h"
@@ -76,4 +76,4 @@ class SecondaryIndex {
 }  // namespace Index
 }  // namespace LineairDB
 
-#endif /* LINEAIRDB_SECONDARY_INDEX_H */
+#endif /* HELIOS_SECONDARY_INDEX_H */

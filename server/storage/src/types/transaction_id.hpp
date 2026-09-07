@@ -15,8 +15,8 @@
  *   limitations under the License.
  */
 
-#ifndef LINEAIRDB_TRANSACTION_ID_HPP
-#define LINEAIRDB_TRANSACTION_ID_HPP
+#ifndef HELIOS_TRANSACTION_ID_HPP
+#define HELIOS_TRANSACTION_ID_HPP
 
 #include "types/definitions.h"
 
@@ -47,4 +47,4 @@ struct TransactionId {
 };
 
 }  // namespace LineairDB
-#endif /* LINEAIRDB_TRANSACTION_ID_HPP */
+#endif /* HELIOS_TRANSACTION_ID_HPP */

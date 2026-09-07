@@ -14,8 +14,8 @@
  *   limitations under the License.
  */
 
-#ifndef LINEAIRDB_CONFIG_H
-#define LINEAIRDB_CONFIG_H
+#ifndef HELIOS_CONFIG_H
+#define HELIOS_CONFIG_H
 
 #include <cstddef>
 #include <cstdint>
@@ -116,9 +116,9 @@ struct Config {
    * The directory path that lineardb use as working directory.
    * All of data, logs and related files are stored in the directory.
    *
-   * Default: "lineairdb_logs"
+   * Default: "helios_wal"
    */
-  std::string work_dir = "./lineairdb_logs";
+  std::string work_dir = "./helios_wal";
 };
 
 // Secondary index options (moved from secondary_index_option.h)

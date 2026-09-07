@@ -1,5 +1,5 @@
-#ifndef LINEAIRDB_RECOVERY_LOG_RECORD_H
-#define LINEAIRDB_RECOVERY_LOG_RECORD_H
+#ifndef HELIOS_RECOVERY_LOG_RECORD_H
+#define HELIOS_RECOVERY_LOG_RECORD_H
 
 #include <cstdint>
 #include <msgpack.hpp>
@@ -50,4 +50,4 @@ using LogRecords = std::vector<LogRecord>;
 }  // namespace Recovery
 }  // namespace LineairDB
 
-#endif /* LINEAIRDB_RECOVERY_LOG_RECORD_H */
+#endif /* HELIOS_RECOVERY_LOG_RECORD_H */

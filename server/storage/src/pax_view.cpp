@@ -52,7 +52,7 @@ Database::PaxReadView Database::Impl::AcquirePaxReadView(
     return handle;
   }
   // Test hook: holds the read view open between the fence and the scan.
-  LINEAIRDB_DEBUG_SYNC("pax_read_view.after_fence");
+  HELIOS_DEBUG_SYNC("pax_read_view.after_fence");
   // A poison landing during acquisition must fail it here; callers
   // treat a valid handle as a serviceable read view.
   if (Pax::VersionStore::Global().Poisoned(token)) {

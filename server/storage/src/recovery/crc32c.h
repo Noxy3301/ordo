@@ -1,5 +1,5 @@
-#ifndef LINEAIRDB_RECOVERY_CRC32C_H
-#define LINEAIRDB_RECOVERY_CRC32C_H
+#ifndef HELIOS_RECOVERY_CRC32C_H
+#define HELIOS_RECOVERY_CRC32C_H
 
 #include <cstddef>
 #include <cstdint>
@@ -41,4 +41,4 @@ bool HasSse42ForTesting();
 }  // namespace Recovery
 }  // namespace LineairDB
 
-#endif /* LINEAIRDB_RECOVERY_CRC32C_H */
+#endif /* HELIOS_RECOVERY_CRC32C_H */

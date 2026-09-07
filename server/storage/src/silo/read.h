@@ -1,5 +1,5 @@
-#ifndef LINEAIRDB_SILO_READ_H
-#define LINEAIRDB_SILO_READ_H
+#ifndef HELIOS_SILO_READ_H
+#define HELIOS_SILO_READ_H
 
 #include <lineairdb/stateless.h>
 
@@ -102,4 +102,4 @@ StatelessPaxRowRefScanResult ScanPax(TableDictionary &tables,
 }  // namespace Silo
 }  // namespace LineairDB
 
-#endif  // LINEAIRDB_SILO_READ_H
+#endif  // HELIOS_SILO_READ_H

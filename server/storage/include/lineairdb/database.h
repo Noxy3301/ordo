@@ -14,8 +14,8 @@
  *   limitations under the License.
  */
 
-#ifndef LINEAIRDB_DATABASE_H
-#define LINEAIRDB_DATABASE_H
+#ifndef HELIOS_DATABASE_H
+#define HELIOS_DATABASE_H
 
 #include <lineairdb/config.h>
 #include <lineairdb/stateless.h>

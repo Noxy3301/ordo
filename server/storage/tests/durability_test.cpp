@@ -37,7 +37,7 @@ class DurabilityTest : public ::testing::Test {
   LineairDB::Config config_;
   std::unique_ptr<LineairDB::Database> db_;
   virtual void SetUp() {
-    std::filesystem::remove_all("lineairdb_logs");
+    std::filesystem::remove_all("helios_wal");
     config_.enable_recovery = true;
     db_ = std::make_unique<LineairDB::Database>(config_);
     db_->CreateTable(kTable);
@@ -146,7 +146,7 @@ TEST_F(DurabilityTest, RecoveryWithNamedTable) {
 TEST(CommitPolicyTest, AsyncDoesNotWaitForTheDevice) {
   constexpr size_t kEpochMs = 1000;
   LineairDB::Config config;
-  config.work_dir = "./lineairdb_commit_policy_test_logs";
+  config.work_dir = "./helios_commit_policy_test_logs";
   std::filesystem::remove_all(config.work_dir);
   config.enable_recovery = false;
   config.epoch_duration_ms = kEpochMs;

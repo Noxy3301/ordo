@@ -1,5 +1,5 @@
-#ifndef LINEAIRDB_RECOVERY_EPOCH_SCAN_CHECKPOINT_H
-#define LINEAIRDB_RECOVERY_EPOCH_SCAN_CHECKPOINT_H
+#ifndef HELIOS_RECOVERY_EPOCH_SCAN_CHECKPOINT_H
+#define HELIOS_RECOVERY_EPOCH_SCAN_CHECKPOINT_H
 
 #include <lineairdb/config.h>
 
@@ -159,4 +159,4 @@ class EpochScanCheckpoint {
 }  // namespace Recovery
 }  // namespace LineairDB
 
-#endif /* LINEAIRDB_RECOVERY_EPOCH_SCAN_CHECKPOINT_H */
+#endif /* HELIOS_RECOVERY_EPOCH_SCAN_CHECKPOINT_H */

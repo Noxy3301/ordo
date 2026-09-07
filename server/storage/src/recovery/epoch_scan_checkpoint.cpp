@@ -176,7 +176,7 @@ EpochScanCheckpoint::Capture EpochScanCheckpoint::CapturePrimaryRow(
       _mm_pause();
       continue;
     }
-    LINEAIRDB_DEBUG_SYNC("checkpoint.before_row_copy");
+    HELIOS_DEBUG_SYNC("checkpoint.before_row_copy");
     if (!item.IsPrimaryInitialized()) {
       // A blank slot or a tombstone, once the version confirms the emptiness
       // is not the middle of an install.

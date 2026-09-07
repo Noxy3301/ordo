@@ -1,5 +1,5 @@
-#ifndef LINEAIRDB_STATELESS_H
-#define LINEAIRDB_STATELESS_H
+#ifndef HELIOS_STATELESS_H
+#define HELIOS_STATELESS_H
 
 #include <cstdint>
 #include <string>
@@ -201,4 +201,4 @@ struct ExternalRangeReadEntry {
 
 }  // namespace LineairDB
 
-#endif  // LINEAIRDB_STATELESS_H
+#endif  // HELIOS_STATELESS_H

@@ -15,8 +15,8 @@
  *   limitations under the License.
  */
 
-#ifndef LINEAIRDB_DATA_ITEM_HPP
-#define LINEAIRDB_DATA_ITEM_HPP
+#ifndef HELIOS_DATA_ITEM_HPP
+#define HELIOS_DATA_ITEM_HPP
 
 #include <algorithm>
 #include <atomic>
@@ -157,4 +157,4 @@ struct DataItem {
 static_assert(sizeof(DataItem) == 48,
               "DataItem must remain 48 bytes in the slim layout");
 }  // namespace LineairDB
-#endif /* LINEAIRDB_DATA_ITEM_HPP */
+#endif /* HELIOS_DATA_ITEM_HPP */

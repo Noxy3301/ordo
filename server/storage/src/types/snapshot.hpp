@@ -15,8 +15,8 @@
  *   limitations under the License.
  */
 
-#ifndef LINEAIRDB_SNAPSHOT_HPP
-#define LINEAIRDB_SNAPSHOT_HPP
+#ifndef HELIOS_SNAPSHOT_HPP
+#define HELIOS_SNAPSHOT_HPP
 
 #include <string>
 #include <string_view>
@@ -72,4 +72,4 @@ using WriteSetType = std::vector<Snapshot>;
 
 }  // namespace LineairDB
 
-#endif /* LINEAIRDB_SNAPSHOT_HPP */
+#endif /* HELIOS_SNAPSHOT_HPP */

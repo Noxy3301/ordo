@@ -124,11 +124,23 @@ inline void RcuFree(DataItem *item) {
   tls_ti->rcu_register(cb);
 }
 
+// Three-way comparison of a range bound with a scanned key, memcmp style.
+inline int KeyCmp(const char *bound, size_t bound_len, Masstree::Str key) {
+  const size_t key_len = static_cast<size_t>(key.len);
+  const int cmp = std::memcmp(bound, key.s, std::min(bound_len, key_len));
+  if (cmp != 0) return cmp;
+  if (bound_len == key_len) return 0;
+  return bound_len > key_len ? 1 : -1;
+}
+
 /**
  * @brief Drives masstree's forward and reverse scan into the callback shape
  *        used here, where returning `true` cancels the scan.
  */
 struct ScanAdapter {
+  const char *begin_ptr;
+  size_t begin_len;
+  bool has_begin;
   const char *end_ptr;
   size_t end_len;
   bool has_end;
@@ -140,13 +152,8 @@ struct ScanAdapter {
 
   // Returns true to keep scanning, false to stop (masstree convention).
   bool visit_value(Masstree::Str key, DataItem * /*val*/, threadinfo &) {
-    if (has_end) {
-      const int cmp = std::memcmp(
-          end_ptr, key.s, std::min(end_len, static_cast<size_t>(key.len)));
-      const bool end_greater =
-          cmp > 0 || (cmp == 0 && end_len > static_cast<size_t>(key.len));
-      if (!end_greater) return false;  // key >= end -> out of range, stop
-    }
+    if (has_end && KeyCmp(end_ptr, end_len, key) <= 0) return false;
+    if (has_begin && KeyCmp(begin_ptr, begin_len, key) > 0) return false;
     ++count;
     if (cb(std::string_view(key.s, key.len))) return false;  // caller cancel
     return true;
@@ -154,6 +161,9 @@ struct ScanAdapter {
 };
 
 struct ScanValueAdapter {
+  const char *begin_ptr;
+  size_t begin_len;
+  bool has_begin;
   const char *end_ptr;
   size_t end_len;
   bool has_end;
@@ -164,13 +174,8 @@ struct ScanValueAdapter {
   void visit_leaf(const SS &, const K &, threadinfo &) {}
 
   bool visit_value(Masstree::Str key, DataItem *val, threadinfo &) {
-    if (has_end) {
-      const int cmp = std::memcmp(
-          end_ptr, key.s, std::min(end_len, static_cast<size_t>(key.len)));
-      const bool end_greater =
-          cmp > 0 || (cmp == 0 && end_len > static_cast<size_t>(key.len));
-      if (!end_greater) return false;
-    }
+    if (has_end && KeyCmp(end_ptr, end_len, key) <= 0) return false;
+    if (has_begin && KeyCmp(begin_ptr, begin_len, key) > 0) return false;
     ++count;
     if (cb(std::string_view(key.s, key.len), *val)) return false;
     return true;
@@ -298,9 +303,14 @@ struct MasstreeIndex::Impl {
   size_t Scan(std::string_view begin, std::optional<std::string_view> end,
               std::function<bool(std::string_view)> op) {
     ensure_thread_active();
-    ScanAdapter adapter{end.has_value() ? end->data() : nullptr,
-                        end.has_value() ? end->size() : 0, end.has_value(),
-                        std::move(op), 0};
+    ScanAdapter adapter{nullptr,
+                        0,
+                        false,
+                        end.has_value() ? end->data() : nullptr,
+                        end.has_value() ? end->size() : 0,
+                        end.has_value(),
+                        std::move(op),
+                        0};
     Masstree::Str firstkey(begin.data(), begin.size());
     table_.scan(firstkey, /*emit_firstkey=*/true, adapter, *tls_ti);
     return adapter.count;
@@ -309,7 +319,8 @@ struct MasstreeIndex::Impl {
   size_t Scan(std::string_view begin, std::string_view end,
               std::function<bool(std::string_view, DataItem &)> op) {
     ensure_thread_active();
-    ScanValueAdapter adapter{end.data(), end.size(), true, std::move(op), 0};
+    ScanValueAdapter adapter{nullptr,    0,    false,        end.data(),
+                             end.size(), true, std::move(op)};
     Masstree::Str firstkey(begin.data(), begin.size());
     table_.scan(firstkey, /*emit_firstkey=*/true, adapter, *tls_ti);
     return adapter.count;
@@ -321,15 +332,8 @@ struct MasstreeIndex::Impl {
     ensure_thread_active();
     // Reverse scan walks downward from `end - 1`, stopping once key < begin.
     // Range is [begin, end) just like forward Scan.
-    auto adapter_op = [b_ptr = begin.data(), b_len = begin.size(),
-                       cb = std::move(op)](std::string_view key) mutable {
-      const int cmp =
-          std::memcmp(b_ptr, key.data(), std::min(b_len, key.size()));
-      const bool key_below_begin = cmp > 0 || (cmp == 0 && b_len > key.size());
-      if (key_below_begin) return true;  // below begin -> stop
-      return cb(key);
-    };
-    ScanAdapter adapter{nullptr, 0, false, std::move(adapter_op), 0};
+    ScanAdapter adapter{begin.data(), begin.size(), true, nullptr, 0,
+                        false,        std::move(op)};
     if (end.has_value()) {
       Masstree::Str firstkey(end->data(), end->size());
       table_.rscan(firstkey, /*emit_firstkey=*/false, adapter, *tls_ti);
@@ -344,16 +348,8 @@ struct MasstreeIndex::Impl {
   size_t ScanReverse(std::string_view begin, std::string_view end,
                      std::function<bool(std::string_view, DataItem &)> op) {
     ensure_thread_active();
-    auto adapter_op = [b_ptr = begin.data(), b_len = begin.size(),
-                       cb = std::move(op)](std::string_view key,
-                                           DataItem &val) mutable {
-      const int cmp =
-          std::memcmp(b_ptr, key.data(), std::min(b_len, key.size()));
-      const bool key_below_begin = cmp > 0 || (cmp == 0 && b_len > key.size());
-      if (key_below_begin) return true;
-      return cb(key, val);
-    };
-    ScanValueAdapter adapter{nullptr, 0, false, std::move(adapter_op), 0};
+    ScanValueAdapter adapter{begin.data(), begin.size(), true, nullptr, 0,
+                             false,        std::move(op)};
     Masstree::Str firstkey(end.data(), end.size());
     table_.rscan(firstkey, /*emit_firstkey=*/false, adapter, *tls_ti);
     return adapter.count;
@@ -361,7 +357,8 @@ struct MasstreeIndex::Impl {
 
   void ForEach(std::function<bool(std::string_view, DataItem &)> op) {
     ensure_thread_active();
-    ScanValueAdapter adapter{nullptr, 0, false, std::move(op), 0};
+    ScanValueAdapter adapter{nullptr, 0,     false,        nullptr,
+                             0,       false, std::move(op)};
     table_.scan(Masstree::Str(), /*emit_firstkey=*/true, adapter, *tls_ti);
   }
 };

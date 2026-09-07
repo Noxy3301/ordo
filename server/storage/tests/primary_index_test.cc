@@ -22,7 +22,11 @@
 
 #include "index/primary_index.h"
 
+#include <optional>
+#include <string>
+#include <string_view>
 #include <thread>
+#include <vector>
 
 #include "gtest/gtest.h"
 #include "util/epoch.h"
@@ -189,4 +193,20 @@ TEST(PrimaryIndexTest, ForEachIsSafeWithRehashing) {
   for (auto &thread : threads) {
     thread.join();
   }
+}
+
+TEST(PrimaryIndexTest, ReverseScanCountsOnlyTheKeysItEmits) {
+  helios::storage::epoch::Framework epoch;
+  epoch.Start();
+  helios::storage::index::PrimaryIndex table(epoch);
+  for (const char *key : {"a", "b", "c", "d"}) table.Put(key, {});
+
+  std::vector<std::string> seen;
+  const size_t count = table.ScanReverse(
+      "b", std::optional<std::string_view>("d"), [&](std::string_view key) {
+        seen.emplace_back(key);
+        return false;
+      });
+  EXPECT_EQ(std::vector<std::string>({"c", "b"}), seen);
+  EXPECT_EQ(seen.size(), count);
 }

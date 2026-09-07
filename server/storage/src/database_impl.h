@@ -13,8 +13,8 @@
  *   See the License for the specific language governing permissions and
  *   limitations under the License.
  */
-#ifndef HELIOS_DATABASE_IMPL_H
-#define HELIOS_DATABASE_IMPL_H
+#ifndef HELIOS_STORAGE_SRC_DATABASE_IMPL_H
+#define HELIOS_STORAGE_SRC_DATABASE_IMPL_H
 
 #include <storage/config.h>
 #include <storage/database.h>
@@ -33,17 +33,17 @@
 #include "recovery/logger.h"
 #include "silo/commit.h"
 #include "silo/read.h"
-#include "table/table_dictionary.hpp"
-#include "types/snapshot.hpp"
-#include "types/transaction_id.hpp"
-#include "util/epoch_framework.hpp"
+#include "table/table_dictionary.h"
+#include "types/snapshot.h"
+#include "types/transaction_id.h"
+#include "util/epoch_framework.h"
 
 namespace helios::storage {
 
 // The concurrency control this database runs.
 
-// Bodies live in database.cpp (lifecycle, tables, reads, commit),
-// durability.cpp, pax_view.cpp, and stats.cpp.
+// Bodies live in database.cc (lifecycle, tables, reads, commit),
+// durability.cc, pax_view.cc, and stats.cc.
 class Database::Impl {
  public:
   inline static Database::Impl *CurrentDBInstance;
@@ -180,4 +180,4 @@ class Database::Impl {
 };
 
 }  // namespace helios::storage
-#endif /** HELIOS_DATABASE_IMPL_H **/
+#endif /** HELIOS_STORAGE_SRC_DATABASE_IMPL_H **/

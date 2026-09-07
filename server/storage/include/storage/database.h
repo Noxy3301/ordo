@@ -14,8 +14,8 @@
  *   limitations under the License.
  */
 
-#ifndef HELIOS_DATABASE_H
-#define HELIOS_DATABASE_H
+#ifndef HELIOS_STORAGE_INCLUDE_STORAGE_DATABASE_H
+#define HELIOS_STORAGE_INCLUDE_STORAGE_DATABASE_H
 
 #include <storage/config.h>
 #include <storage/stateless.h>
@@ -384,4 +384,4 @@ class Database {
 };
 }  // namespace helios::storage
 
-#endif
+#endif  // HELIOS_STORAGE_INCLUDE_STORAGE_DATABASE_H

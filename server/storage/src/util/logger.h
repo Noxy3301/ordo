@@ -14,22 +14,31 @@
  *   limitations under the License.
  */
 
-#ifndef HELIOS_STORAGE_SRC_TYPES_DEFINITIONS_H
-#define HELIOS_STORAGE_SRC_TYPES_DEFINITIONS_H
+#ifndef HELIOS_STORAGE_SRC_UTIL_LOGGER_H
+#define HELIOS_STORAGE_SRC_UTIL_LOGGER_H
 
-#include <cstdint>
+#ifdef NDEBUG
+#define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_INFO
+#else
+#define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_DEBUG
+#endif
+
+#include <spdlog/async.h>
+#include <spdlog/async_logger.h>
+#include <spdlog/sinks/stdout_color_sinks.h>
+#include <spdlog/spdlog.h>
 
 namespace helios::storage {
-
-using EpochNumber = uint32_t;
-
-enum class SecondaryIndexOp : uint8_t {
-  None = 0,
-  Add = 1,
-  Remove = 2,
-  Full = 3,
-};
-
+namespace util {
+static inline void SetUpSPDLog() {
+#ifdef NDEBUG
+  spdlog::set_level(spdlog::level::info);
+#else
+  spdlog::set_level(spdlog::level::debug);
+#endif
+  spdlog::set_pattern("[Thread %t] %+ [+%omsec]");
+}
+}  // namespace util
 }  // namespace helios::storage
 
-#endif  // HELIOS_STORAGE_SRC_TYPES_DEFINITIONS_H
+#endif  // HELIOS_STORAGE_SRC_UTIL_LOGGER_H

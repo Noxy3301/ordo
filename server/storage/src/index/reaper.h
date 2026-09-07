@@ -1,5 +1,5 @@
-#ifndef HELIOS_INDEX_REAPER_H
-#define HELIOS_INDEX_REAPER_H
+#ifndef HELIOS_STORAGE_SRC_INDEX_REAPER_H
+#define HELIOS_STORAGE_SRC_INDEX_REAPER_H
 
 #include <cstdint>
 #include <mutex>
@@ -7,10 +7,10 @@
 #include <string_view>
 #include <vector>
 
-#include "types/data_item.hpp"
+#include "types/data_item.h"
 #include "types/definitions.h"
-#include "types/snapshot.hpp"
-#include "types/transaction_id.hpp"
+#include "types/snapshot.h"
+#include "types/transaction_id.h"
 
 namespace helios::storage {
 namespace index {
@@ -120,4 +120,4 @@ class Reaper {
 }  // namespace index
 }  // namespace helios::storage
 
-#endif  // HELIOS_INDEX_REAPER_H
+#endif  // HELIOS_STORAGE_SRC_INDEX_REAPER_H

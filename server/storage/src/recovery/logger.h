@@ -13,8 +13,8 @@
  *   See the License for the specific language governing permissions and
  *   limitations under the License.
  */
-#ifndef HELIOS_RECOVERY_LOGGER_H
-#define HELIOS_RECOVERY_LOGGER_H
+#ifndef HELIOS_STORAGE_SRC_RECOVERY_LOGGER_H
+#define HELIOS_STORAGE_SRC_RECOVERY_LOGGER_H
 
 #include <storage/config.h>
 
@@ -26,9 +26,9 @@
 #include <string>
 
 #include "log_record.h"
-#include "types/data_buffer.hpp"
+#include "types/data_buffer.h"
 #include "types/definitions.h"
-#include "types/snapshot.hpp"
+#include "types/snapshot.h"
 #include "wal.h"
 
 namespace helios::storage {
@@ -190,4 +190,4 @@ class Logger {
 
 }  // namespace wal
 }  // namespace helios::storage
-#endif /* HELIOS_RECOVERY_LOGGER_H */
+#endif  // HELIOS_STORAGE_SRC_RECOVERY_LOGGER_H

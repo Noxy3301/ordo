@@ -1,5 +1,5 @@
-#ifndef HELIOS_SILO_COMMIT_H
-#define HELIOS_SILO_COMMIT_H
+#ifndef HELIOS_STORAGE_SRC_SILO_COMMIT_H
+#define HELIOS_STORAGE_SRC_SILO_COMMIT_H
 
 #include <storage/config.h>
 #include <storage/stateless.h>
@@ -96,4 +96,4 @@ bool Commit(TableDictionary &tables, std::shared_mutex &schema_mutex,
 }  // namespace silo
 }  // namespace helios::storage
 
-#endif  // HELIOS_SILO_COMMIT_H
+#endif  // HELIOS_STORAGE_SRC_SILO_COMMIT_H

@@ -13,8 +13,8 @@
  *   See the License for the specific language governing permissions and
  *   limitations under the License.
  */
-#ifndef HELIOS_RECOVERY_THREAD_LOCAL_LOGGER_H
-#define HELIOS_RECOVERY_THREAD_LOCAL_LOGGER_H
+#ifndef HELIOS_STORAGE_SRC_RECOVERY_IMPL_THREAD_LOCAL_LOGGER_H
+#define HELIOS_STORAGE_SRC_RECOVERY_IMPL_THREAD_LOCAL_LOGGER_H
 
 #include <storage/config.h>
 
@@ -27,7 +27,7 @@
 #include "recovery/log_record.h"
 #include "recovery/wal.h"
 #include "types/definitions.h"
-#include "types/snapshot.hpp"
+#include "types/snapshot.h"
 #include "util/thread_key_storage.h"
 
 namespace helios::storage {
@@ -121,4 +121,4 @@ class ThreadLocalLogger final {
 
 }  // namespace wal
 }  // namespace helios::storage
-#endif /* HELIOS_RECOVERY_THREAD_LOCAL_LOGGER_H */
+#endif  // HELIOS_STORAGE_SRC_RECOVERY_IMPL_THREAD_LOCAL_LOGGER_H

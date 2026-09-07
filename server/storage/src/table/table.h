@@ -1,4 +1,5 @@
-#pragma once
+#ifndef HELIOS_STORAGE_SRC_TABLE_TABLE_H
+#define HELIOS_STORAGE_SRC_TABLE_TABLE_H
 
 #include <storage/pax_store.h>
 
@@ -11,7 +12,7 @@
 #include "index/secondary_index.h"
 #include "storage/config.h"
 #include "types/definitions.h"
-#include "util/epoch_framework.hpp"
+#include "util/epoch_framework.h"
 
 namespace helios::storage {
 
@@ -102,3 +103,5 @@ class Table {
   std::string table_name_;
 };
 }  // namespace helios::storage
+
+#endif  // HELIOS_STORAGE_SRC_TABLE_TABLE_H

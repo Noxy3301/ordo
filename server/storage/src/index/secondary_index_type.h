@@ -1,4 +1,5 @@
-#pragma once
+#ifndef HELIOS_STORAGE_SRC_INDEX_SECONDARY_INDEX_TYPE_H
+#define HELIOS_STORAGE_SRC_INDEX_SECONDARY_INDEX_TYPE_H
 
 #include <cstdint>
 
@@ -28,3 +29,5 @@ class SecondaryIndexType {
 };
 
 }  // namespace helios::storage::index
+
+#endif  // HELIOS_STORAGE_SRC_INDEX_SECONDARY_INDEX_TYPE_H

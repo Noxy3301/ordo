@@ -1,5 +1,5 @@
-#ifndef HELIOS_RECOVERY_LOG_RECORD_H
-#define HELIOS_RECOVERY_LOG_RECORD_H
+#ifndef HELIOS_STORAGE_SRC_RECOVERY_LOG_RECORD_H
+#define HELIOS_STORAGE_SRC_RECOVERY_LOG_RECORD_H
 
 #include <cstdint>
 #include <msgpack.hpp>
@@ -7,7 +7,7 @@
 #include <vector>
 
 #include "types/definitions.h"
-#include "types/transaction_id.hpp"
+#include "types/transaction_id.h"
 
 namespace helios::storage {
 namespace wal {
@@ -50,4 +50,4 @@ using LogRecords = std::vector<LogRecord>;
 }  // namespace wal
 }  // namespace helios::storage
 
-#endif /* HELIOS_RECOVERY_LOG_RECORD_H */
+#endif  // HELIOS_STORAGE_SRC_RECOVERY_LOG_RECORD_H

@@ -1,5 +1,5 @@
-#ifndef HELIOS_RECOVERY_WAL_H
-#define HELIOS_RECOVERY_WAL_H
+#ifndef HELIOS_STORAGE_SRC_RECOVERY_WAL_H
+#define HELIOS_STORAGE_SRC_RECOVERY_WAL_H
 
 #include <sys/types.h>
 
@@ -274,4 +274,4 @@ class Wal {
 }  // namespace wal
 }  // namespace helios::storage
 
-#endif /* HELIOS_RECOVERY_WAL_H */
+#endif  // HELIOS_STORAGE_SRC_RECOVERY_WAL_H

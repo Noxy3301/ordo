@@ -1,5 +1,5 @@
-#ifndef HELIOS_SILO_READ_H
-#define HELIOS_SILO_READ_H
+#ifndef HELIOS_STORAGE_SRC_SILO_READ_H
+#define HELIOS_STORAGE_SRC_SILO_READ_H
 
 #include <storage/stateless.h>
 
@@ -102,4 +102,4 @@ StatelessPaxRowRefScanResult ScanPax(TableDictionary &tables,
 }  // namespace silo
 }  // namespace helios::storage
 
-#endif  // HELIOS_SILO_READ_H
+#endif  // HELIOS_STORAGE_SRC_SILO_READ_H

@@ -1,5 +1,5 @@
-#ifndef HELIOS_PAX_STORE_H
-#define HELIOS_PAX_STORE_H
+#ifndef HELIOS_STORAGE_INCLUDE_STORAGE_PAX_STORE_H
+#define HELIOS_STORAGE_INCLUDE_STORAGE_PAX_STORE_H
 
 #include <atomic>
 #include <cstddef>
@@ -334,7 +334,7 @@ class PaxStore {
 // While a read view acquired through Database::AcquirePaxReadView is active,
 // every PAX install publishes the replaced row image into a per-group undo
 // map before its first strip mutation, or poisons the active capture
-// generation when it cannot (src/pax/version_store.hpp holds the full
+// generation when it cannot (src/pax/version_store.h holds the full
 // contract). A reader with cut epoch E resolves a slot to the before-image
 // of the oldest entry whose writer epoch exceeds E (was_visible == false:
 // the slot held no row) and reads the strip in place when no entry
@@ -387,4 +387,4 @@ std::vector<UndoEntry> UndoSlotEntries(const PaxGroup *group, uint32_t slot);
 }  // namespace pax
 }  // namespace helios::storage
 
-#endif  // HELIOS_PAX_STORE_H
+#endif  // HELIOS_STORAGE_INCLUDE_STORAGE_PAX_STORE_H

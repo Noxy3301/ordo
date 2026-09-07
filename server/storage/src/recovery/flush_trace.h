@@ -1,5 +1,5 @@
-#ifndef HELIOS_RECOVERY_FLUSH_TRACE_H
-#define HELIOS_RECOVERY_FLUSH_TRACE_H
+#ifndef HELIOS_STORAGE_SRC_RECOVERY_FLUSH_TRACE_H
+#define HELIOS_STORAGE_SRC_RECOVERY_FLUSH_TRACE_H
 
 #include <fcntl.h>
 #include <sys/file.h>
@@ -402,4 +402,4 @@ class FlushTrace {
 }  // namespace wal
 }  // namespace helios::storage
 
-#endif /* HELIOS_RECOVERY_FLUSH_TRACE_H */
+#endif  // HELIOS_STORAGE_SRC_RECOVERY_FLUSH_TRACE_H

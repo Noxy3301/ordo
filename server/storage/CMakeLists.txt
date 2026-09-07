@@ -80,7 +80,7 @@ else()
 endif()
 
 # Build as library
-file(GLOB_RECURSE SOURCES "src/*.cpp")
+file(GLOB_RECURSE SOURCES "src/*.cc")
 add_library(${PROJECT_NAME} ${SOURCES})
 add_library(${PROJECT_NAME}::${PROJECT_NAME} ALIAS ${PROJECT_NAME})
 target_compile_options(${PROJECT_NAME} PRIVATE -Wno-error -Wno-error=extra-semi -Wno-extra-semi -Wno-unused-parameter)
@@ -166,7 +166,7 @@ target_link_libraries(${PROJECT_NAME} masstree)
 target_include_directories(${PROJECT_NAME} SYSTEM PRIVATE ${MASSTREE_DIR})
 
 # Export as cmake library
-file(GLOB_RECURSE PUBLIC_HEADERS include/${PROJECT_NAME}/*.h)
+file(GLOB_RECURSE PUBLIC_HEADERS include/storage/*.h)
 message(STATUS "${PUBLIC_HEADERS}")
 set_target_properties(${PROJECT_NAME} PROPERTIES PUBLIC_HEADER
                                                  "${PUBLIC_HEADERS}")

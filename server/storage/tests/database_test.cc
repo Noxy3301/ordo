@@ -1,0 +1,121 @@
+/*
+ *   Copyright (C) 2020 Nippon Telegraph and Telephone Corporation.
+
+ *   Licensed under the Apache License, Version 2.0 (the "License");
+ *   you may not use this file except in compliance with the License.
+ *   You may obtain a copy of the License at
+
+ *   http://www.apache.org/licenses/LICENSE-2.0
+
+ *   Unless required by applicable law or agreed to in writing, software
+ *   distributed under the License is distributed on an "AS IS" BASIS,
+ *   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *   See the License for the specific language governing permissions and
+ *   limitations under the License.
+ */
+
+#include "storage/database.h"
+
+#include <filesystem>
+#include <memory>
+#include <string>
+#include <thread>
+#include <vector>
+
+#include "gtest/gtest.h"
+#include "stateless_helper.h"
+#include "storage/config.h"
+
+namespace {
+constexpr const char *kTable = "users";
+}  // namespace
+
+class DatabaseTest : public ::testing::Test {
+ protected:
+  helios::storage::Config config_;
+  std::unique_ptr<helios::storage::Database> db_;
+  virtual void SetUp() {
+    std::filesystem::remove_all(config_.work_dir);
+    config_.epoch_duration_ms = 100;
+    db_ = std::make_unique<helios::storage::Database>(config_);
+    ASSERT_TRUE(db_->CreateTable(kTable));
+  }
+};
+
+TEST_F(DatabaseTest, Instantiate) {}
+
+TEST_F(DatabaseTest, InstantiateWithConfig) {
+  db_.reset(nullptr);
+  helios::storage::Config conf;
+  ASSERT_NO_THROW(db_ = std::make_unique<helios::storage::Database>(conf));
+}
+
+TEST_F(DatabaseTest, LargeSizeBuffer) {
+  const std::string alice(2048, '\1');
+  ASSERT_TRUE(TestHelper::Write(*db_, kTable, "alice", alice));
+
+  const auto read = TestHelper::Read(*db_, kTable, "alice");
+  ASSERT_TRUE(read.has_value());
+  ASSERT_EQ(read.value(), alice);
+}
+
+TEST_F(DatabaseTest, Scan) {
+  ASSERT_TRUE(TestHelper::CommitWrites(
+      *db_, {{kTable, "alice", TestHelper::Encode<int>(1), false, false},
+             {kTable, "bob", TestHelper::Encode<int>(2), false, false},
+             {kTable, "carol", TestHelper::Encode<int>(3), false, false}}));
+
+  // Half-open: carol is the exclusive upper bound.
+  const auto rows = TestHelper::Scan(*db_, kTable, "alice", "carol");
+  ASSERT_EQ(rows.size(), size_t(2));
+  EXPECT_EQ(rows[0].first, "alice");
+  EXPECT_EQ(TestHelper::Decode<int>(rows[0].second), 1);
+  EXPECT_EQ(rows[1].first, "bob");
+  EXPECT_EQ(TestHelper::Decode<int>(rows[1].second), 2);
+
+  const auto capped = TestHelper::Scan(*db_, kTable, "alice", "carol", 1);
+  ASSERT_EQ(capped.size(), size_t(1));
+  EXPECT_EQ(capped[0].first, "alice");
+}
+
+TEST_F(DatabaseTest, DeleteRemovesKeyAcrossTransactions) {
+  const int value_of_alice = 123;
+  ASSERT_TRUE(TestHelper::Write<int>(*db_, kTable, "alice", value_of_alice));
+
+  const auto alice = TestHelper::Read<int>(*db_, kTable, "alice");
+  ASSERT_TRUE(alice.has_value());
+  ASSERT_EQ(value_of_alice, alice.value());
+
+  ASSERT_TRUE(TestHelper::Delete(*db_, kTable, "alice"));
+  ASSERT_FALSE(TestHelper::Read<int>(*db_, kTable, "alice").has_value());
+}
+
+TEST_F(DatabaseTest, ThreadSafetyInsertions) {
+  constexpr int kValue = 0xBEEF;
+  constexpr size_t kKeys = 11;
+
+  std::vector<helios::storage::ExternalWriteEntry> writes;
+  for (size_t idx = 0; idx < kKeys; idx++) {
+    writes.push_back({kTable, "alice" + std::to_string(idx),
+                      TestHelper::Encode<int>(kValue), false, false});
+  }
+
+  std::vector<std::thread> threads;
+  for (size_t i = 0; i < 4; i++) {
+    threads.emplace_back([&]() {
+      bool committed = false;
+      for (size_t retry = 0; retry < 100 && !committed; retry++) {
+        committed = TestHelper::CommitWrites(*db_, writes);
+      }
+      EXPECT_TRUE(committed);
+    });
+  }
+  for (auto &thread : threads) thread.join();
+
+  for (size_t idx = 0; idx < kKeys; idx++) {
+    const auto alice =
+        TestHelper::Read<int>(*db_, kTable, "alice" + std::to_string(idx));
+    ASSERT_TRUE(alice.has_value());
+    ASSERT_EQ(kValue, alice.value());
+  }
+}

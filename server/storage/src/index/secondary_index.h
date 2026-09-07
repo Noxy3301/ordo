@@ -1,11 +1,11 @@
-#ifndef HELIOS_SECONDARY_INDEX_H
-#define HELIOS_SECONDARY_INDEX_H
+#ifndef HELIOS_STORAGE_SRC_INDEX_SECONDARY_INDEX_H
+#define HELIOS_STORAGE_SRC_INDEX_SECONDARY_INDEX_H
 
-#include "index/impl/masstree_index.hpp"
+#include "index/impl/masstree_index.h"
 #include "index/secondary_index_type.h"
-#include "silo/stable_read.hpp"
-#include "types/snapshot.hpp"
-#include "util/epoch_framework.hpp"
+#include "silo/stable_read.h"
+#include "types/snapshot.h"
+#include "util/epoch_framework.h"
 
 namespace helios::storage {
 namespace index {
@@ -77,4 +77,4 @@ class SecondaryIndex {
 }  // namespace index
 }  // namespace helios::storage
 
-#endif /* HELIOS_SECONDARY_INDEX_H */
+#endif  // HELIOS_STORAGE_SRC_INDEX_SECONDARY_INDEX_H

@@ -1,5 +1,5 @@
-#ifndef HELIOS_STATELESS_H
-#define HELIOS_STATELESS_H
+#ifndef HELIOS_STORAGE_INCLUDE_STORAGE_STATELESS_H
+#define HELIOS_STORAGE_INCLUDE_STORAGE_STATELESS_H
 
 #include <cstdint>
 #include <string>
@@ -201,4 +201,4 @@ struct ExternalRangeReadEntry {
 
 }  // namespace helios::storage
 
-#endif  // HELIOS_STATELESS_H
+#endif  // HELIOS_STORAGE_INCLUDE_STORAGE_STATELESS_H

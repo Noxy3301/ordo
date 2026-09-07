@@ -1,5 +1,5 @@
-#ifndef HELIOS_RECOVERY_CRC32C_H
-#define HELIOS_RECOVERY_CRC32C_H
+#ifndef HELIOS_STORAGE_SRC_RECOVERY_CRC32C_H
+#define HELIOS_STORAGE_SRC_RECOVERY_CRC32C_H
 
 #include <cstddef>
 #include <cstdint>
@@ -41,4 +41,4 @@ bool HasSse42ForTesting();
 }  // namespace wal
 }  // namespace helios::storage
 
-#endif /* HELIOS_RECOVERY_CRC32C_H */
+#endif  // HELIOS_STORAGE_SRC_RECOVERY_CRC32C_H

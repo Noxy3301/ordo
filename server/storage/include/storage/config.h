@@ -14,8 +14,8 @@
  *   limitations under the License.
  */
 
-#ifndef HELIOS_CONFIG_H
-#define HELIOS_CONFIG_H
+#ifndef HELIOS_STORAGE_INCLUDE_STORAGE_CONFIG_H
+#define HELIOS_STORAGE_INCLUDE_STORAGE_CONFIG_H
 
 #include <cstddef>
 #include <cstdint>
@@ -152,4 +152,4 @@ constexpr bool HasFlag(SecondaryIndexOption::Constraint set,
 }
 }  // namespace helios::storage
 
-#endif
+#endif  // HELIOS_STORAGE_INCLUDE_STORAGE_CONFIG_H

@@ -38,7 +38,7 @@ macro(register_test testfile testfilepath)
     COMMAND ${CMAKE_CURRENT_BINARY_DIR}/${testfile})
 endmacro()
 
-file(GLOB_RECURSE tests RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} "*_test.cpp")
+file(GLOB_RECURSE tests RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} "*_test.cc")
 foreach(test ${tests})
     message(STATUS "Test executable is found: ${test}")
     get_filename_component(testname ${test} NAME_WE)

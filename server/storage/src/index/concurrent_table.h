@@ -14,8 +14,8 @@
  *   limitations under the License.
  */
 
-#ifndef HELIOS_CONCURRENT_TABLE_H
-#define HELIOS_CONCURRENT_TABLE_H
+#ifndef HELIOS_STORAGE_SRC_INDEX_CONCURRENT_TABLE_H
+#define HELIOS_STORAGE_SRC_INDEX_CONCURRENT_TABLE_H
 
 #include <storage/config.h>
 
@@ -24,11 +24,11 @@
 #include <string>
 #include <string_view>
 
-#include "index/impl/masstree_index.hpp"
-#include "types/data_item.hpp"
+#include "index/impl/masstree_index.h"
+#include "types/data_item.h"
 #include "types/definitions.h"
-#include "types/snapshot.hpp"
-#include "util/epoch_framework.hpp"
+#include "types/snapshot.h"
+#include "util/epoch_framework.h"
 
 namespace helios::storage {
 namespace index {
@@ -72,4 +72,4 @@ class ConcurrentTable {
 }  // namespace index
 }  // namespace helios::storage
 
-#endif /* HELIOS_CONCURRENT_TABLE_H */
+#endif  // HELIOS_STORAGE_SRC_INDEX_CONCURRENT_TABLE_H

@@ -43,6 +43,22 @@ enum FieldKind : uint8_t {
 };
 
 /**
+ * @brief Returns the fixed binary width of a typed cell, 0 for FK_UNTYPED.
+ */
+inline uint32_t FieldKindWidth(uint8_t kind) {
+  switch (kind) {
+    case FK_INT32:
+    case FK_DATE:
+      return 4;
+    case FK_INT64:
+    case FK_DEC64:
+      return 8;
+    default:
+      return 0;
+  }
+}
+
+/**
  * @brief Describes the row format fields a PAX-enabled table stores in strips.
  *
  * @details A row is one null-flags field followed by one field per column;
@@ -69,9 +85,17 @@ struct TableSchema {
 
   /**
    * @brief Returns the storage kind of field `f` (UNTYPED when untyped).
+   *
+   * @details A kind whose declared width is not the width that kind stores
+   * degrades to UNTYPED, so no reader parses a cell in a shape never written.
    */
   uint8_t kind_of(size_t f) const {
-    return f < field_kind.size() ? field_kind[f] : FK_UNTYPED;
+    const uint8_t kind = f < field_kind.size() ? field_kind[f] : FK_UNTYPED;
+    if (kind == FK_UNTYPED) return FK_UNTYPED;
+    return f < field_max_bytes.size() &&
+                   field_max_bytes[f] == FieldKindWidth(kind)
+               ? kind
+               : FK_UNTYPED;
   }
 
   /**

@@ -289,10 +289,9 @@ bool PaxGroup::ScatterRow(uint32_t slot, const std::byte *row, size_t size) {
   // cell width; typed non-null fields are parsed into a fixed-width LE binary
   // scratch. Any failure takes the per-row heap fallback with the slot
   // untouched.
-  const bool has_kinds = !schema_.field_kind.empty();
   uint64_t typed_bin[kMaxFields];  // low field_max_bytes[f] bytes = LE payload
   for (size_t f = 0; f < fields; f++) {
-    const uint8_t k = has_kinds ? schema_.field_kind[f] : FK_UNTYPED;
+    const uint8_t k = schema_.kind_of(f);
     if (k == FK_UNTYPED) {
       if (refs[f].len > schema_.field_max_bytes[f]) return false;
       if (refs[f].len > 0xFFFF) return false;
@@ -305,7 +304,7 @@ bool PaxGroup::ScatterRow(uint32_t slot, const std::byte *row, size_t size) {
   for (size_t f = 0; f < fields; f++) {
     std::byte *cell = arena_.get() + strip_offset_[f] +
                       static_cast<size_t>(stride_[f]) * slot;
-    const uint8_t k = has_kinds ? schema_.field_kind[f] : FK_UNTYPED;
+    const uint8_t k = schema_.kind_of(f);
     if (k != FK_UNTYPED && refs[f].len != 0) {
       const uint16_t len = static_cast<uint16_t>(schema_.field_max_bytes[f]);
       std::memcpy(cell, &len, sizeof(len));
@@ -334,7 +333,6 @@ size_t PaxGroup::GatherRow(uint32_t slot, std::byte *dst,
                            size_t expected_size) const {
   assert(slot < kRows);
   const size_t fields = schema_.field_count();
-  const bool has_kinds = !schema_.field_kind.empty();
   std::string scratch;  // reused typed->ASCII buffer (no per-field alloc)
   size_t off = 0;
   for (size_t f = 0; f < fields; f++) {
@@ -350,7 +348,7 @@ size_t PaxGroup::GatherRow(uint32_t slot, std::byte *dst,
       dst[off++] = kNoValue;
       continue;
     }
-    const uint8_t k = has_kinds ? schema_.field_kind[f] : FK_UNTYPED;
+    const uint8_t k = schema_.kind_of(f);
     const char *src;
     uint32_t vlen;
     if (k != FK_UNTYPED) {

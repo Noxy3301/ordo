@@ -6,6 +6,7 @@
 #ifndef HELIOS_STORAGE_SRC_PAX_STORE_H
 #define HELIOS_STORAGE_SRC_PAX_STORE_H
 
+#include <algorithm>
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
@@ -74,7 +75,9 @@ class PaxStore {
    */
   size_t group_count() const {
     const uint64_t slots = slots_allocated();
-    return static_cast<size_t>((slots + PaxGroup::kRows - 1) / PaxGroup::kRows);
+    const uint64_t groups = (slots + PaxGroup::kRows - 1) / PaxGroup::kRows;
+    // AllocateSlot counts past a full directory; the bound wins.
+    return static_cast<size_t>(std::min<uint64_t>(groups, kMaxGroups));
   }
 
   /**

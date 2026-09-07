@@ -1,3 +1,9 @@
+/**
+ * @file server/storage/src/silo/read.cc
+ * Index slot resolution and the row copies behind the point read and the
+ * three scans.
+ */
+
 #include "silo/read.h"
 
 #include <mutex>

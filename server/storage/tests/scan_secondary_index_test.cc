@@ -1,3 +1,9 @@
+/**
+ * @file server/storage/tests/scan_secondary_index_test.cc
+ * Scanning a secondary index: order, bounds, and the keys an insert or a
+ * delete adds or removes.
+ */
+
 #include <filesystem>
 #include <memory>
 #include <string>

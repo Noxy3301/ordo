@@ -14,6 +14,12 @@
  *   limitations under the License.
  */
 
+/**
+ * @file server/storage/tests/primary_index_test.cc
+ * The primary index on its own: put, get, insert-if-absent, and
+ * concurrent inserters of the same key.
+ */
+
 #include "index/primary_index.h"
 
 #include <thread>

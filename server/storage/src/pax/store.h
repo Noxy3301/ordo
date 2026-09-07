@@ -1,4 +1,5 @@
-/** @file server/storage/src/pax/store.h
+/**
+ * @file server/storage/src/pax/store.h
  * The append-only group directory behind one table's PAX strips.
  */
 

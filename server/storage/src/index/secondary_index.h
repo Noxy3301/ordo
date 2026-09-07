@@ -1,3 +1,9 @@
+/**
+ * @file server/storage/src/index/secondary_index.h
+ * A secondary index: the secondary key to primary-key-list map, and the
+ * uniqueness it was declared with.
+ */
+
 #ifndef HELIOS_STORAGE_SRC_INDEX_SECONDARY_INDEX_H
 #define HELIOS_STORAGE_SRC_INDEX_SECONDARY_INDEX_H
 

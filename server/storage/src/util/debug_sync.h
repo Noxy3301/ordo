@@ -1,3 +1,9 @@
+/**
+ * @file server/storage/src/util/debug_sync.h
+ * Named synchronization points a test arms from the environment, so a race
+ * can be reproduced in the binary that serves production traffic.
+ */
+
 #ifndef HELIOS_STORAGE_SRC_UTIL_DEBUG_SYNC_H
 #define HELIOS_STORAGE_SRC_UTIL_DEBUG_SYNC_H
 

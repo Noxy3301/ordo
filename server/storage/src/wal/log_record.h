@@ -1,3 +1,8 @@
+/**
+ * @file server/storage/src/wal/log_record.h
+ * The epoch-tagged group of writes a commit appends to the log.
+ */
+
 #ifndef HELIOS_STORAGE_SRC_WAL_LOG_RECORD_H
 #define HELIOS_STORAGE_SRC_WAL_LOG_RECORD_H
 

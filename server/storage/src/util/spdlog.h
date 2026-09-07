@@ -14,6 +14,11 @@
  *   limitations under the License.
  */
 
+/**
+ * @file server/storage/src/util/spdlog.h
+ * The debug log the storage internals write to.
+ */
+
 #ifndef HELIOS_STORAGE_SRC_UTIL_SPDLOG_H
 #define HELIOS_STORAGE_SRC_UTIL_SPDLOG_H
 

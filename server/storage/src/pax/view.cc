@@ -1,5 +1,7 @@
-// pax/view.cc
-// PAX schema installation and the fenced columnar read view.
+/**
+ * @file server/storage/src/pax/view.cc
+ * PAX schema installation, and the epoch-fenced columnar read view.
+ */
 
 #include <chrono>
 #include <string>

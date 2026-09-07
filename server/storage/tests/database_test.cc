@@ -14,6 +14,12 @@
  *   limitations under the License.
  */
 
+/**
+ * @file server/storage/tests/database_test.cc
+ * The store as a whole: construction, reads and writes, scans, deletes,
+ * and concurrent insertions.
+ */
+
 #include "storage/database.h"
 
 #include <filesystem>

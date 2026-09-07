@@ -14,6 +14,12 @@
  *   limitations under the License.
  */
 
+/**
+ * @file server/storage/tests/durability_test.cc
+ * Recovery from the log, and the difference the commit acknowledgement
+ * makes to when a write is on the device.
+ */
+
 #include <chrono>
 #include <filesystem>
 #include <memory>
@@ -44,7 +50,7 @@ class DurabilityTest : public ::testing::Test {
 };
 
 TEST_F(DurabilityTest, Recovery) {
-  // We expect LineairDB enables recovery logging by default.
+  // Recovery logging is on by default.
   const helios::storage::Config config = db_->GetConfig();
 
   int initial_value = 1;
@@ -66,7 +72,7 @@ TEST_F(DurabilityTest, Recovery) {
 }
 
 TEST_F(DurabilityTest, RecoveryKeepsDeletedKeysAbsent) {
-  // We expect LineairDB enables recovery logging by default.
+  // Recovery logging is on by default.
   const helios::storage::Config config = db_->GetConfig();
 
   int initial_value = 1;
@@ -95,7 +101,7 @@ TEST_F(DurabilityTest, RecoveryLargeObject) {
 }
 
 TEST_F(DurabilityTest, RecoveryInContendedWorkload) {
-  // We expect LineairDB enables recovery logging by default.
+  // Recovery logging is on by default.
   const helios::storage::Config config = db_->GetConfig();
 
   const int value = 0xBEEF;

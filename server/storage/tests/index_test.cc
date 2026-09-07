@@ -14,6 +14,12 @@
  *   limitations under the License.
  */
 
+/**
+ * @file server/storage/tests/index_test.cc
+ * Scanning the primary index: ordering, early stop, open upper bound, and
+ * deletion.
+ */
+
 #include <filesystem>
 #include <memory>
 

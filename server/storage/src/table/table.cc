@@ -1,3 +1,8 @@
+/**
+ * @file server/storage/src/table/table.cc
+ * Table construction and the secondary index lookups the read path takes.
+ */
+
 #include "table/table.h"
 
 #include <shared_mutex>

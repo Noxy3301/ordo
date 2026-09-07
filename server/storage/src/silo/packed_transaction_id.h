@@ -1,3 +1,9 @@
+/**
+ * @file server/storage/src/silo/packed_transaction_id.h
+ * The transaction id packed into one word, the shape it travels in as an
+ * opaque version token.
+ */
+
 #ifndef HELIOS_STORAGE_SRC_SILO_PACKED_TRANSACTION_ID_H
 #define HELIOS_STORAGE_SRC_SILO_PACKED_TRANSACTION_ID_H
 
@@ -10,7 +16,7 @@ namespace helios::storage {
 namespace silo {
 
 /**
- * @brief Pack a {epoch, tid} pair into one uint64_t so it can travel over
+ * @brief Packs a {epoch, tid} pair into one uint64_t so it can travel over
  * the RPC as an opaque version token.
  */
 inline uint64_t PackTransactionId(const TransactionId &tid) {

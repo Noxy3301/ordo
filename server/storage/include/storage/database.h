@@ -14,6 +14,12 @@
  *   limitations under the License.
  */
 
+/**
+ * @file server/storage/include/storage/database.h
+ * The public face of the store: table and index definition, the read ops,
+ * the commit, and the epoch handshake every calling thread performs.
+ */
+
 #ifndef HELIOS_STORAGE_INCLUDE_STORAGE_DATABASE_H
 #define HELIOS_STORAGE_INCLUDE_STORAGE_DATABASE_H
 
@@ -38,13 +44,14 @@ class PaxStore;
 class Database {
  public:
   /**
-   * @brief Construct a new Database object. Thread-safe.
-   * Note that a default-constructed Config object will be passed.
+   * @brief Constructs a database under a default-constructed Config.
+   *
+   * @details Thread-safe.
    */
   Database();
 
   /**
-   * @brief Construct a new Database object. Thread-safe.
+   * @brief Constructs a new Database object. Thread-safe.
    * @param config See Config for more details of configuration.
    * @throws std::system_error when the working directory cannot be opened,
    * which includes another process already holding the log's exclusive lock.
@@ -60,22 +67,22 @@ class Database {
   Database &operator=(Database &&) = delete;
 
   /**
-   * @brief Return the Config object set by constructor.
-   * @return Config object. Note that it is not an lvalue reference
-   * and you cannot change the configuration with it.
-   * Thread-safe.
+   * @brief Returns the configuration the instance was constructed with.
+   *
+   * @details Thread-safe. The result is a copy, so the configuration cannot
+   * be changed through it.
    */
   const Config GetConfig() const noexcept;
 
   /**
-   * @brief End the calling thread's masstree RCU critical section, drain
-   * the now-eligible entries from its limbo list, and drop it from the
+   * @brief Ends the calling thread's masstree RCU critical section, drains
+   * the now-eligible entries from its limbo list, and drops it from the
    * `min_active_epoch()` participant set.
    *
    * The caller MUST guarantee that no raw DataItem* (or masstree leaf
-   * pointer) obtained inside the section is still in use past this call —
-   * a section-end is a release operation in the RCU sense, after which
-   * other threads' physical deletes can free those objects.
+   * pointer) obtained inside the section is still in use past this call. A
+   * section end is a release operation in the RCU sense, after which other
+   * threads' physical deletes can free those objects.
    *
    * The first masstree op on the thread (after construction or after a
    * release) implicitly re-opens a section at the then-current
@@ -100,8 +107,7 @@ class Database {
   bool HasTable(const std::string_view table_name);
 
   /**
-   * @brief
-   * Creates a new table.
+   * @brief Creates a new table.
    * @param[in] table_name The name of the table to create.
    * @return true when a new table is created (the name was not previously
    * used).
@@ -120,7 +126,7 @@ class Database {
    * Call once after CreateTable and before loading rows.
    *
    * @param[in] table_name The table that should use PAX storage.
-   * @param[in] field_max_bytes Maximum encoded bytes for each row field.
+   * @param[in] field_max_bytes Maximum packed bytes for each row field.
    * @return true when the schema is installed for the table.
    * @return false when the table is missing, the schema is empty, unsupported
    * by the configured index backend, or already installed.
@@ -196,7 +202,7 @@ class Database {
   // ----------------------------------------------------------------------
 
   /**
-   * @brief Read one row without opening a server-side transaction.
+   * @brief Reads one row without opening a server-side transaction.
    *
    * Looks the key up in the primary index of `table_name` and returns the
    * current value together with the packed TID observed at read time. The
@@ -215,7 +221,7 @@ class Database {
                   const std::vector<uint32_t> *selected_columns = nullptr);
 
   /**
-   * @brief Read several rows in one call.
+   * @brief Reads several rows in one call.
    *
    * Each `keys[i] = {table_name, key}` is resolved with the same protocol as
    * Read. Reads do not share state, so this is purely a transport
@@ -228,7 +234,7 @@ class Database {
       const std::vector<std::pair<std::string, std::string>> &keys);
 
   /**
-   * @brief Range-scan the primary index and return the rows observed in
+   * @brief Range-scans the primary index and returns the rows observed in
    *        the range.
    *
    * Each returned row carries its own TID. To revalidate the range at
@@ -253,7 +259,8 @@ class Database {
                   const std::vector<uint32_t> *selected_columns = nullptr);
 
   /**
-   * @brief Range-scan a secondary index and resolve each hit to its base row.
+   * @brief Range-scans a secondary index and resolves each hit to its base
+   *        row.
    *
    * For every secondary key in `[start_key, end_key)`, this resolves each of
    * its primary keys, reads the base row, and reports
@@ -311,7 +318,7 @@ class Database {
                                       size_t *ends)>;
 
   /**
-   * @brief Compute per-key-part-prefix NDV for one index.
+   * @brief Computes per-key-part-prefix NDV for one index.
    *
    * `out_ndv[d]` is the number of distinct prefixes covering key parts
    * `0..d` among live entries. `index_name == ""` selects the primary index.
@@ -323,9 +330,9 @@ class Database {
                 const KeyParts &parts, std::vector<uint64_t> &out_ndv);
 
   /**
-   * @brief Build an equi-depth histogram for one index's leading key part.
+   * @brief Builds an equi-depth histogram for one index's leading key part.
    *
-   * @details `out_bounds[i]` is the raw encoded leading-key prefix for a
+   * @details `out_bounds[i]` is the raw packed leading-key prefix for a
    * bucket boundary, in ascending order. `out_cum[i]` is the cumulative row
    * count up to that boundary and is monotone; the last value is the total
    * counted rows. `index_name == ""` selects the primary index. Returns false
@@ -339,7 +346,7 @@ class Database {
                       std::vector<uint64_t> &out_cum);
 
   /**
-   * @brief Validate caller-supplied read and write sets and install the
+   * @brief Validates caller-supplied read and write sets and installs the
    *        writes atomically.
    *
    * Runs the Silo commit protocol against external inputs: resolve each

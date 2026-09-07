@@ -15,6 +15,11 @@
  *   limitations under the License.
  */
 
+/**
+ * @file server/storage/src/index/data_buffer.h
+ * The row payload a DataItem owns, on the heap or in a PAX slot.
+ */
+
 #ifndef HELIOS_STORAGE_SRC_INDEX_DATA_BUFFER_H
 #define HELIOS_STORAGE_SRC_INDEX_DATA_BUFFER_H
 
@@ -176,7 +181,7 @@ struct DataBuffer {
       Reset(tmp.data(), rhs.size);
       return;
     }
-    // Gather straight into our heap array for a transaction-local snapshot.
+    // Gather straight into the heap array for a transaction-local snapshot.
     if (capacity < rhs.size) {
       delete[] value;
       value = new std::byte[rhs.size];

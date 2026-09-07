@@ -1,3 +1,9 @@
+/**
+ * @file server/storage/src/index/packed_primary_keys.h
+ * The primary keys one secondary key points at, packed into a single
+ * shared allocation.
+ */
+
 #ifndef HELIOS_STORAGE_SRC_INDEX_PACKED_PRIMARY_KEYS_H
 #define HELIOS_STORAGE_SRC_INDEX_PACKED_PRIMARY_KEYS_H
 
@@ -20,8 +26,10 @@ namespace helios::storage {
 
 class PackedPrimaryKeysView;
 
-/** @brief Immutable, sorted, deduplicated, length-prefixed primary-key list
- * held as `std::shared_ptr<const PackedPrimaryKeys>` in one allocation. */
+/**
+ * @brief Immutable, sorted, deduplicated, length-prefixed primary-key list
+ *        held as `std::shared_ptr<const PackedPrimaryKeys>` in one allocation.
+ */
 struct PackedPrimaryKeys {
   using Ptr = std::shared_ptr<const PackedPrimaryKeys>;
 
@@ -157,7 +165,7 @@ struct PackedPrimaryKeys {
   }
 
   /**
-   * @brief Returns the encoded record payload after the fixed header.
+   * @brief Returns the record payload after the fixed header.
    * @return Pointer to `bytes` length-prefixed primary-key records.
    */
   const char *Records() const {
@@ -270,10 +278,13 @@ static_assert(sizeof(PackedPrimaryKeys) == sizeof(uint32_t) * 2,
 static_assert(std::is_standard_layout<PackedPrimaryKeys>::value,
               "PackedPrimaryKeys must remain a standard-layout header");
 
-/** @brief Zero-copy view over a `PackedPrimaryKeys` primary-key list. */
+/**
+ * @brief Zero-copy view over a `PackedPrimaryKeys` primary-key list.
+ */
 class PackedPrimaryKeysView {
  public:
-  /** @brief Forward iterator yielding `std::string_view` values into the list.
+  /**
+   * @brief Forward iterator yielding `std::string_view` values into the list.
    */
   class iterator {
    public:

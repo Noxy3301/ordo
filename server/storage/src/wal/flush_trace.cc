@@ -1,3 +1,8 @@
+/**
+ * @file server/storage/src/wal/flush_trace.cc
+ * Timing census of the log's flush groups.
+ */
+
 #include "wal/flush_trace.h"
 
 #include <errno.h>
@@ -18,7 +23,7 @@ namespace {
 void OnDumpSignal(int) { FlushTrace::RequestDump(); }
 
 /**
- * @brief Write one file, and give it its final name only if nothing failed.
+ * @brief Writes one file, and gives it its final name only if nothing failed.
  *
  * A reader decides a file is complete by its name, so a partial write must not
  * reach that name. Every step is checked: a formatting error, a full

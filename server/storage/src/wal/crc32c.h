@@ -1,3 +1,8 @@
+/**
+ * @file server/storage/src/wal/crc32c.h
+ * The checksum every log frame carries.
+ */
+
 #ifndef HELIOS_STORAGE_SRC_WAL_CRC32C_H
 #define HELIOS_STORAGE_SRC_WAL_CRC32C_H
 

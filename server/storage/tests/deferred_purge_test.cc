@@ -1,3 +1,9 @@
+/**
+ * @file server/storage/tests/deferred_purge_test.cc
+ * What a reader observes while a deleted slot waits for the reaper, and
+ * what a re-insert of the same key does to a standing read.
+ */
+
 #include <chrono>
 #include <filesystem>
 #include <string>

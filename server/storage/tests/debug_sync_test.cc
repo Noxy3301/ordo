@@ -1,3 +1,9 @@
+/**
+ * @file server/storage/tests/debug_sync_test.cc
+ * The synchronization points: an armed point blocks until released, an
+ * unarmed one falls through, and a broken pipe is a failure.
+ */
+
 #include "util/debug_sync.h"
 
 #include <fcntl.h>

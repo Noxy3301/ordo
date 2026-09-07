@@ -1,3 +1,9 @@
+/**
+ * @file server/storage/src/index/reaper.h
+ * Physical removal of the slots a commit left empty, deferred until no
+ * reader can still hold a pointer to them.
+ */
+
 #ifndef HELIOS_STORAGE_SRC_INDEX_REAPER_H
 #define HELIOS_STORAGE_SRC_INDEX_REAPER_H
 
@@ -45,7 +51,7 @@ class Reaper {
                TransactionId delete_commit_tid);
 
   /**
-   * @brief Purge every candidate whose delete epoch lies more than one full
+   * @brief Purges every candidate whose delete epoch lies more than one full
    * epoch behind `published_epoch`.
    *
    * Candidates whose slot is locked are requeued; candidates whose slot was
@@ -54,7 +60,7 @@ class Reaper {
   void Reap(EpochNumber published_epoch);
 
  private:
-  /** Which index owns the candidate's slot. */
+  // Which index owns the candidate's slot.
   enum class DeferredPurgeIndexKind { Primary, Secondary };
 
   /**
@@ -105,11 +111,10 @@ class Reaper {
    */
   bool Erase(const Candidate &candidate, TransactionId retired_tid);
 
-  /** Guards the queue: Enqueue runs on committers, Reap on the epoch
-   * thread. */
+  // Guards the queue: Enqueue runs on committers, Reap on the epoch thread.
   std::mutex deferred_purge_mtx_;
   std::vector<Candidate> deferred_purge_candidates_;
-  /** Cumulative totals for the debug log emitted by Reap. */
+  // Cumulative totals for the debug log emitted by Reap.
   uint64_t deferred_purge_reaped_ = 0;
   uint64_t deferred_purge_requeued_ = 0;
   uint64_t deferred_purge_dropped_ = 0;

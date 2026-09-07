@@ -14,6 +14,11 @@
  *   limitations under the License.
  */
 
+/**
+ * @file server/storage/tests/concurrent_create_table_test.cc
+ * Table creation from several threads, across an epoch boundary.
+ */
+
 #include <array>
 #include <atomic>
 #include <chrono>

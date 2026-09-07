@@ -15,6 +15,12 @@
  *   limitations under the License.
  */
 
+/**
+ * @file server/storage/tests/secondary_index_logging_test.cc
+ * That secondary index entries survive recovery without an image, and the
+ * timing the log records for them.
+ */
+
 #include <algorithm>
 #include <chrono>
 #include <cstdio>
@@ -56,7 +62,7 @@ size_t GetLogDirectorySize(const helios::storage::Config &conf) {
 }
 
 /**
- * Reads the log's newest epoch.
+ * @brief Reads the log's newest epoch.
  *
  * The caller must have destroyed the Database first: scanning opens the log and
  * truncates an incomplete tail, which would corrupt a log the flusher is still

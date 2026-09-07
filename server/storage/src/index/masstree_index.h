@@ -1,3 +1,9 @@
+/**
+ * @file server/storage/src/index/masstree_index.h
+ * The ordered key to value map every index is built on, behind a pointer to
+ * implementation that keeps masstree headers out of the rest of the tree.
+ */
+
 #ifndef HELIOS_STORAGE_SRC_INDEX_MASSTREE_INDEX_H
 #define HELIOS_STORAGE_SRC_INDEX_MASSTREE_INDEX_H
 
@@ -14,10 +20,14 @@
 namespace helios::storage {
 namespace index {
 
-// PImpl wrapper around masstree-beta. Masstree headers are confined to
-// masstree_index.cc; this header stays free of masstree to avoid leaking
-// its templates / macros into the rest of LDB (and through there, into tests
-// that do not have masstree on their include path).
+/**
+ * @brief The ordered map every index is built on, behind a pointer to
+ *        implementation.
+ *
+ * @details Masstree headers stay inside masstree_index.cc, so its templates
+ * and macros do not leak into the rest of the tree or into the tests, which
+ * do not have masstree on their include path.
+ */
 class MasstreeIndex final {
  public:
   MasstreeIndex(Config c, epoch::Framework &e);
@@ -34,8 +44,11 @@ class MasstreeIndex final {
   DataItem *Get(std::string_view key);
   bool Put(std::string_view key, DataItem &&rhs);
 
-  // Seed a blank entry for a key that later writes fill in. Idempotent on an
-  // existing key.
+  /**
+   * @brief Seeds a blank entry for a key that later writes fill in.
+   *
+   * @details Idempotent on a key that already exists.
+   */
   void PutBlank(std::string_view key);
 
   // Range operations. Return the number of keys the walk emitted.
@@ -52,10 +65,14 @@ class MasstreeIndex final {
 
   void ForEach(std::function<bool(std::string_view, DataItem &)> operation);
 
-  // Structurally remove a committed tombstone. Called by the deferred purge
-  // reaper only, after it has locked `expected`, verified the delete TID, and
-  // confirmed the key still resolves to the same DataItem. `retired_tid` is
-  // published on the removed item before it is RCU-retired.
+  /**
+   * @brief Removes a committed tombstone structurally.
+   *
+   * @details Called by the deferred purge reaper only, once it has locked
+   * `expected`, verified the delete transaction id and confirmed the key
+   * still resolves to the same DataItem. `retired_tid` is published on the
+   * removed item before it is retired to RCU.
+   */
   bool Purge(std::string_view key, DataItem *expected,
              TransactionId retired_tid = {});
 
@@ -64,22 +81,29 @@ class MasstreeIndex final {
   std::unique_ptr<Impl> impl_;
 };
 
-// Hooks into masstree-beta's RCU machinery. masstree's globalepoch needs
-// to be driven by the host's epoch ticker (MasstreeAdvanceEpoch). Threads
-// that touch the tree enrol implicitly via masstree ops; they close their
-// critical section by calling MasstreeReleaseThreadEpoch at a safe
-// boundary (no raw DataItem* / leaf pointer from this section can be used
-// past the release). There is intentionally no "advance without release"
-// API — re-stamping gc_epoch_ mid-section would let RCU reclaim pointers
-// the caller is still using.
-// Both per-thread functions are no-ops when no masstree threadinfo has
-// been initialised on the current thread.
+/**
+ * @brief Drives masstree's globalepoch from the epoch ticker.
+ */
 void MasstreeAdvanceEpoch();
+
+/**
+ * @brief Closes this thread's reclamation critical section.
+ *
+ * @details A thread enrols implicitly through any masstree op and calls this
+ * at a boundary where no raw DataItem or leaf pointer obtained in the section
+ * is used again. There is deliberately no way to advance without releasing:
+ * re-stamping gc_epoch_ mid-section would let RCU reclaim pointers the caller
+ * still holds. A no-op on a thread with no masstree threadinfo.
+ */
 void MasstreeReleaseThreadEpoch();
-// Like MasstreeReleaseThreadEpoch but pessimistically advances the global
-// epoch in a loop so the calling thread's limbo gets fully drained before
-// it exits. Heavier than a regular release; intended for connection-close
-// paths only.
+
+/**
+ * @brief Releases, then advances the global epoch in a loop until this
+ *        thread's limbo is drained.
+ *
+ * @details Heavier than a plain release, and meant for the path a closing
+ * connection takes. A no-op on a thread with no masstree threadinfo.
+ */
 void MasstreeFullyDrainThread();
 
 }  // namespace index

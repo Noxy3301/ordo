@@ -15,6 +15,11 @@
  *   limitations under the License.
  */
 
+/**
+ * @file server/storage/src/silo/transaction_id.h
+ * The Silo transaction id word: the epoch, the sequence, and the lock bit.
+ */
+
 #ifndef HELIOS_STORAGE_SRC_SILO_TRANSACTION_ID_H
 #define HELIOS_STORAGE_SRC_SILO_TRANSACTION_ID_H
 

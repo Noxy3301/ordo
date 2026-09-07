@@ -14,6 +14,12 @@
  *   limitations under the License.
  */
 
+/**
+ * @file server/storage/src/util/epoch_framework.h
+ * The epoch counter and the thread registry behind it: what advances an
+ * epoch, and what a thread does to enter and leave one.
+ */
+
 #ifndef HELIOS_STORAGE_SRC_UTIL_EPOCH_FRAMEWORK_H
 #define HELIOS_STORAGE_SRC_UTIL_EPOCH_FRAMEWORK_H
 
@@ -34,15 +40,12 @@ namespace helios::storage {
 namespace epoch {
 
 /**
- * @brief
- * Generic framework for thread-safely synchronizing objects.
- * It provides the concept of epoch, the monotonically increasing number which
- * is shared by all threads.
- * This number ensures the thread-safely object deletion.
- * When a thread see that an epoch number of an object is same with the return
- * value of #current_epoch, it means that the object may be accessed
- * simultaneously by the other threads and it is dangerous to do free/delete
- * into the object.
+ * @brief The monotonically increasing number every thread shares, and the
+ *        registry of the threads that participate in it.
+ *
+ * @details An object stamped with an epoch at or above #current_epoch may
+ * still be reachable by another thread, so it cannot be freed. Reclamation
+ * waits until the epoch has passed.
  * @see [Silo]: https://dl.acm.org/doi/10.1145/2517349.2522713
  * @see [FASTER]:
  * https://www.microsoft.com/en-us/research/uploads/prod/2018/03/faster-sigmod18.pdf
@@ -71,8 +74,10 @@ class Framework {
   EpochNumber GetGlobalEpoch() const { return global_epoch_.load(); }
 
   /**
-   * Returns the epoch this thread participates in, or #THREAD_OFFLINE for
-   * none. The slot stays private so that every access to it shares one
+   * @brief Returns the epoch this thread participates in, or #THREAD_OFFLINE
+   *        for none.
+   *
+   * @details The slot stays private so that every access to it shares one
    * sequentially consistent order with #GetSmallestEpoch's scan.
    */
   EpochNumber ThreadEpoch() {
@@ -82,8 +87,10 @@ class Framework {
   }
 
   /**
-   * Overwrites this thread's epoch with a replayed one. Valid only before
-   * #Start(), where the epoch writer has not begun scanning slots.
+   * @brief Overwrites this thread's epoch with a replayed one.
+   *
+   * @details Valid only before #Start(), where the epoch writer has not begun
+   * scanning slots.
    */
   void SetThreadEpoch(const EpochNumber epoch) {
     assert(!start_.load(std::memory_order_seq_cst));
@@ -95,8 +102,10 @@ class Framework {
   }
 
   /**
-   * Joins the current epoch and returns it. The caller must not enqueue log
-   * records, and must not take its commit epoch, before this returns.
+   * @brief Joins the current epoch and returns it.
+   *
+   * @details The caller must not enqueue log records, and must not take its
+   * commit epoch, before this returns.
    *
    * Once this has returned an epoch E, the global epoch cannot reach E+2 while
    * the slot still reads E: only one writer scan that missed the publication
@@ -278,9 +287,8 @@ class Framework {
           std::abort();
         }
         {
-          // fetch_add is atomic, but we hold epoch_mtx_ here to
-          // ensure Sync()'s cv.wait does not miss the subsequent
-          // notify_all (prevents lost-wake race).
+          // fetch_add is atomic, but epoch_mtx_ is held here so that
+          // Sync()'s cv.wait cannot miss the notify_all that follows.
           std::lock_guard<std::mutex> lk(epoch_mtx_);
           global_epoch_.fetch_add(1);
         }

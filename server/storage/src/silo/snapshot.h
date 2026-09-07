@@ -15,6 +15,12 @@
  *   limitations under the License.
  */
 
+/**
+ * @file server/storage/src/silo/snapshot.h
+ * One entry of a transaction's write set, and what it does to the
+ * secondary indexes.
+ */
+
 #ifndef HELIOS_STORAGE_SRC_SILO_SNAPSHOT_H
 #define HELIOS_STORAGE_SRC_SILO_SNAPSHOT_H
 

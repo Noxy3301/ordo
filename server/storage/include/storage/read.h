@@ -1,4 +1,5 @@
-/** @file server/storage/include/storage/read.h
+/**
+ * @file server/storage/include/storage/read.h
  * What a read observes: the outcome of a point read and of every scan.
  */
 
@@ -19,9 +20,9 @@ namespace helios::storage {
  * ExternalReadEntry to assert that the row did not move before commit.
  */
 struct ReadResult {
-  bool found = false;  ///< True when the key existed and was non-empty.
-  std::string value;   ///< Row payload, valid only when @ref found is true.
-  uint64_t tid = 0;    ///< Packed (epoch | tid) version observed at read time.
+  bool found = false;  // True when the key existed and was non-empty.
+  std::string value;   // Row payload, valid only when `found` is true.
+  uint64_t tid = 0;    // Packed (epoch | tid) version observed at read time.
 };
 
 /**
@@ -30,9 +31,9 @@ struct ReadResult {
 struct ScanRow {
   std::string key;
   std::string value;
-  uint64_t tid = 0;    ///< Packed version observed for this row.
-  bool found = false;  ///< Tombstones are normally filtered out before this
-                       ///< struct is produced.
+  uint64_t tid = 0;    // Packed version observed for this row.
+  bool found = false;  // Tombstones are normally filtered out before this
+                       // struct is produced.
 };
 
 /**
@@ -45,7 +46,7 @@ struct ScanIndexRow {
   std::string secondary_key;
   std::string primary_key;
   std::string value;
-  uint64_t tid = 0;  ///< Packed version of the base row.
+  uint64_t tid = 0;  // Packed version of the base row.
   bool found = false;
 };
 

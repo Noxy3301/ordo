@@ -1,3 +1,9 @@
+/**
+ * @file server/storage/src/wal/crc32c.cc
+ * The checksum every log frame carries: hardware where the CPU has it,
+ * a table otherwise.
+ */
+
 #include "wal/crc32c.h"
 
 #include <array>

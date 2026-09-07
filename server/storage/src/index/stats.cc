@@ -1,6 +1,8 @@
-// stats.cc
-// Index statistics the proxy turns into optimizer estimates: exact NDV per
-// key-part prefix and an equi-depth histogram of the leading key part.
+/**
+ * @file server/storage/src/index/stats.cc
+ * Index statistics a query layer turns into optimizer estimates: exact NDV
+ * per key-part prefix and an equi-depth histogram of the leading key part.
+ */
 
 #include <xmmintrin.h>
 

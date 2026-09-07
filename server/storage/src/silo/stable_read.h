@@ -1,3 +1,10 @@
+/**
+ * @file server/storage/src/silo/stable_read.h
+ * The read of a row consistent with one version (Silo's tuple.h stable_read):
+ * load the TID, yield while the lock bit is set, copy, then re-load the TID
+ * and retry until it has not moved. The returned TID is that version.
+ */
+
 #ifndef HELIOS_STORAGE_SRC_SILO_STABLE_READ_H
 #define HELIOS_STORAGE_SRC_SILO_STABLE_READ_H
 
@@ -13,16 +20,6 @@
 
 namespace helios::storage {
 namespace silo {
-
-/**
- * @brief Silo-style stable read (tuple.h stable_read in the reference
- * implementation): load the TID, yield while the lock bit (LSB) is set,
- * copy the payload, then re-load the TID and retry until it has not moved.
- *
- * silo::Read and ReadDirect run the same loop inline; these helpers
- * serve callers that need the copy without a transaction. The returned TID
- * is the version the copy is consistent with.
- */
 
 struct StableValue {
   bool found = false;

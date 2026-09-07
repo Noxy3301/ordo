@@ -1,3 +1,9 @@
+/**
+ * @file server/storage/src/wal/wal.cc
+ * The log file itself: the frame layout, the reserved capacity, and the
+ * startup scan that decides what survived.
+ */
+
 #include "wal/wal.h"
 
 #include <errno.h>
@@ -274,7 +280,7 @@ bool Wal::PreadAll(uint8_t *out, size_t size, off_t offset, int *error) const {
     }
     if (got < 0 && errno == EINTR) continue;
     // A short read below the size fstat reported means the file changed
-    // under us, which this design does not allow.
+    // under the reader, which this design does not allow.
     *error = got == 0 ? EIO : errno;
     return false;
   }

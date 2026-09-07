@@ -1,3 +1,8 @@
+/**
+ * @file server/storage/src/silo/commit.cc
+ * The commit protocol step by step: resolve, lock, validate, install.
+ */
+
 #include "silo/commit.h"
 
 #include <xmmintrin.h>
@@ -130,10 +135,10 @@ struct Ctx {
   }
 
   // Silo Phase 2 read validation is wait-free: a record locked by another
-  // transaction is treated as dirty and forces abort. Spinning here breaks
-  // the paper's deadlock-freedom invariant — sorted write-lock acquisition
-  // protects only write-to-write edges, not read-to-write edges introduced
-  // by validators.
+  // transaction is treated as dirty and forces abort. Spinning here would
+  // break the paper's deadlock-freedom invariant, since sorted write-lock
+  // acquisition protects only write-to-write edges, not the read-to-write
+  // edges validators introduce.
   bool LockedByOther(DataItem *item) const {
     TransactionId tid = item->transaction_id.load();
     if (!(tid.tid & 1u)) return false;
@@ -169,9 +174,9 @@ bool Resolve(Ctx &c, std::shared_mutex &schema_mutex) {
 
   // Resolve row writes and deletes to the primary-index entries to lock.
   // R2: a key with no DataItem yet cannot be locked, so GetOrInsert
-  // materializes a blank slot (uninitialized, TID 0); this mutates the
-  // tree but takes no row lock — Silo's native insert stages an "absent"
-  // record the same way.
+  // materializes a blank slot (uninitialized, TID 0); this mutates the tree
+  // but takes no row lock (Silo's native insert stages an "absent" record the
+  // same way).
   c.writes.reserve(c.payload.writes.size());
   for (const auto &write : c.payload.writes) {
     auto table = c.tables.GetTable(write.table_name);
@@ -250,7 +255,7 @@ bool Resolve(Ctx &c, std::shared_mutex &schema_mutex) {
 // Phase 1.1: address-sort and CAS-lock every write target. One global lock
 // order keeps concurrent committers free of write-write deadlock; the
 // pre-lock TID is kept because validation must compare reads against it, not
-// against the TID we just dirtied.
+// against the TID this transaction has just dirtied.
 bool Lock(Ctx &c) {
   std::sort(c.items.begin(), c.items.end());
   c.items.erase(std::unique(c.items.begin(), c.items.end()), c.items.end());
@@ -498,7 +503,7 @@ bool ValidateInserts(Ctx &c) {
 }
 
 // Phase 2.4: post-lock UNIQUE recheck. A competing add may have installed the
-// same secondary key while we were waiting on the write lock, so the
+// same secondary key during the wait on the write lock, so the
 // resolve-time dedup (R3) is not enough on its own.
 bool ValidateUnique(Ctx &c) {
   std::unordered_map<DataItem *, PackedPrimaryKeys::Ptr> si_primary_keys;
@@ -582,7 +587,7 @@ void Install(Ctx &c) {
 }
 
 // Phase 3.2: build the log snapshot before unlock so a later transaction
-// cannot overwrite the values we just logged.
+// cannot overwrite the values just logged.
 WriteSetType BuildLog(Ctx &c) {
   WriteSetType log_set;
 
@@ -705,11 +710,11 @@ bool Commit(TableDictionary &tables, std::shared_mutex &schema_mutex,
 
   if (!Lock(c)) return false;
 
-  // Phase 1.2: re-read the global epoch with all locks held — the
-  // serialization point: epoch-grouped commit and recovery follow the
-  // serial order only if the commit epoch is taken here. The thread-local
-  // epoch is fixed at join time, so leaving and re-joining is the only way
-  // to re-read it.
+  // Phase 1.2: re-read the global epoch with all locks held. This is the
+  // serialization point: epoch-grouped commit and recovery follow the serial
+  // order only if the commit epoch is taken here. The thread-local epoch is
+  // fixed at join time, so leaving and re-joining is the only way to re-read
+  // it.
   epoch_framework.Leave();
   epoch_framework.Join();
 

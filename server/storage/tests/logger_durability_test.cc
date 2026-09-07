@@ -1,3 +1,9 @@
+/**
+ * @file server/storage/tests/logger_durability_test.cc
+ * What the log reports as persisted, when a waiter wakes, and what a
+ * synchronous acknowledgement waits for.
+ */
+
 #include <errno.h>
 #include <gtest/gtest.h>
 #include <signal.h>
@@ -59,7 +65,7 @@ class LoggerDurabilityTest : public ::testing::Test {
     return write_set;
   }
 
-  /** A write set of secondary snapshots with no delta persists nothing. */
+  // A write set of secondary snapshots with no delta persists nothing.
   static WriteSetType MakeEmptySecondaryWriteSet(const std::string &key) {
     Snapshot snapshot(key, nullptr, 0, nullptr, "t", "idx");
     WriteSetType write_set;

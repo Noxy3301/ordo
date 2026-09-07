@@ -1,3 +1,9 @@
+/**
+ * @file server/storage/src/pax/version_store.h
+ * The before-images a writer captures for the slots a columnar read view is
+ * still looking at.
+ */
+
 #ifndef HELIOS_STORAGE_SRC_PAX_VERSION_STORE_H
 #define HELIOS_STORAGE_SRC_PAX_VERSION_STORE_H
 
@@ -16,7 +22,7 @@ namespace helios::storage {
 namespace pax {
 
 /**
- * @brief Undo-style version store for columnar read views.
+ * @brief Before-image store that keeps a columnar read view consistent.
  *
  * @details While at least one read view is active (capture_active > 0), every
  * PAX install publishes the replaced row image before its first strip-cell

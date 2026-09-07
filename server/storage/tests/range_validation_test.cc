@@ -1,3 +1,9 @@
+/**
+ * @file server/storage/tests/range_validation_test.cc
+ * Which changes inside a validated range abort the transaction that read
+ * it, and which fall outside its cap.
+ */
+
 #include <filesystem>
 #include <string>
 #include <vector>
@@ -34,7 +40,7 @@ bool CommitDelete(helios::storage::Database &db, const std::string &key) {
   return committed;
 }
 
-/// Scan the range and assemble the evidence a caller submits at commit.
+// Scans the range and assembles the evidence a caller submits at commit.
 helios::storage::ExternalRangeReadEntry ScanRange(helios::storage::Database &db,
                                                   const std::string &start_key,
                                                   const std::string &end_key,
@@ -71,8 +77,8 @@ void SeedRows(helios::storage::Database &db) {
   }
 }
 
-/// Materialize a key without ever initializing it. Resolving a write inserts
-/// the slot before validation runs, and an aborted commit leaves it behind.
+// Materializes a key without ever initializing it. Resolving a write inserts
+// the slot before validation runs, and an aborted commit leaves it behind.
 void LeaveBlankSlot(helios::storage::Database &db, const std::string &key) {
   std::string reason;
   const bool committed =

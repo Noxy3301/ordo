@@ -1,3 +1,8 @@
+/**
+ * @file server/storage/tests/recovery_tid_test.cc
+ * That the transaction id a recovered key carries admits the next write.
+ */
+
 #include <filesystem>
 #include <memory>
 #include <string>

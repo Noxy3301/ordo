@@ -1,3 +1,8 @@
+/**
+ * @file server/storage/tests/scan_delete_visibility_test.cc
+ * That a scan does not return a key deleted in an earlier transaction.
+ */
+
 #include <filesystem>
 #include <memory>
 #include <string>

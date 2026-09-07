@@ -1,3 +1,9 @@
+/**
+ * @file server/storage/tests/packed_primary_keys_test.cc
+ * The packed primary-key list against a vector oracle: insert, erase, and
+ * randomized operations in lockstep.
+ */
+
 #include "index/packed_primary_keys.h"
 
 #include <algorithm>

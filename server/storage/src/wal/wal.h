@@ -1,3 +1,9 @@
+/**
+ * @file server/storage/src/wal/wal.h
+ * The log file itself: the frame layout, the reserved capacity, and the
+ * startup scan that decides what survived.
+ */
+
 #ifndef HELIOS_STORAGE_SRC_WAL_WAL_H
 #define HELIOS_STORAGE_SRC_WAL_WAL_H
 
@@ -58,8 +64,10 @@ struct WalScanResult {
   int error_number{0};
   std::string detail;
   /**
-   * Frames the scan did not decode, and what they held. Verified by checksum
-   * unless the scan hopped over it by header alone; see ScanAndRepair.
+   * @brief Frames the scan did not read, and what they held.
+   *
+   * @details Verified by checksum unless the scan hopped over it by header
+   * alone; see ScanAndRepair.
    */
   size_t frames_skipped{0};
   uint64_t bytes_skipped{0};
@@ -154,7 +162,7 @@ class Wal {
    * the next scan cannot place. A scan run after this instance has already
    * failed does not retry; it reports the failure again.
    *
-   * A frame at or below `min_epoch` is counted but not decoded, for a caller
+   * A frame at or below `min_epoch` is counted but not read, for a caller
    * that already holds the state it would rebuild; the frontier and log end
    * still come from every frame. Such a frame is hopped by header alone,
    * except the boundary frame, which is read and checksummed in full. A
@@ -183,8 +191,10 @@ class Wal {
 
   const std::string &path() const { return path_; }
 
-  /** @brief Offset one past the last frame, which is where the next group
-   * lands. */
+  /**
+   * @brief Offset one past the last frame, which is where the next group
+   *        lands.
+   */
   off_t write_offset() const { return write_offset_; }
 
   /**

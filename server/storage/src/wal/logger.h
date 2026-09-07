@@ -13,6 +13,13 @@
  *   See the License for the specific language governing permissions and
  *   limitations under the License.
  */
+
+/**
+ * @file server/storage/src/wal/logger.h
+ * The write-ahead log and the durability frontier a synchronous commit
+ * waits on.
+ */
+
 #ifndef HELIOS_STORAGE_SRC_WAL_LOGGER_H
 #define HELIOS_STORAGE_SRC_WAL_LOGGER_H
 
@@ -119,8 +126,6 @@ class Logger {
    * would hold the epoch that has to close before the wait can end.
    */
   WaitResult WaitUntilDurable(EpochNumber commit_epoch, Deadline deadline);
-
-  /** True when this logger writes records at all. */
 
   /**
    * @brief Returns once the transaction that committed in `commit_epoch` may

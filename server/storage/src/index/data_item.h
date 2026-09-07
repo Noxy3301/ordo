@@ -15,6 +15,12 @@
  *   limitations under the License.
  */
 
+/**
+ * @file server/storage/src/index/data_item.h
+ * What the index maps a key to: the Silo transaction id word and the row
+ * payload behind it.
+ */
+
 #ifndef HELIOS_STORAGE_SRC_INDEX_DATA_ITEM_H
 #define HELIOS_STORAGE_SRC_INDEX_DATA_ITEM_H
 

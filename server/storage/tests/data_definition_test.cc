@@ -14,6 +14,12 @@
  *   limitations under the License.
  */
 
+/**
+ * @file server/storage/tests/data_definition_test.cc
+ * Tables as units of naming and of concurrency control: the same key in
+ * two tables is two rows.
+ */
+
 #include <atomic>
 #include <filesystem>
 #include <memory>

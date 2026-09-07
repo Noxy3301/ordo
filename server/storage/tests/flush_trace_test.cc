@@ -1,3 +1,9 @@
+/**
+ * @file server/storage/tests/flush_trace_test.cc
+ * The flush census: what a dump writes, and how a second dump and an
+ * unusable generation are handled.
+ */
+
 #include "wal/flush_trace.h"
 
 #include <fcntl.h>

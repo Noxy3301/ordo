@@ -1,3 +1,9 @@
+/**
+ * @file server/storage/src/silo/commit.h
+ * The entry point of the commit protocol, and the entries a caller submits
+ * as its read evidence and its writes.
+ */
+
 #ifndef HELIOS_STORAGE_SRC_SILO_COMMIT_H
 #define HELIOS_STORAGE_SRC_SILO_COMMIT_H
 
@@ -38,7 +44,7 @@ struct CommitPayload {
 };
 
 /**
- * @brief Run the Silo commit protocol for a transaction whose read and
+ * @brief Runs the Silo commit protocol for a transaction whose read and
  * write sets were assembled by the caller through the read API.
  *
  * @details
@@ -74,10 +80,10 @@ struct CommitPayload {
  * @note Read validation is logical: Phase 2 re-reads every key and
  * replays every scan, then requires the observed TIDs and the result
  * key lists to be unchanged. Silo instead guards ranges with Masstree
- * node versions — referred to as physical validation here — but a node
- * version is bound to a node pointer, and this server keeps no
- * per-transaction state that could pin such a pointer across the RPC
- * boundary, so its lifetime cannot be guaranteed.
+ * node versions (physical validation), but a node version is bound to a
+ * node pointer, and this server keeps no per-transaction state that could
+ * pin such a pointer across the RPC boundary, so its lifetime cannot be
+ * guaranteed.
  *
  * @param durability Whether this commit's acknowledgement waits for its epoch
  * to reach the device. A logger that writes no records ignores it: step 3.5

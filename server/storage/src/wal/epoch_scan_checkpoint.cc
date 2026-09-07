@@ -1,3 +1,9 @@
+/**
+ * @file server/storage/src/wal/epoch_scan_checkpoint.cc
+ * The image of the live rows, scanned while transactions keep running and
+ * merged with the log at recovery.
+ */
+
 #include "wal/epoch_scan_checkpoint.h"
 
 #include <errno.h>
@@ -120,8 +126,10 @@ bool ReadAll(int fd, void *data, size_t size, off_t offset) {
   return true;
 }
 
-// Closes a descriptor on every path out of a function, including one an
-// allocation left through.
+/**
+ * @brief Closes a descriptor on every path out of a function, including the
+ *        one an allocation throws through.
+ */
 struct OpenFile {
   explicit OpenFile(int descriptor) : fd(descriptor) {}
   ~OpenFile() {
@@ -158,10 +166,12 @@ const char *EpochScanCheckpoint::WorkingFileName() {
 }
 
 /**
- * Copies one row's bytes together with the version they belong to, by the
- * read path's protocol: refuse a locked version, copy, confirm the version
- * did not move. A row locked for the whole budget is unstable rather than
- * skipped, since its holder may abort and leave no record of the value.
+ * @brief Copies one row's bytes together with the version they belong to.
+ *
+ * @details Follows the read path's protocol: refuse a locked version, copy,
+ * then confirm the version did not move. A row locked for the whole budget is
+ * unstable rather than skipped, since its holder may abort and leave no record
+ * of the value.
  */
 EpochScanCheckpoint::Capture EpochScanCheckpoint::CapturePrimaryRow(
     const std::string &table_name, std::string_view key, const DataItem &item,
@@ -202,9 +212,11 @@ EpochScanCheckpoint::Capture EpochScanCheckpoint::CapturePrimaryRow(
 }
 
 /**
- * Copies one secondary key's whole primary-key list under the same protocol.
- * The list is a complete posting list rather than a delta, so a later delta
- * in the log composes with it the way one delta composes with another.
+ * @brief Copies one secondary key's whole primary-key list under the same
+ *        protocol.
+ *
+ * @details The list is a complete posting list rather than a delta, so a later
+ * delta in the log composes with it the way one delta composes with another.
  */
 EpochScanCheckpoint::Capture EpochScanCheckpoint::CaptureSecondaryEntry(
     const std::string &table_name, const std::string &index_name,

@@ -14,6 +14,11 @@
  *   limitations under the License.
  */
 
+/**
+ * @file server/storage/src/wal/thread_local_logger.cc
+ * Per-thread record buffers and the one flusher thread that writes them.
+ */
+
 #include "wal/thread_local_logger.h"
 
 #include <errno.h>

@@ -1,3 +1,9 @@
+/**
+ * @file server/storage/src/wal/epoch_scan_checkpoint.h
+ * The image of the live rows, scanned while transactions keep running and
+ * merged with the log at recovery.
+ */
+
 #ifndef HELIOS_STORAGE_SRC_WAL_EPOCH_SCAN_CHECKPOINT_H
 #define HELIOS_STORAGE_SRC_WAL_EPOCH_SCAN_CHECKPOINT_H
 
@@ -38,7 +44,9 @@ class Logger;
  */
 class EpochScanCheckpoint {
  public:
-  /** @brief What one capture did, for the line it logs when it completes. */
+  /**
+   * @brief What one capture did, for the line it logs when it completes.
+   */
   struct Stats {
     uint64_t generation{0};
     EpochNumber cut_epoch{0};
@@ -90,7 +98,9 @@ class EpochScanCheckpoint {
    */
   void Start();
 
-  /** @brief Stops the thread, waiting for a capture in progress to finish. */
+  /**
+   * @brief Stops the thread, waiting for a capture in progress to finish.
+   */
   void Stop();
 
   /**
@@ -111,9 +121,13 @@ class EpochScanCheckpoint {
    */
   static Image Load(const std::string &work_dir);
 
-  /** @brief Name of the published image inside the working directory. */
+  /**
+   * @brief Name of the published image inside the working directory.
+   */
   static const char *ImageFileName();
-  /** @brief Name of the file a capture writes before it publishes. */
+  /**
+   * @brief Name of the file a capture writes before it publishes.
+   */
   static const char *WorkingFileName();
 
   static constexpr uint32_t kMagic = 0x504b434c;  // "LCKP"
@@ -124,7 +138,9 @@ class EpochScanCheckpoint {
   static constexpr size_t kHeaderSize = 56;
 
  private:
-  /** @brief What one attempt at one row produced. */
+  /**
+   * @brief What one attempt at one row produced.
+   */
   enum class Capture { Taken, Skipped, Unstable };
 
   static Capture CapturePrimaryRow(const std::string &table_name,

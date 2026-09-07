@@ -1,3 +1,9 @@
+/**
+ * @file server/storage/src/index/reaper.cc
+ * The deferred purge queue: candidates wait for an epoch no reader can be
+ * in before their slots are erased.
+ */
+
 #include "index/reaper.h"
 
 #include <iterator>

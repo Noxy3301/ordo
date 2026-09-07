@@ -1,4 +1,5 @@
-/** @file server/storage/include/storage/commit.h
+/**
+ * @file server/storage/include/storage/commit.h
  * What a commit is assembled from: the evidence a transaction observed, the
  * writes it installs, and when it is acknowledged.
  */
@@ -41,11 +42,15 @@ struct ExternalWriteEntry {
   bool is_insert = false;
 };
 
-/// Abort reason Commit reports when an insert entry finds a live
-/// row.
+/**
+ * @brief Abort reason Commit reports when an insert entry finds a live row.
+ */
 inline constexpr char kDuplicateKeyAbortReason[] = "duplicate_primary_key";
 
-/// Every abort reason for a refused UNIQUE secondary key starts with this.
+/**
+ * @brief Every abort reason for a refused UNIQUE secondary key starts with
+ * this.
+ */
 inline constexpr char kDuplicateSecondaryKeyAbortPrefix[] = "unique_si_";
 
 /**
@@ -59,8 +64,8 @@ inline constexpr char kDuplicateSecondaryKeyAbortPrefix[] = "unique_si_";
  * durability, COMMIT NOWAIT.
  */
 enum class CommitDurability {
-  kSync,   ///< Acknowledged once the committer's own epoch is durable.
-  kAsync,  ///< Acknowledged at precommit; a crash can lose it.
+  kSync,   // Acknowledged once the committer's own epoch is durable.
+  kAsync,  // Acknowledged at precommit; a crash can lose it.
 };
 
 /**
@@ -86,14 +91,14 @@ struct ExternalSecondaryIndexEntry {
  */
 struct ExternalRangeReadEntry {
   std::string table_name;
-  std::string index_name;     ///< Empty marks a primary-index range.
-  std::string start_key;      ///< Scan start (inclusive).
-  std::string end_key;        ///< Scan end (exclusive). Must be non-empty.
-  uint64_t row_limit = 0;     ///< Row cap applied during scan.
-  bool reverse_scan = false;  ///< Scan direction.
-  std::vector<std::string> result_keys;  ///< Observed key set.
+  std::string index_name;     // Empty marks a primary-index range.
+  std::string start_key;      // Scan start (inclusive).
+  std::string end_key;        // Scan end (exclusive). Must be non-empty.
+  uint64_t row_limit = 0;     // Row cap applied during scan.
+  bool reverse_scan = false;  // Scan direction.
+  std::vector<std::string> result_keys;  // Observed key set.
   std::vector<std::string>
-      result_primary_keys;  ///< Secondary index: paired primary keys.
+      result_primary_keys;  // Secondary index: paired primary keys.
 };
 
 }  // namespace helios::storage

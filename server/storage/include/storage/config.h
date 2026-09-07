@@ -14,6 +14,12 @@
  *   limitations under the License.
  */
 
+/**
+ * @file server/storage/include/storage/config.h
+ * Startup configuration of a storage instance: where it keeps its files,
+ * how long an epoch lasts, and which durability contract it runs under.
+ */
+
 #ifndef HELIOS_STORAGE_INCLUDE_STORAGE_CONFIG_H
 #define HELIOS_STORAGE_INCLUDE_STORAGE_CONFIG_H
 
@@ -24,20 +30,15 @@
 namespace helios::storage {
 
 /**
- * @brief
- * Configuration and options for LineairDB instances.
+ * @brief Configuration and options for one storage instance.
  */
 struct Config {
   /**
-   * @brief
-   * The size of epoch duration (milliseconds). See [Tu13, Chandramouli18] to
-   * get more details of epoch-based group commit. Briefly, LineairDB
-   * concurrently processes transactions included in the same epoch duration. As
-   * you set the larger duration to this paramter, you may get a higher
-   * throughput. However, this setting results in the increase of average
-   * response time.
+   * @brief Length of one epoch, in milliseconds.
    *
-   * Default: 40ms.
+   * @details Transactions inside the same epoch are group-committed together,
+   * so a longer duration raises throughput and raises average response time
+   * with it. Default 40 ms.
    * @see [Tu13] https://dl.acm.org/doi/10.1145/2517349.2522713
    * @see [Chandramouli18]
    * https://www.microsoft.com/en-us/research/uploads/prod/2018/03/faster-sigmod18.pdf
@@ -45,29 +46,26 @@ struct Config {
   size_t epoch_duration_ms = 40;
 
   /**
-   * @brief
-   * If true, tables may install PAX storage metadata and route newly-created
-   * row payloads through PaxStore.
+   * @brief Whether tables may install PAX storage metadata and route newly
+   *        created row payloads through PaxStore.
    *
    * Default: false.
    */
   bool enable_pax_storage = false;
 
   /**
-   * @brief
-   * If true, LineairDB processes recovery at the instantiation.
+   * @brief Whether the instance recovers from its log at construction.
    *
    * Default: true
    */
   bool enable_recovery = true;
 
   /**
-   * @brief
-   * How much of the write-ahead log is made writable in place at a time.
+   * @brief How much of the write-ahead log is made writable in place at a
+   *        time.
    *
-   * @details
-   * The log file is written out with zeroes to this size before any record
-   * lands in it, and records are then written in place, so a commit's
+   * @details The log file is written out with zeroes to this size before any
+   * record lands in it, and records are then written in place, so a commit's
    * fdatasync persists data and not the size, allocation, or extent-state
    * metadata a growing file drags in (the benefit is filesystem- and
    * device-specific). A log that grows past it is extended by the same
@@ -86,9 +84,8 @@ struct Config {
   uint64_t wal_initial_capacity_bytes = 64ull * 1024ull * 1024ull;
 
   /**
-   * @brief
-   * How often (milliseconds) an image of the live rows is written, or zero to
-   * write none.
+   * @brief How often, in milliseconds, an image of the live rows is
+   *        written; zero writes none.
    *
    * The image is scanned while transactions keep running and is merged with
    * the log at recovery, which is what bounds the part of the log that has to
@@ -102,19 +99,19 @@ struct Config {
   size_t checkpoint_interval_ms = 0;
 
   /**
-   * @brief
-   * One image written this many milliseconds after startup, or zero for none.
-   * Independent of checkpoint_interval_ms, which keeps its own cadence
-   * afterwards when both are set.
+   * @brief One image written this many milliseconds after startup; zero
+   *        writes none.
+   *
+   * @details Independent of checkpoint_interval_ms, which keeps its own
+   * cadence afterwards when both are set.
    *
    * Default: 0 (no image)
    */
   size_t checkpoint_once_after_ms = 0;
 
   /**
-   * @brief
-   * The directory path that lineardb use as working directory.
-   * All of data, logs and related files are stored in the directory.
+   * @brief The working directory, which holds the log and every related
+   *        file.
    *
    * Default: "helios_wal"
    */

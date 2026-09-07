@@ -14,6 +14,12 @@
  *   limitations under the License.
  */
 
+/**
+ * @file server/storage/tests/create_secondary_index_test.cc
+ * Declaring secondary indexes: key types, several per table, duplicates,
+ * and a table that does not exist.
+ */
+
 #include <filesystem>
 #include <memory>
 

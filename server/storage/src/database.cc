@@ -14,6 +14,12 @@
  *   limitations under the License.
  */
 
+/**
+ * @file server/storage/src/database.cc
+ * Database forwarding to its implementation, and the startup and shutdown
+ * order of the epoch framework, the log and the reaper.
+ */
+
 #include "storage/database.h"
 
 #include <algorithm>
@@ -175,7 +181,7 @@ Database::Impl::Impl(const Config &c)
   }
   // Always scan the log, even without recovery: an interrupted tail has to be
   // removed before the first append lands behind it, and recovery only
-  // controls whether the decoded records are replayed into the database.
+  // controls whether the records the scan read are replayed.
   if (config_.enable_recovery) {
     Recovery();
   } else {
@@ -245,7 +251,7 @@ std::function<void(EpochNumber)> Database::Impl::EpochHook() {
     // Tick masstree's globalepoch so RCU can free retired leaves and
     // DataItem* limbo once min_active_epoch() catches up. Workers
     // release their epoch at tx/RPC boundaries via
-    // ReleaseThreadEpoch; we only move the watermark here.
+    // ReleaseThreadEpoch; this call only moves the watermark.
     reaper_.Reap(updated_epoch);
     index::MasstreeAdvanceEpoch();
   };

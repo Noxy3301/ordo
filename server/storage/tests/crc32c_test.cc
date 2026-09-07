@@ -1,3 +1,9 @@
+/**
+ * @file server/storage/tests/crc32c_test.cc
+ * The checksum against published vectors, and the hardware and table
+ * implementations against each other.
+ */
+
 #include "wal/crc32c.h"
 
 #include <algorithm>

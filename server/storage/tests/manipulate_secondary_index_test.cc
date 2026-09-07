@@ -14,6 +14,12 @@
  *   limitations under the License.
  */
 
+/**
+ * @file server/storage/tests/manipulate_secondary_index_test.cc
+ * Reading and writing through secondary indexes, including the moves and
+ * removals an update makes.
+ */
+
 #include <filesystem>
 #include <memory>
 #include <set>

@@ -13,6 +13,12 @@
  *   See the License for the specific language governing permissions and
  *   limitations under the License.
  */
+/**
+ * @file server/storage/src/database_impl.h
+ * The implementation behind Database: it owns the table dictionary, the
+ * epoch framework, the log and the PAX version store.
+ */
+
 #ifndef HELIOS_STORAGE_SRC_DATABASE_IMPL_H
 #define HELIOS_STORAGE_SRC_DATABASE_IMPL_H
 
@@ -39,10 +45,13 @@
 
 namespace helios::storage {
 
-// The concurrency control this database runs.
-
-// Bodies live in database.cc (lifecycle, tables, reads, commit),
-// pax/view.cc, and index/stats.cc.
+/**
+ * @brief Everything a Database owns, behind its public face.
+ *
+ * @details The definitions are split across database.cc for the lifecycle,
+ * the tables, the reads and the commit, pax/view.cc for the columnar view,
+ * and index/stats.cc for the statistics.
+ */
 class Database::Impl {
  public:
   inline static Database::Impl *CurrentDBInstance;
@@ -126,7 +135,7 @@ class Database::Impl {
                         bool reverse_scan);
 
   /**
-   * @brief Compute exact NDV for each integer key-part prefix of one index.
+   * @brief Computes exact NDV for each integer key-part prefix of one index.
    *
    * @details The query layer uses this to set MySQL `rec_per_key`. The scan
    * counts live index entries only. If `parts` refuses a live key, the method
@@ -137,7 +146,7 @@ class Database::Impl {
                 const KeyParts &parts, std::vector<uint64_t> &out_ndv);
 
   /**
-   * @brief Build an equi-depth histogram for one index's leading key part.
+   * @brief Builds an equi-depth histogram for one index's leading key part.
    *
    * @details The query layer uses the returned boundaries to estimate
    * one-column range cardinality locally. The scan is independent of
@@ -178,4 +187,4 @@ class Database::Impl {
 };
 
 }  // namespace helios::storage
-#endif /** HELIOS_STORAGE_SRC_DATABASE_IMPL_H **/
+#endif  // HELIOS_STORAGE_SRC_DATABASE_IMPL_H

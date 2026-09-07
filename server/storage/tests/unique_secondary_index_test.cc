@@ -1,3 +1,8 @@
+/**
+ * @file server/storage/tests/unique_secondary_index_test.cc
+ * That a unique secondary index rejects a duplicate secondary key.
+ */
+
 #include <filesystem>
 #include <memory>
 #include <string>

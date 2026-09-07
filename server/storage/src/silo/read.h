@@ -1,3 +1,10 @@
+/**
+ * @file server/storage/src/silo/read.h
+ * The read side of the store: point reads and range scans. Each call takes a
+ * shared lock on the schema, copies rows with the Silo-style stable read, and
+ * returns the packed TIDs a later commit validates as read-set evidence.
+ */
+
 #ifndef HELIOS_STORAGE_SRC_SILO_READ_H
 #define HELIOS_STORAGE_SRC_SILO_READ_H
 
@@ -14,18 +21,10 @@ namespace helios::storage {
 
 class TableDictionary;
 
-/**
- * The read side of the engine: point reads and range scans. The
- * functions hold no state between calls, so they take the table dictionary
- * and the schema mutex from the caller instead of owning them. Every call
- * takes a shared lock on the schema, resolves index slots, and copies rows
- * with the Silo-style stable read; the returned packed TIDs are the read-set
- * evidence the caller later submits through Commit.
- */
 namespace silo {
 
 /**
- * @brief Read one row.
+ * @brief Reads one row.
  *
  * Takes a shared lock on the schema, resolves the primary-index slot, and
  * performs a Silo-style double TID read on the DataItem: load the TID,
@@ -38,7 +37,7 @@ ReadResult Read(TableDictionary &tables, std::shared_mutex &schema_mutex,
                 const std::vector<uint32_t> *selected_columns = nullptr);
 
 /**
- * @brief Read several rows in one call.
+ * @brief Reads several rows in one call.
  *
  * Reuses the point read per entry. Reads are independent, so this is purely a
  * transport optimization that lets a caller fold N point reads into one
@@ -49,7 +48,7 @@ std::vector<ReadResult> BatchRead(
     const std::vector<std::pair<std::string, std::string>> &keys);
 
 /**
- * @brief Range-scan the primary index and return the rows observed in
+ * @brief Range-scans the primary index and returns the rows observed in
  *        the range.
  *
  * Drives index::Scan / index::ScanReverse with a callback that, for each
@@ -68,7 +67,7 @@ ScanResult Scan(TableDictionary &tables, std::shared_mutex &schema_mutex,
                 const std::vector<uint32_t> *selected_columns = nullptr);
 
 /**
- * @brief Range-scan a secondary index and resolve each hit to its base
+ * @brief Range-scans a secondary index and resolves each hit to its base
  *        row.
  *
  * For every secondary key in `[start_key, end_key)`, pins its immutable

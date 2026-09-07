@@ -14,6 +14,11 @@
  *   limitations under the License.
  */
 
+/**
+ * @file server/storage/src/index/primary_index.h
+ * The primary index: the key to DataItem map every base row lives in.
+ */
+
 #ifndef HELIOS_STORAGE_SRC_INDEX_PRIMARY_INDEX_H
 #define HELIOS_STORAGE_SRC_INDEX_PRIMARY_INDEX_H
 

@@ -1,3 +1,8 @@
+/**
+ * @file server/storage/src/wal/flush_trace.h
+ * Timing census of the log's flush groups.
+ */
+
 #ifndef HELIOS_STORAGE_SRC_WAL_FLUSH_TRACE_H
 #define HELIOS_STORAGE_SRC_WAL_FLUSH_TRACE_H
 
@@ -104,7 +109,9 @@ class FlushTrace {
     uint8_t not_durable_at_enter;
   };
 
-  /** @brief One epoch handed to the flusher as closed. */
+  /**
+   * @brief One epoch handed to the flusher as closed.
+   */
   struct CloseRow {
     EpochNumber closed;
     int64_t close_enter;
@@ -118,7 +125,10 @@ class FlushTrace {
 
   bool Enabled() const { return enabled_; }
 
-  /** @brief Nanoseconds on the steady clock. Only differences are meaningful.
+  /**
+   * @brief Nanoseconds on the steady clock.
+   *
+   * @details Only differences are meaningful.
    */
   static int64_t Now() {
     return std::chrono::duration_cast<std::chrono::nanoseconds>(
@@ -234,7 +244,7 @@ class FlushTrace {
   }
 
   /**
-   * @brief Write the census out.
+   * @brief Writes the census out.
    *
    * Reached either from the instance's destruction or from a dump request
    * raised by SIGUSR1. The server is stopped with SIGKILL, which runs no
@@ -246,8 +256,11 @@ class FlushTrace {
    */
   void Dump();
 
-  /** @brief Ask for the census from a signal handler. Stores a flag and
-   * returns. */
+  /**
+   * @brief Asks for the census from a signal handler.
+   *
+   * @details Stores a flag and returns.
+   */
   static void RequestDump() {
     dump_requested_.store(true, std::memory_order_relaxed);
   }
@@ -358,7 +371,8 @@ class FlushTrace {
     return state;
   }
 
-  /** @brief This thread's buffer index, or kMaxSlots once they are exhausted.
+  /**
+   * @brief This thread's buffer index, or kMaxSlots once they are exhausted.
    */
   uint32_t ThreadSlotIndex() {
     // A 64-bit ticket cannot wrap in a process lifetime, so exhaustion

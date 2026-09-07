@@ -1,3 +1,8 @@
+/**
+ * @file server/storage/tests/index_constraint_test.cc
+ * The uniqueness flag an index is declared with, through its round trip.
+ */
+
 #include "index/index_constraint.h"
 
 #include "gtest/gtest.h"

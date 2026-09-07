@@ -1,3 +1,9 @@
+/**
+ * @file server/storage/tests/epoch_scan_checkpoint_test.cc
+ * The row image: what a scan captures, what recovery does with a damaged
+ * or absent one, and that the log tail wins over it.
+ */
+
 #include "wal/epoch_scan_checkpoint.h"
 
 #include <gtest/gtest.h>
@@ -152,7 +158,7 @@ class EpochScanCheckpointTest : public ::testing::Test {
     return result;
   }
 
-  /** Every key's value, in key order, as the database currently holds it. */
+  // Every key's value, in key order, as the database currently holds it.
   static std::vector<std::string> ReadAll(helios::storage::Database &db) {
     std::vector<std::string> rows;
     for (const char *key : {"alice", "bob", "carol"}) {
@@ -162,7 +168,7 @@ class EpochScanCheckpointTest : public ::testing::Test {
     return rows;
   }
 
-  /** Every secondary-index hit, as `secondary_key/primary_key=value`. */
+  // Every secondary-index hit, as `secondary_key/primary_key=value`.
   static std::vector<std::string> ReadIndex(helios::storage::Database &db) {
     auto result = db.ScanIndex(kTable, kIndex, "", "\xff", 0, false);
     db.ReleaseThreadEpoch();
@@ -175,7 +181,7 @@ class EpochScanCheckpointTest : public ::testing::Test {
     return hits;
   }
 
-  /** The row value the image holds for `key`, if it holds one. */
+  // The row value the image holds for `key`, if it holds one.
   static std::optional<std::string> RowInImage(
       const EpochScanCheckpoint::Image &image, const std::string &key) {
     for (const auto &record : image.records) {
@@ -187,7 +193,7 @@ class EpochScanCheckpointTest : public ::testing::Test {
     return std::nullopt;
   }
 
-  /** The primary keys the image lists under a secondary key. */
+  // The primary keys the image lists under a secondary key.
   static std::vector<std::string> IndexEntryInImage(
       const EpochScanCheckpoint::Image &image, const std::string &key) {
     for (const auto &record : image.records) {

@@ -1,3 +1,8 @@
+/**
+ * @file server/storage/src/index/index_constraint.h
+ * The uniqueness a secondary index is declared with.
+ */
+
 #ifndef HELIOS_STORAGE_SRC_INDEX_INDEX_CONSTRAINT_H
 #define HELIOS_STORAGE_SRC_INDEX_INDEX_CONSTRAINT_H
 
@@ -5,8 +10,13 @@
 
 namespace helios::storage::index {
 
-// The declared kind of one secondary index. kNone and kUnique are the only
-// accepted values; CreateSecondaryIndex refuses anything else.
+/**
+ * @brief What a secondary index promises about its keys.
+ *
+ * @details kNone and kUnique are the only accepted values and
+ * CreateSecondaryIndex refuses anything else. The values cross the wire, so
+ * they are fixed.
+ */
 class IndexConstraint {
  public:
   using RawType = uint32_t;

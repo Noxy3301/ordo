@@ -1,4 +1,5 @@
-/** @file server/storage/include/storage/pax.h
+/**
+ * @file server/storage/include/storage/pax.h
  * The PAX row format a table declares at creation, and the strips a reader
  * scans in place.
  */
@@ -29,7 +30,8 @@ namespace pax {
  * binary width for a present value, so "empty cell == NULL" still holds.
  * `ScatterRow` parses the ASCII once (heap fallback on any parse/range
  * failure); `GatherRow` reformats the binary back into the exact original
- * val_str ASCII (byte-identical round trip -- the row-format contract).
+ * val_str ASCII (a byte-identical round trip, which is the row-format
+ * contract).
  */
 enum FieldKind : uint8_t {
   FK_UNTYPED =
@@ -206,7 +208,7 @@ class PaxGroup {
    * @param field Field index, where 0 is the null-flags field and MySQL column
    * i is field i + 1.
    * @param slot Slot inside this group.
-   * @param out Destination string; the encoded field is appended.
+   * @param out Destination string; the packed field is appended.
    */
   void AppendCellField(uint32_t field, uint32_t slot, std::string &out) const;
 

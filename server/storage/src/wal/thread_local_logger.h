@@ -13,6 +13,12 @@
  *   See the License for the specific language governing permissions and
  *   limitations under the License.
  */
+
+/**
+ * @file server/storage/src/wal/thread_local_logger.h
+ * Per-thread record buffers and the one flusher thread that writes them.
+ */
+
 #ifndef HELIOS_STORAGE_SRC_WAL_THREAD_LOCAL_LOGGER_H
 #define HELIOS_STORAGE_SRC_WAL_THREAD_LOCAL_LOGGER_H
 
@@ -61,13 +67,19 @@ class ThreadLocalLogger final {
    */
   bool Enqueue(const WriteSetType &ws_ref, EpochNumber epoch);
 
-  /** @brief Reads and repairs the log. Completes before the flusher starts. */
+  /**
+   * @brief Reads and repairs the log. Completes before the flusher starts.
+   */
   WalScanResult ScanAndRepair(EpochNumber min_epoch);
 
-  /** @brief The epoch of the last frame actually written to the log. */
+  /**
+   * @brief The epoch of the last frame actually written to the log.
+   */
   EpochNumber WalFrontier() const;
 
-  /** @brief Starts the flusher. Called once, after the log has been scanned. */
+  /**
+   * @brief Starts the flusher. Called once, after the log has been scanned.
+   */
   void StartFlusher();
 
   /**
@@ -96,8 +108,10 @@ class ThreadLocalLogger final {
   };
 
   void FlusherLoop();
-  /** @brief Swaps every node's buffer, buckets by epoch, writes buckets at
-   * or below `target`. */
+  /**
+   * @brief Swaps every node's buffer, buckets by epoch, writes buckets at or
+   *        below `target`.
+   */
   WalAppendResult FlushThrough(EpochNumber target);
 
   ThreadKeyStorage<ThreadLocalStorageNode> nodes_;

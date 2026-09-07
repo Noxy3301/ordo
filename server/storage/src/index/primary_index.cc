@@ -14,6 +14,11 @@
  *   limitations under the License.
  */
 
+/**
+ * @file server/storage/src/index/primary_index.cc
+ * The primary index: the key to DataItem map every base row lives in.
+ */
+
 #include "index/primary_index.h"
 
 #include <functional>

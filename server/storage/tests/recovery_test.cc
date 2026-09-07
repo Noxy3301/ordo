@@ -1,3 +1,9 @@
+/**
+ * @file server/storage/tests/recovery_test.cc
+ * That a recovered row carries an unlocked transaction id and accepts a
+ * further write.
+ */
+
 #include <gtest/gtest.h>
 #include <unistd.h>
 

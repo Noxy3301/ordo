@@ -14,6 +14,12 @@
  *   limitations under the License.
  */
 
+/**
+ * @file server/storage/src/wal/logger.cc
+ * The write-ahead log and the durability frontier a synchronous commit
+ * waits on.
+ */
+
 #include "wal/logger.h"
 
 #include <algorithm>
@@ -217,7 +223,8 @@ void GroupSecondary(const SecondaryOps &ops, WriteSetType &recovery_set) {
 }
 
 /**
- * Folds decoded records into the write set the database replays.
+ * @brief Folds the records read from the log into the write set the
+ *        database replays.
  *
  * A key may appear in several epochs; the newest transaction id wins. Secondary
  * index entries arrive as per-primary-key deltas and are regrouped into one
@@ -354,7 +361,7 @@ void Logger::PublishDurable(EpochNumber frontier) {
     std::lock_guard<std::mutex> lock(durability_mutex_);
     const EpochNumber previous = durable_epoch_.load(std::memory_order_seq_cst);
     if (frontier < previous) {
-      // The frontier is the promise the commit path hands to clients; moving it
+      // The frontier is the promise the commit path hands to callers; moving it
       // backwards would retract an acknowledgement.
       SPDLOG_CRITICAL(
           "Durability Error: the durable epoch moved backwards, {0} to {1}",

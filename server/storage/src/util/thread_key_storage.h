@@ -14,6 +14,12 @@
  *   limitations under the License.
  */
 
+/**
+ * @file server/storage/src/util/thread_key_storage.h
+ * Per-thread slots addressed by a key, with an enumeration over the live
+ * threads that the epoch framework walks.
+ */
+
 #ifndef HELIOS_STORAGE_SRC_UTIL_THREAD_KEY_STORAGE_H
 #define HELIOS_STORAGE_SRC_UTIL_THREAD_KEY_STORAGE_H
 
@@ -65,12 +71,8 @@ class ThreadKeyStorage {
   }
 
   /**
-   * @brief
-   * Get thread-local objects with initializer function.
-   *
-   * @tparam U
-   * @param func
-   * @return T*
+   * @brief Returns this thread's object, constructing it with `func` on the
+   *        first call.
    */
   template <class U>
   T *Get(std::function<U()> &&func) {

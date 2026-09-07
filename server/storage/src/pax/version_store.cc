@@ -1,3 +1,9 @@
+/**
+ * @file server/storage/src/pax/version_store.cc
+ * Capture and lookup of the before-images, and the generation a read view
+ * is poisoned in when a capture cannot be kept.
+ */
+
 #include "pax/version_store.h"
 
 #include <cstdlib>

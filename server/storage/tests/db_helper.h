@@ -1,3 +1,9 @@
+/**
+ * @file server/storage/tests/db_helper.h
+ * Test fixtures that drive the read and commit API the way a request does:
+ * observe, then submit the observations as evidence with the writes.
+ */
+
 #ifndef HELIOS_STORAGE_TESTS_DB_HELPER_H
 #define HELIOS_STORAGE_TESTS_DB_HELPER_H
 
@@ -13,15 +19,15 @@
 #include "storage/database.h"
 #include "storage/read.h"
 
-/// Drives the API the way the query layer does: observe, then submit
-/// the observations as evidence along with the writes. Every call hands the
-/// thread's masstree epoch back, as an RPC handler does.
+// Drives the read and commit API the way the query layer does: observe, then
+// submit the observations as evidence along with the writes. Every call hands
+// the thread's masstree epoch back, as an RPC handler does.
 namespace TestHelper {
 
-/// Sorts above any key a test writes, for scans that mean "to the end".
+// Sorts above any key a test writes, for scans that mean "to the end".
 inline const std::string kMaxKey = "\xff\xff\xff\xff";
 
-/// Raw little-endian bytes, the shape the row path stores scalars in.
+// Raw little-endian bytes, the shape the row path stores scalars in.
 template <typename T>
 std::string Encode(const T &value) {
   static_assert(std::is_trivially_copyable<T>::value,
@@ -94,7 +100,7 @@ std::optional<T> Read(helios::storage::Database &db, const std::string &table,
   return Decode<T>(*value);
 }
 
-/// Rows a primary-index range scan returned, in scan order.
+// Rows a primary-index range scan returned, in scan order.
 inline std::vector<std::pair<std::string, std::string>> Scan(
     helios::storage::Database &db, const std::string &table,
     const std::string &start_key, const std::string &end_key,
@@ -110,7 +116,7 @@ inline std::vector<std::pair<std::string, std::string>> Scan(
   return rows;
 }
 
-/// (secondary key, primary key) pairs a secondary-index range scan returned.
+// (secondary key, primary key) pairs a secondary-index range scan returned.
 inline std::vector<std::pair<std::string, std::string>> ScanSecondaryIndex(
     helios::storage::Database &db, const std::string &table,
     const std::string &index_name, const std::string &start_key,
@@ -128,7 +134,7 @@ inline std::vector<std::pair<std::string, std::string>> ScanSecondaryIndex(
   return rows;
 }
 
-/// Primary keys a single secondary key resolves to.
+// Primary keys a single secondary key resolves to.
 inline std::vector<std::string> ReadSecondaryIndex(
     helios::storage::Database &db, const std::string &table,
     const std::string &index_name, const std::string &secondary_key) {

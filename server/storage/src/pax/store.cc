@@ -1,4 +1,5 @@
-/** @file server/storage/src/pax/store.cc
+/**
+ * @file server/storage/src/pax/store.cc
  * Slot allocation and the typed cell round trip behind the PAX strips.
  */
 
@@ -24,7 +25,7 @@ namespace {
 // DataBuffer::size tracks the original ASCII payload size, so a gather that
 // renders a different length would corrupt the row. Any parse/range failure
 // returns false so the caller takes the heap fallback (never wrong, just
-// unaccelerated) -- exactly like an over-wide UNTYPED cell.
+// unaccelerated), exactly like an over-wide UNTYPED cell.
 // ---------------------------------------------------------------------------
 
 // int64 from a full ASCII integer (from_chars, whole span consumed).
@@ -53,7 +54,7 @@ inline bool ParseDate(const char *s, size_t len, int64_t *out) {
 
 // Exact DECIMAL(p,s) val_str -> scaled int64 (value * 10^scale). The input has
 // the column's declared scale of fractional digits (MySQL pads), so scaling is
-// exact -- no double, so no rounding trap here.
+// exact and no double is involved.
 inline bool ParseDecScaled(const char *s, size_t len, int scale, int64_t *out) {
   if (len == 0) return false;
   size_t i = 0;
@@ -80,8 +81,8 @@ inline bool ParseDecScaled(const char *s, size_t len, int scale, int64_t *out) {
     any = true;
   }
   if (!any) return false;
-  // Normalize to the declared scale (val_str emits exactly `scale` fractionals,
-  // but tolerate fewer by padding -- never silently drop precision).
+  // Normalize to the declared scale: val_str emits exactly `scale` fractional
+  // digits, fewer are padded, and more are refused rather than rounded.
   if (fdig > scale) return false;
   while (fdig < scale) {
     m *= 10;
@@ -135,8 +136,9 @@ inline void AppendI64(std::string &out, int64_t v) {
 }
 
 // Format a typed cell's `width` LE bytes back into the exact val_str ASCII.
-// `cell` points at the payload (>= width bytes readable -- the cell stride
-// reserves them, so this is memory-safe even under a torn read).
+// `cell` points at the payload (at least `width` bytes are readable because
+// the cell stride reserves them, so this is memory-safe even under a torn
+// read).
 void FormatTyped(uint8_t kind, int scale, const std::byte *cell, uint32_t width,
                  std::string &out) {
   (void)width;
@@ -204,9 +206,8 @@ constexpr std::byte kNoValue{0xFF};
 /**
  * @brief Returns the minimum little-endian base-256 byte count for `len`.
  *
- * @details This mirrors
- * `LineairDBField::calculate_minimum_byte_size_required()` in the proxy row
- * codec so that gathered rows are byte-identical to proxy rows.
+ * @details This mirrors the length-width rule of the row format, so gathered
+ * rows are byte-identical to the ones the query layer writes.
  */
 inline uint32_t LengthPrefixBytes(uint32_t len) {
   uint32_t n = 0;
@@ -214,7 +215,7 @@ inline uint32_t LengthPrefixBytes(uint32_t len) {
   return n;
 }
 
-// Reference to one decoded field payload inside a row.
+// Reference to one field payload inside a row.
 struct FieldRef {
   const std::byte *payload;
   uint32_t len;
@@ -225,9 +226,9 @@ struct FieldRef {
  *
  * @param row Row bytes.
  * @param size Number of bytes in `row`.
- * @param out Destination array for decoded field references.
+ * @param out Destination array for the field references.
  * @param max_fields Maximum number of entries available in `out`.
- * @return Number of decoded fields, or `SIZE_MAX` when the input is malformed
+ * @return Number of fields read, or `SIZE_MAX` when the input is malformed
  * or contains more than `max_fields` fields.
  */
 size_t ParseRow(const std::byte *row, size_t size, FieldRef *out,

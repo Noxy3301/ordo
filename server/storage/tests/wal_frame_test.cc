@@ -1,3 +1,9 @@
+/**
+ * @file server/storage/tests/wal_frame_test.cc
+ * The log file itself: frame layout, group writes, and what the startup
+ * scan makes of a corrupted or truncated tail.
+ */
+
 #include <fcntl.h>
 #include <gtest/gtest.h>
 #include <sys/stat.h>
@@ -60,8 +66,10 @@ class WalFrameTest : public ::testing::Test {
   }
 
   /**
-   * Where the log ends, which is not where the file ends: capacity beyond
-   * the last frame is written out with zeroes in advance.
+   * @brief Returns where the log ends, which is not where the file ends.
+   *
+   * @details Capacity beyond the last frame is written out with zeroes in
+   * advance.
    */
   off_t EndOfLog() {
     Wal wal(work_dir_, helios::storage::wal::WalIo::Posix(), kCapacity);
@@ -103,9 +111,11 @@ class WalFrameTest : public ::testing::Test {
   }
 
   /**
-   * Rewrites the payload length of the frame at `frame_offset`, leaving the
-   * checksum stale. Stands in for damage to the one field that says how far
-   * the frame reaches, which is the field a repair must not take on trust.
+   * @brief Rewrites the payload length of the frame at `frame_offset`, leaving
+   *        the checksum stale.
+   *
+   * @details Stands in for damage to the one field that says how far the frame
+   * reaches, which is the field a repair must not take on trust.
    */
   void SetPayloadLengthAt(off_t frame_offset, uint32_t length) {
     const int fd = ::open(wal_path().c_str(), O_WRONLY);
@@ -338,7 +348,7 @@ TEST_F(WalFrameTest, PartialHeaderIsRepaired) {
   const off_t full_size = FileSize();
 
   // A write that stopped inside the next frame's header, which leaves a
-  // prefix of the magic where the zeroes used to be.
+  // prefix of the magic over the reserved zeroes.
   const std::vector<uint8_t> partial_header = {0x4c, 0x41, 0x57};
   WriteRawBytesAt(full_end, partial_header);
 
@@ -415,8 +425,8 @@ TEST_F(WalFrameTest, WholeHeaderWithUnknownFlagsMidLogFails) {
 }
 
 /**
- * A length corrupted upwards must not be allowed to define the region a
- * repair may erase.
+ * @brief A length corrupted upwards must not be allowed to define the region a
+ *        repair may erase.
  *
  * The frame at offset 0 claims to run to the end of the log, so every frame
  * that follows falls inside its declared extent and the bytes after that
@@ -562,8 +572,8 @@ TEST_F(WalFrameTest, AnAppendBelowTheFrontierIsRefused) {
 }
 
 /**
- * The rule that nothing reaches the log before its end is known holds even
- * for an instance that was never scanned at all.
+ * @brief The rule that nothing reaches the log before its end is known holds
+ *        even for an instance that was never scanned at all.
  *
  * The expected output is empty because the reason is logged through spdlog,
  * which writes to stdout, while a death test watches stderr.
@@ -635,10 +645,11 @@ TEST_F(WalFrameTest, ATornTailEmbeddingAFrameImageFailsStop) {
 }
 
 /**
- * A record's value may hold anything, including the bytes of a frame that
- * would pass its own checksum. Inside the payload of a frame that is itself
- * broken, such bytes are indistinguishable from a frame that survived the
- * damage.
+ * @brief A record's value may hold anything, including the bytes of a frame
+ *        that would pass its own checksum.
+ *
+ * @details Inside the payload of a frame that is itself broken, such bytes are
+ * indistinguishable from a frame that survived the damage.
  *
  * The choice made here is to fail-stop: refusing to start is recoverable by
  * hand, whereas erasing what might be an acknowledged frame is not.
@@ -670,7 +681,7 @@ TEST_F(WalFrameTest, AFramePayloadThatDoesNotDecodeFailsWithoutRepairing) {
   AppendEpochs({1});
   const off_t log_end = EndOfLog();
   // Checksum-valid, but the payload is not a record list. The reject fires
-  // on the decoded content, even for the final frame of the file.
+  // on the frame content, even for the final frame of the file.
   WriteRawBytesAt(log_end, MakeFrame(2, {0x01, 0x02, 0x03}));
   const off_t full_size = FileSize();
 
@@ -767,8 +778,8 @@ TEST_F(WalFrameTest, AFrameStraddlingTheProbeWindowBoundaryIsFound) {
 }
 
 /**
- * A read that fails while checking whether a frame survives beyond the
- * damage must stop the scan.
+ * @brief A read that fails while checking whether a frame survives beyond the
+ *        damage must stop the scan.
  *
  * Treating it as "no frame there" would license the repair, and the repair
  * erases the bytes it was asking about. A transient read failure is not

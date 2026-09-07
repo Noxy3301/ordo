@@ -1,3 +1,9 @@
+/**
+ * @file server/storage/src/index/masstree_index.cc
+ * The masstree-beta instantiation: the only translation unit that includes
+ * masstree headers, and the RCU handshake its readers require.
+ */
+
 #include "index/masstree_index.h"
 
 #include <atomic>
@@ -7,9 +13,9 @@
 
 #include "util/debug_sync.h"
 
-// Masstree headers. Must come after the PImpl header guard so other LDB
-// sources never see them; masstree's include path is PRIVATE to LDB and
-// therefore unreachable from public headers and tests. config.h defines the
+// Masstree headers. They come after the header guard so no other storage
+// source sees them; masstree's include path is PRIVATE to storage and is
+// unreachable from the public headers and the tests. config.h defines the
 // macros compiler.hh reads, so this block is not sortable.
 // clang-format off
 #include "config.h"
@@ -23,23 +29,12 @@
 #include "string.hh"
 // clang-format on
 
-// Globals required by masstree-beta. masstree's kvthread.cc references these
-// as externs; exactly one translation unit must define them. Types must
-// match kvthread.hh:33-35.
-//
-// Intentionally left at their initial values: this wrapper uses masstree's
-// B+tree structure and nodeversion-based locking for concurrency, but does
-// NOT drive masstree's internal RCU machinery. Matches published Silo+
-// masstree practice — CCBench's masstree_wrapper.hh and Tu Silo's
-// simple_threadinfo stub take the same approach — and has no semantic
-// consequences: masstree's insert/scan/remove correctness relies on
-// nodeversion bits, not these epochs. Tradeoff: every masstree allocation
-// that would otherwise be reclaimed via RCU (overwrite-replaced
-// DataItem*, retired leaves/internodes/ksuffix blocks from internal
-// splits), plus the entire live tree at process exit (destroy() is
-// deliberately not called — see ~Impl()), leaks for the process lifetime.
-// Bounded by bench-scope insert churn; not suitable for long-running
-// service deployment without a real reclamation path.
+// Globals masstree-beta requires: kvthread.hh declares them extern, so
+// exactly one translation unit must define them, with the types declared
+// there. MasstreeAdvanceEpoch moves globalepoch and recomputes active_epoch,
+// once per storage epoch from the epoch hook; between those ticks nodeversion
+// bits alone serialize tree access. `recovering` stays false: this wrapper
+// has no masstree-level recovery.
 relaxed_atomic<mrcu_epoch_type> globalepoch{1};
 relaxed_atomic<mrcu_epoch_type> active_epoch{1};
 volatile bool recovering = false;
@@ -70,26 +65,19 @@ using unlocked_cursor_type = Masstree::unlocked_tcursor<table_params>;
 using cursor_type = Masstree::tcursor<table_params>;
 
 thread_local threadinfo *tls_ti = nullptr;
-// True iff this thread has called rcu_start since its last rcu_stop. Used to
-// make ensure_thread_active idempotent within a critical section: re-stamping
-// gc_epoch_ on every masstree op would advance the thread past the epoch
-// protecting raw DataItem* pointers the caller is still holding (e.g.
-// Silo's validation_set_ holds item_p_cache across reads, and a concurrent
-// committed delete schedules those DataItems for RCU free). With the gate,
-// a thread's gc_epoch_ stays at the epoch of its FIRST masstree access until
-// an explicit release at a safe boundary.
+// True while this thread has called rcu_start without a matching rcu_stop.
+// Re-stamping gc_epoch_ on every op would advance the thread past the epoch
+// that protects a raw DataItem * an earlier Get returned, so the thread stays
+// at the epoch of its first access until it releases at a safe boundary.
 thread_local bool tls_enrolled = false;
 std::atomic<int> next_thread_id{0};
 std::mutex thread_init_mutex;
 
-// threadinfo::make() prepends to masstree's global allthreads list without
-// synchronization (kvthread.cc:57-58). Serialize first-use-per-thread to
-// avoid UB when multiple worker threads register concurrently. Contended
-// only on the first op per thread. Does NOT enrol the thread in the
-// current RCU epoch — that is ensure_thread_active's job. Splitting
-// registration from enrolment lets short-lived callers (the Database
-// construction thread, server-side threads between operations) leave
-// gc_epoch_ at 0 so they do not pin min_active_epoch().
+// threadinfo::make prepends to masstree's allthreads list without
+// synchronization, so the first use on each thread is serialized here.
+// Registration does not enrol the thread in the RCU epoch (that is
+// ensure_thread_active's job), which lets a thread between operations leave
+// gc_epoch_ at 0 and not pin min_active_epoch.
 inline void ensure_thread_init() {
   if (__builtin_expect(tls_ti == nullptr, 0)) {
     std::lock_guard<std::mutex> lg(thread_init_mutex);
@@ -101,14 +89,10 @@ inline void ensure_thread_init() {
   }
 }
 
-// Ensure threadinfo exists AND this thread is enrolled at the current
-// masstree epoch — but only if the thread is not already enrolled. This
-// idempotency is correctness-critical: every public op uses this, and
-// re-stamping gc_epoch_ in the middle of a transaction would let RCU
-// reclaim DataItem* pointers the caller is still holding (e.g. Silo
-// validation_set_ entries captured from an earlier read). The thread stays
-// enrolled at its first-op epoch until an explicit release at a safe
-// boundary (MasstreeReleaseThreadEpoch).
+// Registers the thread and enrols it at the current masstree epoch, unless
+// it is enrolled already: a caller may still hold a raw DataItem * an earlier
+// Get returned, and re-enrolling mid-transaction would let RCU reclaim it.
+// The enrolment ends at MasstreeReleaseThreadEpoch.
 inline void ensure_thread_active() {
   ensure_thread_init();
   if (!tls_enrolled) {
@@ -117,11 +101,13 @@ inline void ensure_thread_active() {
   }
 }
 
-// RCU callback for deferred DataItem deletion. Allocated through
-// threadinfo::allocate so it lives in masstree's accounting pool, and
-// frees itself in operator() after deleting the wrapped DataItem (the
-// same shape as masstree's own gc_layer_rcu_callback, see
-// masstree_remove.hh:135-146).
+/**
+ * @brief Deletes one DataItem once RCU says no reader can reach it.
+ *
+ * @details Allocated through threadinfo::allocate so it lives in masstree's
+ * accounting pool, and frees itself after deleting the item, the same shape
+ * as masstree's own gc_layer_rcu_callback.
+ */
 struct RcuFreeCallback : public threadinfo::mrcu_callback {
   DataItem *item;
   explicit RcuFreeCallback(DataItem *it) : item(it) {}
@@ -138,8 +124,10 @@ inline void RcuFree(DataItem *item) {
   tls_ti->rcu_register(cb);
 }
 
-// Adapter that drives masstree's forward/reverse scan into the LDB callback
-// shape (operation returning `true` means cancel).
+/**
+ * @brief Drives masstree's forward and reverse scan into the callback shape
+ *        used here, where returning `true` cancels the scan.
+ */
 struct ScanAdapter {
   const char *end_ptr;
   size_t end_len;
@@ -219,12 +207,9 @@ struct MasstreeIndex::Impl {
   }
 
   ~Impl() {
-    // Do not call table_.destroy(): it schedules RCU free callbacks via
-    // deallocate_rcu, but this wrapper never advances the RCU epoch so the
-    // callbacks would never run. Consequence: at process exit, the entire
-    // live tree (every leaf/internode allocation) and every stored
-    // DataItem* leaks. Accepted for benchmark-scope runs only; a real
-    // reclamation path is required for long-running service deployment.
+    // table_.destroy() is not called: it only registers an RCU callback, and
+    // nothing drains this thread's limbo afterwards. The live tree and the
+    // DataItem pointers it holds are left to the process exit.
   }
 
   DataItem *Get(std::string_view key) {
@@ -250,11 +235,9 @@ struct MasstreeIndex::Impl {
     cursor_type lp(table_, key.data(), key.size());
     bool found = lp.find_insert(*tls_ti);
     if (found) {
-      // Overwrite existing slot. Previous DataItem* is leaked: a concurrent
-      // reader may still hold the raw pointer returned by Get(). Phase 2b
-      // accepts the leak; a Phase 3/4 step will hook this into masstree's
-      // RCU limbo list.
-      lp.value() = fresh;
+      // Overwrite an existing slot. The previous DataItem is leaked because
+      // a concurrent reader may still hold the raw pointer Get() returned.
+      lp.value() = fresh;  // FIXME: retire the old item through RCU
     } else {
       lp.value() = fresh;
     }
@@ -281,7 +264,7 @@ struct MasstreeIndex::Impl {
     }
     DataItem *current = lp.value();
     if (expected != nullptr && current != expected) {
-      // Some other writer replaced the slot between our commit-time decision
+      // Another writer replaced the slot between the commit-time decision
       // and this erase. Leave the new occupant alone.
       lp.finish(0, *tls_ti);
       return false;
@@ -435,73 +418,28 @@ bool MasstreeIndex::Purge(std::string_view key, DataItem *expected,
 }
 
 void MasstreeAdvanceEpoch() {
-  // Bump masstree's global epoch and recompute the reclamation watermark.
-  // Mirrors mttest.cc's main-thread tick (mttest.cc:124-131). The mutex
-  // serialises with ensure_thread_init's threadinfo::make, which prepends
-  // to the unsynchronised threadinfo::allthreads list that min_active_epoch
-  // walks (kvthread.cc:53-58, kvthread.hh:368-377).
+  // Bump masstree's global epoch and recompute active_epoch. The mutex
+  // serialises with ensure_thread_init's threadinfo::make, which prepends to
+  // the unsynchronised allthreads list that min_active_epoch walks.
   std::lock_guard<std::mutex> lg(thread_init_mutex);
   globalepoch.store(globalepoch.load() + 1);
   active_epoch.store(threadinfo::min_active_epoch());
 }
 
 void MasstreeReleaseThreadEpoch() {
-  // End this thread's RCU critical section: drain whatever is eligible
-  // under the current active_epoch and clear gc_epoch_. Callers MUST
-  // guarantee no raw DataItem* or masstree leaf pointer from inside this
-  // section survives past the release — that's the whole point of marking
-  // the section closed.
-  //
-  // This is the hot-path release (called at every RPC safe boundary). It
-  // does ONE rcu_stop pass: cheap when limbo is small, and items that
-  // remain on the local limbo are drained on the thread's next release
-  // when active_epoch has moved further. For a thread that is about to
-  // exit and will never call release again, use MasstreeFullyDrainThread
-  // instead.
+  // One rcu_stop pass: it frees what active_epoch already covers and leaves
+  // the rest of this thread's limbo for its next release.
   if (tls_ti == nullptr) return;
   tls_ti->rcu_stop();
   tls_enrolled = false;
 }
 
-void MasstreeFullyDrainThread() {
-  // Best-effort drain of the calling thread's local limbo before it
-  // exits. Strategy: leave the min_active_epoch participant set first
-  // (rcu_stop sets gc_epoch_=0 and frees the first eligible batch), then
-  // bump the global epoch and re-call rcu_stop to peel further 128-entry
-  // batches.
-  //
-  // KNOWN LIMITATION (cross-thread limbo leak): this is best-effort, not
-  // a guarantee. Two conditions can permanently strand entries on this
-  // thread's local limbo after it exits:
-  //
-  //   (a) Some OTHER thread holds an old gc_epoch_ that pins active_epoch
-  //       below the epoch our items were retired at. Our items remain
-  //       ineligible; the loop bumps globalepoch but min_active_epoch
-  //       stays low.
-  //   (b) We retired more entries than 4096 * 128 = 512K within this
-  //       section. The loop cap exits before they are all drained.
-  //
-  // After the detached connection thread exits, its threadinfo lingers
-  // on masstree's allthreads list but no future call runs on it. The
-  // limbo is per-threadinfo and only the owning thread can safely drain
-  // it via masstree's API, so the stranded items leak for the process
-  // lifetime.
-  //
-  // Closing this properly requires either (i) a server architecture
-  // change to keep RPC threads alive so the same thread eventually drains
-  // its own limbo on a later op, or (ii) patching masstree-beta to expose a
-  // cross-thread drain primitive the epoch ticker could use on exited
-  // threadinfos.
-  //
-  // In the meantime: the leak is bounded by per-connection-close
-  // workload. Benchmarks that keep connections alive (BenchBase / sysbench
-  // style pools) do not trigger it. Long-running services with high
-  // connection churn under contended workloads will accumulate it.
-  //
-  // Not for the hot path: each MasstreeAdvanceEpoch acquires
-  // thread_init_mutex and re-walks the allthreads list, so calling this
-  // on every RPC boundary causes contention collapse at high
-  // concurrency.
+void MasstreeFullyDrainThread() {  // FIXME: expose a cross-thread drain
+  // Leave the participant set first, so the first rcu_stop frees what is
+  // already eligible, then advance the global epoch and stop again to peel
+  // further batches. A limbo belongs to one threadinfo and only its owning
+  // thread may drain it, so what the cap below leaves behind stays for the
+  // lifetime of the process.
   if (tls_ti == nullptr) return;
   tls_ti->rcu_stop();
   tls_enrolled = false;

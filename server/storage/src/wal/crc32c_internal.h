@@ -1,5 +1,5 @@
-#ifndef HELIOS_STORAGE_SRC_RECOVERY_CRC32C_INTERNAL_H
-#define HELIOS_STORAGE_SRC_RECOVERY_CRC32C_INTERNAL_H
+#ifndef HELIOS_STORAGE_SRC_WAL_CRC32C_INTERNAL_H
+#define HELIOS_STORAGE_SRC_WAL_CRC32C_INTERNAL_H
 
 #include <cstddef>
 #include <cstdint>
@@ -25,4 +25,4 @@ uint32_t UpdateWithSse42(uint32_t state, const void *data, size_t size);
 }  // namespace wal
 }  // namespace helios::storage
 
-#endif  // HELIOS_STORAGE_SRC_RECOVERY_CRC32C_INTERNAL_H
+#endif  // HELIOS_STORAGE_SRC_WAL_CRC32C_INTERNAL_H

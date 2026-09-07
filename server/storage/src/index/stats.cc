@@ -11,8 +11,8 @@
 #include <vector>
 
 #include "database_impl.h"
+#include "index/data_item.h"
 #include "index/secondary_index.h"
-#include "types/data_item.h"
 
 namespace helios::storage {
 

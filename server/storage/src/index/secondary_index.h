@@ -3,8 +3,8 @@
 
 #include "index/masstree_index.h"
 #include "index/secondary_index_type.h"
+#include "silo/snapshot.h"
 #include "silo/stable_read.h"
-#include "types/snapshot.h"
 #include "util/epoch_framework.h"
 
 namespace helios::storage {

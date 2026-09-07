@@ -6,9 +6,9 @@
 #include <optional>
 #include <string_view>
 
+#include "index/data_item.h"
 #include "storage/config.h"
 #include "storage/pax.h"
-#include "types/data_item.h"
 #include "util/epoch_framework.h"
 
 namespace helios::storage {

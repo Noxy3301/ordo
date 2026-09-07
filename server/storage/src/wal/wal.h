@@ -1,5 +1,5 @@
-#ifndef HELIOS_STORAGE_SRC_RECOVERY_WAL_H
-#define HELIOS_STORAGE_SRC_RECOVERY_WAL_H
+#ifndef HELIOS_STORAGE_SRC_WAL_WAL_H
+#define HELIOS_STORAGE_SRC_WAL_WAL_H
 
 #include <sys/types.h>
 
@@ -9,8 +9,8 @@
 #include <map>
 #include <string>
 
-#include "log_record.h"
-#include "types/definitions.h"
+#include "util/epoch.h"
+#include "wal/log_record.h"
 
 namespace helios::storage {
 namespace wal {
@@ -274,4 +274,4 @@ class Wal {
 }  // namespace wal
 }  // namespace helios::storage
 
-#endif  // HELIOS_STORAGE_SRC_RECOVERY_WAL_H
+#endif  // HELIOS_STORAGE_SRC_WAL_WAL_H

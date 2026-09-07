@@ -19,9 +19,9 @@
 #include <thread>
 
 #include "gtest/gtest.h"
-#include "types/definitions.h"
+#include "util/epoch.h"
 #include "util/epoch_framework.h"
-#include "util/logger.h"
+#include "util/spdlog.h"
 
 TEST(ConcurrentTableTest, Instantiate) {
   helios::storage::epoch::Framework epoch;

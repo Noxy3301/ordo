@@ -7,10 +7,10 @@
 #include <string_view>
 #include <vector>
 
-#include "types/data_item.h"
-#include "types/definitions.h"
-#include "types/snapshot.h"
-#include "types/transaction_id.h"
+#include "index/data_item.h"
+#include "silo/snapshot.h"
+#include "silo/transaction_id.h"
+#include "util/epoch.h"
 
 namespace helios::storage {
 namespace index {

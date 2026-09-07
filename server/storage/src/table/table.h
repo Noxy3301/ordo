@@ -11,7 +11,7 @@
 #include "pax/store.h"
 #include "storage/config.h"
 #include "storage/pax.h"
-#include "types/definitions.h"
+#include "util/epoch.h"
 #include "util/epoch_framework.h"
 
 namespace helios::storage {

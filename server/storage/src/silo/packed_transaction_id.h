@@ -3,8 +3,8 @@
 
 #include <cstdint>
 
-#include "types/definitions.h"
-#include "types/transaction_id.h"
+#include "silo/transaction_id.h"
+#include "util/epoch.h"
 
 namespace helios::storage {
 namespace silo {

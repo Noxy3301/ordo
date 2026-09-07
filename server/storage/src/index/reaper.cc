@@ -6,7 +6,7 @@
 #include "index/concurrent_table.h"
 #include "index/masstree_index.h"
 #include "index/secondary_index.h"
-#include "util/logger.h"
+#include "util/spdlog.h"
 
 namespace helios::storage {
 namespace index {

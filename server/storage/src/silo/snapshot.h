@@ -15,18 +15,25 @@
  *   limitations under the License.
  */
 
-#ifndef HELIOS_STORAGE_SRC_TYPES_SNAPSHOT_H
-#define HELIOS_STORAGE_SRC_TYPES_SNAPSHOT_H
+#ifndef HELIOS_STORAGE_SRC_SILO_SNAPSHOT_H
+#define HELIOS_STORAGE_SRC_SILO_SNAPSHOT_H
 
 #include <string>
 #include <string_view>
 #include <vector>
 
-#include "data_item.h"
-#include "definitions.h"
+#include "index/data_item.h"
 #include "index/secondary_index_type.h"
+#include "util/epoch.h"
 
 namespace helios::storage {
+
+enum class SecondaryIndexOp : uint8_t {
+  None = 0,
+  Add = 1,
+  Remove = 2,
+  Full = 3,
+};
 
 struct Snapshot {
   std::string key;
@@ -72,4 +79,4 @@ using WriteSetType = std::vector<Snapshot>;
 
 }  // namespace helios::storage
 
-#endif  // HELIOS_STORAGE_SRC_TYPES_SNAPSHOT_H
+#endif  // HELIOS_STORAGE_SRC_SILO_SNAPSHOT_H

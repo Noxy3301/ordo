@@ -14,10 +14,7 @@
  *   limitations under the License.
  */
 
-#include "logger.h"
-
-#include <storage/config.h>
-#include <util/logger.h>
+#include "wal/logger.h"
 
 #include <algorithm>
 #include <cstdlib>
@@ -25,10 +22,12 @@
 #include <unordered_map>
 #include <utility>
 
-#include "epoch_scan_checkpoint.h"
-#include "flush_trace.h"
-#include "thread_local_logger.h"
-#include "types/definitions.h"
+#include "storage/config.h"
+#include "util/epoch.h"
+#include "util/spdlog.h"
+#include "wal/epoch_scan_checkpoint.h"
+#include "wal/flush_trace.h"
+#include "wal/thread_local_logger.h"
 
 namespace helios::storage {
 namespace wal {

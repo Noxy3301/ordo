@@ -8,8 +8,8 @@
 #include <utility>
 #include <vector>
 
-#include "types/data_item.h"
-#include "types/transaction_id.h"
+#include "index/data_item.h"
+#include "silo/transaction_id.h"
 
 namespace helios::storage {
 namespace silo {

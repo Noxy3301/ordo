@@ -1,6 +1,3 @@
-#include <storage/config.h>
-#include <storage/database.h>
-
 #include <filesystem>
 #include <memory>
 #include <string>
@@ -9,6 +6,8 @@
 
 #include "db_helper.h"
 #include "gtest/gtest.h"
+#include "storage/config.h"
+#include "storage/database.h"
 
 namespace {
 using Entries = std::vector<std::pair<std::string, std::string>>;

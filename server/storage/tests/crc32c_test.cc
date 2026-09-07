@@ -1,4 +1,4 @@
-#include "recovery/crc32c.h"
+#include "wal/crc32c.h"
 
 #include <algorithm>
 #include <cstdint>
@@ -7,7 +7,7 @@
 #include <vector>
 
 #include "gtest/gtest.h"
-#include "recovery/crc32c_internal.h"
+#include "wal/crc32c_internal.h"
 
 namespace {
 

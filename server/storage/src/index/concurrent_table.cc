@@ -14,14 +14,14 @@
  *   limitations under the License.
  */
 
-#include "concurrent_table.h"
+#include "index/concurrent_table.h"
 
 #include <functional>
 
+#include "index/data_item.h"
 #include "index/masstree_index.h"
 #include "storage/config.h"
-#include "types/data_item.h"
-#include "types/definitions.h"
+#include "util/epoch.h"
 
 namespace helios::storage {
 namespace index {

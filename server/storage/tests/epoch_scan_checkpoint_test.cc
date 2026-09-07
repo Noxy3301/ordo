@@ -1,4 +1,4 @@
-#include "recovery/epoch_scan_checkpoint.h"
+#include "wal/epoch_scan_checkpoint.h"
 
 #include <gtest/gtest.h>
 #include <poll.h>
@@ -14,10 +14,10 @@
 #include <thread>
 #include <vector>
 
-#include "recovery/wal.h"
 #include "storage/config.h"
 #include "storage/database.h"
 #include "storage/read.h"
+#include "wal/wal.h"
 
 namespace {
 

@@ -1,4 +1,4 @@
-#include "flush_trace.h"
+#include "wal/flush_trace.h"
 
 #include <errno.h>
 #include <signal.h>

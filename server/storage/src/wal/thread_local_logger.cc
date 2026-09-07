@@ -14,10 +14,9 @@
  *   limitations under the License.
  */
 
-#include "thread_local_logger.h"
+#include "wal/thread_local_logger.h"
 
 #include <errno.h>
-#include <util/logger.h>
 
 #include <cassert>
 #include <cstdlib>
@@ -25,8 +24,9 @@
 #include <iterator>
 #include <utility>
 
-#include "recovery/flush_trace.h"
-#include "types/definitions.h"
+#include "util/epoch.h"
+#include "util/spdlog.h"
+#include "wal/flush_trace.h"
 
 namespace helios::storage {
 namespace wal {

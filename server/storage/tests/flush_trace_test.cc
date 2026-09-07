@@ -1,4 +1,4 @@
-#include "recovery/flush_trace.h"
+#include "wal/flush_trace.h"
 
 #include <fcntl.h>
 #include <gtest/gtest.h>

@@ -14,8 +14,8 @@
  *   limitations under the License.
  */
 
-#ifndef HELIOS_STORAGE_SRC_UTIL_LOGGER_H
-#define HELIOS_STORAGE_SRC_UTIL_LOGGER_H
+#ifndef HELIOS_STORAGE_SRC_UTIL_SPDLOG_H
+#define HELIOS_STORAGE_SRC_UTIL_SPDLOG_H
 
 #ifdef NDEBUG
 #define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_INFO
@@ -41,4 +41,4 @@ static inline void InitLog() {
 }  // namespace util
 }  // namespace helios::storage
 
-#endif  // HELIOS_STORAGE_SRC_UTIL_LOGGER_H
+#endif  // HELIOS_STORAGE_SRC_UTIL_SPDLOG_H

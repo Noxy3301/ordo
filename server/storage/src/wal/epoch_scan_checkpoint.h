@@ -1,7 +1,5 @@
-#ifndef HELIOS_STORAGE_SRC_RECOVERY_EPOCH_SCAN_CHECKPOINT_H
-#define HELIOS_STORAGE_SRC_RECOVERY_EPOCH_SCAN_CHECKPOINT_H
-
-#include <storage/config.h>
+#ifndef HELIOS_STORAGE_SRC_WAL_EPOCH_SCAN_CHECKPOINT_H
+#define HELIOS_STORAGE_SRC_WAL_EPOCH_SCAN_CHECKPOINT_H
 
 #include <condition_variable>
 #include <cstdint>
@@ -10,8 +8,9 @@
 #include <string_view>
 #include <thread>
 
-#include "log_record.h"
-#include "types/definitions.h"
+#include "storage/config.h"
+#include "util/epoch.h"
+#include "wal/log_record.h"
 
 namespace helios::storage {
 
@@ -161,4 +160,4 @@ class EpochScanCheckpoint {
 }  // namespace wal
 }  // namespace helios::storage
 
-#endif  // HELIOS_STORAGE_SRC_RECOVERY_EPOCH_SCAN_CHECKPOINT_H
+#endif  // HELIOS_STORAGE_SRC_WAL_EPOCH_SCAN_CHECKPOINT_H

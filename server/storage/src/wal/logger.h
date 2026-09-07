@@ -13,10 +13,8 @@
  *   See the License for the specific language governing permissions and
  *   limitations under the License.
  */
-#ifndef HELIOS_STORAGE_SRC_RECOVERY_LOGGER_H
-#define HELIOS_STORAGE_SRC_RECOVERY_LOGGER_H
-
-#include <storage/config.h>
+#ifndef HELIOS_STORAGE_SRC_WAL_LOGGER_H
+#define HELIOS_STORAGE_SRC_WAL_LOGGER_H
 
 #include <atomic>
 #include <chrono>
@@ -25,11 +23,12 @@
 #include <mutex>
 #include <string>
 
-#include "log_record.h"
-#include "types/data_buffer.h"
-#include "types/definitions.h"
-#include "types/snapshot.h"
-#include "wal.h"
+#include "index/data_buffer.h"
+#include "silo/snapshot.h"
+#include "storage/config.h"
+#include "util/epoch.h"
+#include "wal/log_record.h"
+#include "wal/wal.h"
 
 namespace helios::storage {
 namespace wal {
@@ -190,4 +189,4 @@ class Logger {
 
 }  // namespace wal
 }  // namespace helios::storage
-#endif  // HELIOS_STORAGE_SRC_RECOVERY_LOGGER_H
+#endif  // HELIOS_STORAGE_SRC_WAL_LOGGER_H

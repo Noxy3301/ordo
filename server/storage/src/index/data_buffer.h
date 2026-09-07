@@ -15,8 +15,8 @@
  *   limitations under the License.
  */
 
-#ifndef HELIOS_STORAGE_SRC_TYPES_DATA_BUFFER_H
-#define HELIOS_STORAGE_SRC_TYPES_DATA_BUFFER_H
+#ifndef HELIOS_STORAGE_SRC_INDEX_DATA_BUFFER_H
+#define HELIOS_STORAGE_SRC_INDEX_DATA_BUFFER_H
 
 #include <atomic>
 #include <cassert>
@@ -32,7 +32,7 @@
 #include "pax/store.h"
 #include "pax/version_store.h"
 #include "storage/pax.h"
-#include "util/logger.h"
+#include "util/spdlog.h"
 
 namespace helios::storage {
 
@@ -310,4 +310,4 @@ struct DataBuffer {
   }
 };
 }  // namespace helios::storage
-#endif  // HELIOS_STORAGE_SRC_TYPES_DATA_BUFFER_H
+#endif  // HELIOS_STORAGE_SRC_INDEX_DATA_BUFFER_H

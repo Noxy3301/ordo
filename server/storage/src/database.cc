@@ -14,8 +14,7 @@
  *   limitations under the License.
  */
 
-#include <storage/config.h>
-#include <storage/database.h>
+#include "storage/database.h"
 
 #include <algorithm>
 #include <cassert>
@@ -24,8 +23,9 @@
 #include "database_impl.h"
 #include "index/masstree_index.h"
 #include "index/secondary_index.h"
-#include "recovery/flush_trace.h"
-#include "util/logger.h"
+#include "storage/config.h"
+#include "util/spdlog.h"
+#include "wal/flush_trace.h"
 namespace helios::storage {
 
 Database::Database() : db_pimpl_(std::make_unique<Impl>()) {

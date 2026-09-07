@@ -1,4 +1,4 @@
-// pax_view.cc
+// pax/view.cc
 // PAX schema installation and the fenced columnar read view.
 
 #include <chrono>

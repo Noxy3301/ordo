@@ -14,9 +14,6 @@
  *   limitations under the License.
  */
 
-#include <storage/config.h>
-#include <storage/database.h>
-
 #include <chrono>
 #include <filesystem>
 #include <memory>
@@ -26,7 +23,9 @@
 
 #include "db_helper.h"
 #include "gtest/gtest.h"
-#include "util/logger.h"
+#include "storage/config.h"
+#include "storage/database.h"
+#include "util/spdlog.h"
 
 namespace {
 constexpr const char *kTable = "users";

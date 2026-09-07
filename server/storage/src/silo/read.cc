@@ -2,13 +2,13 @@
 
 #include <mutex>
 
+#include "index/data_item.h"
 #include "index/secondary_index.h"
 #include "pax/store.h"
 #include "silo/packed_transaction_id.h"
 #include "silo/stable_read.h"
 #include "table/table.h"
 #include "table/table_dictionary.h"
-#include "types/data_item.h"
 
 namespace helios::storage {
 namespace silo {

@@ -15,10 +15,10 @@
  *   limitations under the License.
  */
 
-#ifndef HELIOS_STORAGE_SRC_TYPES_TRANSACTION_ID_H
-#define HELIOS_STORAGE_SRC_TYPES_TRANSACTION_ID_H
+#ifndef HELIOS_STORAGE_SRC_SILO_TRANSACTION_ID_H
+#define HELIOS_STORAGE_SRC_SILO_TRANSACTION_ID_H
 
-#include "types/definitions.h"
+#include "util/epoch.h"
 
 namespace helios::storage {
 
@@ -47,4 +47,4 @@ struct TransactionId {
 };
 
 }  // namespace helios::storage
-#endif  // HELIOS_STORAGE_SRC_TYPES_TRANSACTION_ID_H
+#endif  // HELIOS_STORAGE_SRC_SILO_TRANSACTION_ID_H

@@ -1,4 +1,4 @@
-#include "masstree_index.h"
+#include "index/masstree_index.h"
 
 #include <atomic>
 #include <cstring>

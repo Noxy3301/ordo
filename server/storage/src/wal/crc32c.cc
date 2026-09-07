@@ -1,10 +1,10 @@
-#include "recovery/crc32c.h"
+#include "wal/crc32c.h"
 
 #include <array>
 #include <cstring>
 #include <string_view>
 
-#include "recovery/crc32c_internal.h"
+#include "wal/crc32c_internal.h"
 
 #if defined(__x86_64__)
 #include <nmmintrin.h>

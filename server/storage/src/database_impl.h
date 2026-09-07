@@ -16,10 +16,6 @@
 #ifndef HELIOS_STORAGE_SRC_DATABASE_IMPL_H
 #define HELIOS_STORAGE_SRC_DATABASE_IMPL_H
 
-#include <storage/config.h>
-#include <storage/database.h>
-#include <table/table.h>
-
 #include <chrono>
 #include <cstdint>
 #include <functional>
@@ -29,21 +25,24 @@
 #include <vector>
 
 #include "index/reaper.h"
-#include "recovery/epoch_scan_checkpoint.h"
-#include "recovery/logger.h"
 #include "silo/commit.h"
 #include "silo/read.h"
+#include "silo/snapshot.h"
+#include "silo/transaction_id.h"
+#include "storage/config.h"
+#include "storage/database.h"
+#include "table/table.h"
 #include "table/table_dictionary.h"
-#include "types/snapshot.h"
-#include "types/transaction_id.h"
 #include "util/epoch_framework.h"
+#include "wal/epoch_scan_checkpoint.h"
+#include "wal/logger.h"
 
 namespace helios::storage {
 
 // The concurrency control this database runs.
 
 // Bodies live in database.cc (lifecycle, tables, reads, commit),
-// durability.cc, pax_view.cc, and stats.cc.
+// pax/view.cc, and index/stats.cc.
 class Database::Impl {
  public:
   inline static Database::Impl *CurrentDBInstance;

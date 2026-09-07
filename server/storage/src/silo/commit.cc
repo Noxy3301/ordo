@@ -13,16 +13,16 @@
 #include <vector>
 
 #include "index/concurrent_table.h"
+#include "index/data_item.h"
 #include "index/reaper.h"
 #include "index/secondary_index.h"
 #include "pax/version_store.h"
-#include "recovery/logger.h"
 #include "silo/packed_transaction_id.h"
 #include "table/table.h"
 #include "table/table_dictionary.h"
-#include "types/data_item.h"
 #include "util/debug_sync.h"
 #include "util/epoch_framework.h"
+#include "wal/logger.h"
 
 namespace helios::storage {
 namespace silo {

@@ -15,9 +15,6 @@
  *   limitations under the License.
  */
 
-#include <storage/config.h>
-#include <storage/database.h>
-
 #include <algorithm>
 #include <chrono>
 #include <cstdio>
@@ -32,9 +29,11 @@
 
 #include "db_helper.h"
 #include "gtest/gtest.h"
-#include "recovery/logger.h"
-#include "recovery/wal.h"
 #include "spdlog/spdlog.h"
+#include "storage/config.h"
+#include "storage/database.h"
+#include "wal/logger.h"
+#include "wal/wal.h"
 
 namespace {
 

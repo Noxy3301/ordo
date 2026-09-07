@@ -17,17 +17,16 @@
 #ifndef HELIOS_STORAGE_SRC_INDEX_CONCURRENT_TABLE_H
 #define HELIOS_STORAGE_SRC_INDEX_CONCURRENT_TABLE_H
 
-#include <storage/config.h>
-
 #include <functional>
 #include <memory>
 #include <string>
 #include <string_view>
 
+#include "index/data_item.h"
 #include "index/masstree_index.h"
-#include "types/data_item.h"
-#include "types/definitions.h"
-#include "types/snapshot.h"
+#include "silo/snapshot.h"
+#include "storage/config.h"
+#include "util/epoch.h"
 #include "util/epoch_framework.h"
 
 namespace helios::storage {

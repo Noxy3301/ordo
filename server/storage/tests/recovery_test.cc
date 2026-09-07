@@ -5,10 +5,10 @@
 #include <string>
 #include <vector>
 
-#include "recovery/wal.h"
 #include "storage/config.h"
 #include "storage/database.h"
 #include "storage/read.h"
+#include "wal/wal.h"
 
 namespace {
 

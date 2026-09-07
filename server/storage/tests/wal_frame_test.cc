@@ -11,8 +11,8 @@
 #include <msgpack.hpp>
 #include <string>
 
-#include "recovery/crc32c.h"
-#include "recovery/wal.h"
+#include "wal/crc32c.h"
+#include "wal/wal.h"
 
 namespace {
 

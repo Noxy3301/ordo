@@ -1,4 +1,4 @@
-#include "types/packed_primary_keys.h"
+#include "index/packed_primary_keys.h"
 
 #include <algorithm>
 #include <random>

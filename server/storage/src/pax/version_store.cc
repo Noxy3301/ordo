@@ -2,7 +2,7 @@
 
 #include <cstdlib>
 
-#include "util/logger.h"
+#include "util/spdlog.h"
 
 namespace helios::storage {
 namespace pax {

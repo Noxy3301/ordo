@@ -1,4 +1,4 @@
-#include "epoch_scan_checkpoint.h"
+#include "wal/epoch_scan_checkpoint.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -14,17 +14,17 @@
 #include <utility>
 #include <vector>
 
-#include "crc32c.h"
 #include "index/concurrent_table.h"
+#include "index/data_item.h"
 #include "index/masstree_index.h"
 #include "index/secondary_index.h"
-#include "logger.h"
 #include "table/table.h"
 #include "table/table_dictionary.h"
-#include "types/data_item.h"
 #include "util/debug_sync.h"
 #include "util/epoch_framework.h"
-#include "util/logger.h"
+#include "util/spdlog.h"
+#include "wal/crc32c.h"
+#include "wal/logger.h"
 
 namespace helios::storage {
 namespace wal {

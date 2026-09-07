@@ -1,4 +1,4 @@
-#include "wal.h"
+#include "wal/wal.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -20,10 +20,10 @@
 #include <utility>
 #include <vector>
 
-#include "crc32c.h"
-#include "flush_trace.h"
 #include "util/debug_sync.h"
-#include "util/logger.h"
+#include "util/spdlog.h"
+#include "wal/crc32c.h"
+#include "wal/flush_trace.h"
 
 namespace helios::storage {
 namespace wal {

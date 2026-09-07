@@ -15,8 +15,8 @@
  *   limitations under the License.
  */
 
-#ifndef HELIOS_STORAGE_SRC_TYPES_DATA_ITEM_H
-#define HELIOS_STORAGE_SRC_TYPES_DATA_ITEM_H
+#ifndef HELIOS_STORAGE_SRC_INDEX_DATA_ITEM_H
+#define HELIOS_STORAGE_SRC_INDEX_DATA_ITEM_H
 
 #include <algorithm>
 #include <atomic>
@@ -29,9 +29,9 @@
 #include <type_traits>
 #include <vector>
 
-#include "data_buffer.h"
-#include "packed_primary_keys.h"
-#include "types/transaction_id.h"
+#include "index/data_buffer.h"
+#include "index/packed_primary_keys.h"
+#include "silo/transaction_id.h"
 
 namespace helios::storage {
 
@@ -157,4 +157,4 @@ struct DataItem {
 static_assert(sizeof(DataItem) == 48,
               "DataItem must remain 48 bytes in the slim layout");
 }  // namespace helios::storage
-#endif  // HELIOS_STORAGE_SRC_TYPES_DATA_ITEM_H
+#endif  // HELIOS_STORAGE_SRC_INDEX_DATA_ITEM_H

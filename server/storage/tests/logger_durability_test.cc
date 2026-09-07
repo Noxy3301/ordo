@@ -14,9 +14,9 @@
 #include <thread>
 #include <vector>
 
-#include "recovery/logger.h"
-#include "recovery/wal.h"
-#include "types/snapshot.h"
+#include "silo/snapshot.h"
+#include "wal/logger.h"
+#include "wal/wal.h"
 
 namespace {
 

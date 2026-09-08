@@ -66,7 +66,7 @@ struct SecondaryIndexEntry {
   bool is_delete = false;
   DataItem *item = nullptr;
   index::SecondaryIndex *index = nullptr;
-  index::IndexConstraint index_type;
+  IndexConstraint index_type;
 };
 
 // The index entry a locked item must still be reachable through.
@@ -191,19 +191,19 @@ bool Resolve(CommitCtx &ctx, std::shared_mutex &schema_mutex) {
     if (ctx.has_insert) {
       const std::string request_key = write.table_name + '\0' + write.key;
       auto live_it = live_in_request.find(request_key);
-      if (write.is_insert) {
+      if (write.op == RowOp::kInsert) {
         if (live_it == live_in_request.end()) {
           check_committed_row = true;
         } else if (live_it->second) {
           return ctx.Abort(kDuplicatePrimaryKeyAbortReason);
         }
       }
-      live_in_request[request_key] = !write.is_delete;
+      live_in_request[request_key] = write.op != RowOp::kDelete;
     }
 
     auto *primary_index = &table->GetPrimaryIndex();
     ctx.writes.push_back({write.table_name, write.key, write.value,
-                          write.is_delete, item, primary_index,
+                          write.op == RowOp::kDelete, item, primary_index,
                           check_committed_row});
     ctx.items.push_back(item);
     ctx.targets.push_back({item, primary_index, nullptr, write.key});
@@ -505,7 +505,7 @@ bool ValidateInserts(CommitCtx &ctx) {
 bool ValidateUnique(CommitCtx &ctx) {
   std::unordered_map<DataItem *, PackedPrimaryKeys::Ptr> si_primary_keys;
   for (const auto &op : ctx.si_ops) {
-    if (!op.index_type.IsUnique()) continue;
+    if (op.index_type != IndexConstraint::kUnique) continue;
 
     auto [state_it, inserted] =
         si_primary_keys.emplace(op.item, PackedPrimaryKeys::Ptr{});
@@ -687,9 +687,10 @@ bool Commit(TableDictionary &tables, std::shared_mutex &schema_mutex,
   epoch_framework.Join();
   if (abort_reason != nullptr) abort_reason->clear();
 
-  ctx.has_insert = std::any_of(
-      payload.writes.begin(), payload.writes.end(),
-      [](const ExternalWriteEntry &entry) { return entry.is_insert; });
+  ctx.has_insert = std::any_of(payload.writes.begin(), payload.writes.end(),
+                               [](const ExternalWriteEntry &entry) {
+                                 return entry.op == RowOp::kInsert;
+                               });
 
   // A range entry without its exclusive end bound cannot be replayed;
   // abort instead of skipping the validation.

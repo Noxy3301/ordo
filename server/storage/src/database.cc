@@ -82,8 +82,8 @@ bool Database::PaxViewValid(const PaxReadView &view) const {
 
 bool Database::CreateSecondaryIndex(const std::string_view table_name,
                                     const std::string_view index_name,
-                                    const uint constraints) {
-  return db_pimpl_->CreateSecondaryIndex(table_name, index_name, constraints);
+                                    IndexConstraint index_type) {
+  return db_pimpl_->CreateSecondaryIndex(table_name, index_name, index_type);
 }
 
 bool Database::HasTable(const std::string_view table_name) {
@@ -265,17 +265,19 @@ bool Database::Impl::CreateTable(const std::string_view table_name) {
 
 bool Database::Impl::CreateSecondaryIndex(const std::string_view table_name,
                                           const std::string_view index_name,
-                                          const uint constraints) {
-  if (constraints > index::IndexConstraint::kUnique) return false;
+                                          IndexConstraint index_type) {
+  // A value the wire carried that is neither of the declared ones names a
+  // promise this storage does not know how to keep.
+  if (index_type != IndexConstraint::kNone &&
+      index_type != IndexConstraint::kUnique) {
+    return false;
+  }
   // Exclusive: every reader of the definition holds this lock shared, so a
   // shared one here would let a request resolve half of a schema change.
   std::unique_lock<std::shared_mutex> lk(schema_mutex_);
   Table *table = GetTable(table_name);
   if (table == nullptr) return false;
-  return table->CreateSecondaryIndex(
-      index_name,
-      index::IndexConstraint::FromRaw(
-          static_cast<index::IndexConstraint::RawType>(constraints)));
+  return table->CreateSecondaryIndex(index_name, index_type);
 }
 
 ReadResult Database::Impl::Read(const std::string_view table_name,

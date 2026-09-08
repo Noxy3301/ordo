@@ -24,13 +24,13 @@
 #include <memory>
 
 #include "gtest/gtest.h"
-#include "index/index_constraint.h"
 #include "storage/config.h"
 #include "storage/database.h"
+#include "storage/index.h"
 #include "table/table.h"
 
 namespace {
-using helios::storage::index::IndexConstraint;
+using helios::storage::IndexConstraint;
 }  // namespace
 class CreateSecondaryIndexTest : public ::testing::Test {
  protected:
@@ -74,9 +74,8 @@ TEST_F(CreateSecondaryIndexTest, CreateSecondaryIndexOnNonExistentTable) {
 
 TEST(SecondaryIndexConstraintTest, GetOrCreateRefusesADifferentConstraint) {
   helios::storage::Table table("users");
-  const helios::storage::index::IndexConstraint unique(
-      helios::storage::index::IndexConstraint::kUnique);
-  const helios::storage::index::IndexConstraint none;
+  const auto unique = IndexConstraint::kUnique;
+  const auto none = IndexConstraint::kNone;
 
   helios::storage::index::SecondaryIndex *index =
       table.GetOrCreateSecondaryIndex("age_index", none);

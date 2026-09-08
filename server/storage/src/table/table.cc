@@ -19,7 +19,7 @@ namespace helios::storage {
 Table::Table(std::string_view table_name) : table_name_(table_name) {}
 
 bool Table::CreateSecondaryIndex(const std::string_view index_name,
-                                 const index::IndexConstraint index_type) {
+                                 const IndexConstraint index_type) {
   if (GetSecondaryIndex(index_name) != nullptr) return false;
   return GetOrCreateSecondaryIndex(index_name, index_type) != nullptr;
 }
@@ -50,12 +50,11 @@ index::SecondaryIndex *Table::GetSecondaryIndex(
 }
 
 index::SecondaryIndex *Table::GetOrCreateSecondaryIndex(
-    const std::string_view index_name,
-    const index::IndexConstraint index_type) {
+    const std::string_view index_name, const IndexConstraint index_type) {
   std::unique_lock<std::shared_mutex> lk(table_lock_);
   auto it = secondary_indices_.find(std::string(index_name));
   if (it != secondary_indices_.end()) {
-    const bool same = it->second->GetIndexType().Raw() == index_type.Raw();
+    const bool same = it->second->GetIndexType() == index_type;
     return same ? it->second.get() : nullptr;
   }
   auto new_index = std::make_unique<index::SecondaryIndex>(index_type);

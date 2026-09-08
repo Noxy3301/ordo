@@ -29,7 +29,7 @@ class Table {
    * @return false when an index of that name already exists.
    */
   bool CreateSecondaryIndex(const std::string_view index_name,
-                            const index::IndexConstraint index_type);
+                            const IndexConstraint index_type);
 
   /**
    * @brief Installs PAX storage metadata for rows created after the call.
@@ -77,8 +77,7 @@ class Table {
    * a different constraint.
    */
   index::SecondaryIndex *GetOrCreateSecondaryIndex(
-      const std::string_view index_name,
-      const index::IndexConstraint index_type);
+      const std::string_view index_name, const IndexConstraint index_type);
 
  private:
   index::PrimaryIndex primary_index_;

@@ -60,7 +60,7 @@ class RecoveryTest : public ::testing::Test {
 
   static bool CommitWrite(helios::storage::Database &db, const std::string &key,
                           const std::string &value) {
-    const bool committed = db.Commit({}, {{kTable, key, value, false}}, {}, {},
+    const bool committed = db.Commit({}, {{kTable, key, value}}, {}, {},
                                      helios::storage::CommitDurability::kSync);
     db.ReleaseThreadEpoch();
     return committed;
@@ -70,10 +70,9 @@ class RecoveryTest : public ::testing::Test {
                                         const std::string &key,
                                         const std::string &value,
                                         const std::string &secondary_key) {
-    const bool committed =
-        db.Commit({}, {{kTable, key, value, false}},
-                  {{kTable, kIndex, secondary_key, key, false}}, {},
-                  helios::storage::CommitDurability::kSync);
+    const bool committed = db.Commit({}, {{kTable, key, value}},
+                                     {{kTable, kIndex, secondary_key, key}}, {},
+                                     helios::storage::CommitDurability::kSync);
     db.ReleaseThreadEpoch();
     return committed;
   }
@@ -94,7 +93,8 @@ TEST_F(RecoveryTest, ALoggedWriteCarriesTheUnlockedTid) {
     auto config = MakeConfig(Recovery::kOff);
     helios::storage::Database db(config);
     db.CreateTable(kTable);
-    ASSERT_TRUE(db.CreateSecondaryIndex(kTable, kIndex, 0));
+    ASSERT_TRUE(db.CreateSecondaryIndex(
+        kTable, kIndex, helios::storage::IndexConstraint::kNone));
     ASSERT_TRUE(CommitWriteWithIndexEntry(db, "k", "v1", "s"));
   }
 

@@ -61,7 +61,7 @@ bool ThreadLocalLogger::Enqueue(const WriteSetType &ws_ref, EpochNumber epoch) {
       write.transaction_id = snapshot.data_item_copy.transaction_id.load();
       write.table_name = snapshot.table_name;
       write.index_name = snapshot.index_name;
-      write.index_type = snapshot.index_type.Raw();
+      write.index_type = static_cast<uint32_t>(snapshot.index_type);
       write.primary_keys = snapshot.data_item_copy.primary_keys_vector();
       write.secondary_op = SecondaryIndexOp::kNone;
       record.writes.emplace_back(std::move(write));
@@ -76,7 +76,7 @@ bool ThreadLocalLogger::Enqueue(const WriteSetType &ws_ref, EpochNumber epoch) {
       write.transaction_id = snapshot.data_item_copy.transaction_id.load();
       write.table_name = snapshot.table_name;
       write.index_name = snapshot.index_name;
-      write.index_type = snapshot.index_type.Raw();
+      write.index_type = static_cast<uint32_t>(snapshot.index_type);
       write.secondary_op = delta.op;
       write.secondary_primary_key = delta.primary_key;
       record.writes.emplace_back(std::move(write));

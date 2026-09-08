@@ -69,7 +69,7 @@ inline bool CommitWrites(
 
 inline bool Write(helios::storage::Database &db, const std::string &table,
                   const std::string &key, const std::string &value) {
-  return CommitWrites(db, {{table, key, value, false, false}});
+  return CommitWrites(db, {{table, key, value}});
 }
 
 template <typename T>
@@ -80,7 +80,7 @@ bool Write(helios::storage::Database &db, const std::string &table,
 
 inline bool Delete(helios::storage::Database &db, const std::string &table,
                    const std::string &key) {
-  return CommitWrites(db, {{table, key, "", true, false}});
+  return CommitWrites(db, {{table, key, "", helios::storage::RowOp::kDelete}});
 }
 
 inline std::optional<std::string> Read(helios::storage::Database &db,

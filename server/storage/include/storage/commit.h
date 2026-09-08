@@ -29,18 +29,28 @@ struct ExternalReadEntry {
 };
 
 /**
+ * @brief What a write does to the row it names.
+ *
+ * @details kInsert asserts that the key holds no live row at commit; if it
+ * does, Commit aborts with @ref kDuplicatePrimaryKeyAbortReason. kUpdate
+ * installs the value whether or not one is there.
+ */
+enum class RowOp {
+  kUpdate = 0,
+  kInsert = 1,
+  kDelete = 2,
+};
+
+/**
  * @brief Row write or delete to install during Commit.
  *
- * When `is_delete` is true, `value` is ignored and the row is removed.
- * When `is_insert` is true, the key must hold no live row at commit; if it
- * does, Commit aborts with @ref kDuplicatePrimaryKeyAbortReason.
+ * `value` is ignored for a kDelete, which removes the row.
  */
 struct ExternalWriteEntry {
   std::string table_name;
   std::string key;
   std::string value;
-  bool is_delete = false;
-  bool is_insert = false;
+  RowOp op = RowOp::kUpdate;
 };
 
 /**

@@ -9,14 +9,13 @@
 
 #include "db_helper.h"
 #include "gtest/gtest.h"
-#include "index/index_constraint.h"
 #include "storage/config.h"
 #include "storage/database.h"
+#include "storage/index.h"
 
 namespace {
 
-constexpr uint kUnique =
-    static_cast<uint>(helios::storage::index::IndexConstraint::kUnique);
+using helios::storage::IndexConstraint;
 
 bool WriteRowAndSecondary(helios::storage::Database &db,
                           const std::string &table_name,
@@ -25,7 +24,7 @@ bool WriteRowAndSecondary(helios::storage::Database &db,
                           const std::string &index_name,
                           const std::string &secondary_key) {
   return TestHelper::CommitWrites(
-      db, {{table_name, primary_key, value, false, false}},
+      db, {{table_name, primary_key, value}},
       {{table_name, index_name, secondary_key, primary_key, false}});
 }
 
@@ -50,7 +49,8 @@ TEST_F(UniqueSecondaryIndexTest, DictUniqueFlagRejectsDuplicateSecondaryKey) {
 
   helios::storage::Database db(config_);
   ASSERT_TRUE(db.CreateTable("users"));
-  ASSERT_TRUE(db.CreateSecondaryIndex("users", "email_idx", kUnique));
+  ASSERT_TRUE(
+      db.CreateSecondaryIndex("users", "email_idx", IndexConstraint::kUnique));
 
   ASSERT_TRUE(WriteRowAndSecondary(db, "users", "user1", "Alice", "email_idx",
                                    "alice@example.com"));
@@ -65,7 +65,8 @@ TEST_F(UniqueSecondaryIndexTest,
   {
     helios::storage::Database db(config_);
     ASSERT_TRUE(db.CreateTable("users"));
-    ASSERT_TRUE(db.CreateSecondaryIndex("users", "email_idx", kUnique));
+    ASSERT_TRUE(db.CreateSecondaryIndex("users", "email_idx",
+                                        IndexConstraint::kUnique));
 
     ASSERT_TRUE(WriteRowAndSecondary(db, "users", "user1", "Alice", "email_idx",
                                      "alice@example.com"));

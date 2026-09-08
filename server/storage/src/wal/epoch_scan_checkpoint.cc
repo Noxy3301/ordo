@@ -410,7 +410,7 @@ bool EpochScanCheckpoint::CaptureTable(Table &table, LogRecord *record,
 
   table.ForEachSecondaryIndex([&](const std::string &index_name,
                                   index::SecondaryIndex &index) {
-    const uint32_t index_type = index.GetIndexType().Raw();
+    const uint32_t index_type = static_cast<uint32_t>(index.GetIndexType());
     index.ForEach([&](std::string_view key, DataItem &item) {
       LogRecord::Write write;
       switch (CaptureSecondaryEntry(table_name, index_name, index_type, key,
@@ -470,9 +470,9 @@ bool EpochScanCheckpoint::CaptureTable(Table &table, LogRecord *record,
       DataItem *item = index->Get(key);
       if (item == nullptr) continue;
       LogRecord::Write write;
-      switch (CaptureSecondaryEntry(table_name, index_name,
-                                    index->GetIndexType().Raw(), key, *item,
-                                    &write, &stats->version_retries)) {
+      switch (CaptureSecondaryEntry(
+          table_name, index_name, static_cast<uint32_t>(index->GetIndexType()),
+          key, *item, &write, &stats->version_retries)) {
         case CaptureResult::kTaken:
           ++stats->secondary_entries;
           record->writes.emplace_back(std::move(write));

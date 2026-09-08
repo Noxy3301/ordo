@@ -12,12 +12,12 @@
 
 #include "db_helper.h"
 #include "gtest/gtest.h"
-#include "index/index_constraint.h"
 #include "storage/config.h"
 #include "storage/database.h"
+#include "storage/index.h"
 
 namespace {
-using helios::storage::index::IndexConstraint;
+using helios::storage::IndexConstraint;
 using SecondaryScanRows = std::vector<std::pair<std::string, std::string>>;
 }  // namespace
 
@@ -40,9 +40,9 @@ TEST_F(ScanSecondaryIndexTest, DeleteAndScan) {
 
   ASSERT_TRUE(TestHelper::CommitWrites(
       *db_,
-      {{"users", "user1", "Alice", false, false},
-       {"users", "user2", "Bob", false, false},
-       {"users", "user3", "Carol", false, false}},
+      {{"users", "user1", "Alice"},
+       {"users", "user2", "Bob"},
+       {"users", "user3", "Carol"}},
       {{"users", "alpha_index", "a", "user1", false},
        {"users", "alpha_index", "b", "user2", false},
        {"users", "alpha_index", "c", "user3", false}}));
@@ -64,15 +64,15 @@ TEST_F(ScanSecondaryIndexTest, IncludeInsertedKeys) {
   ASSERT_TRUE(
       db_->CreateSecondaryIndex("users", "name_index", IndexConstraint::kNone));
 
-  ASSERT_TRUE(TestHelper::CommitWrites(
-      *db_, {{"users", "user1", "Alice", false, false}},
-      {{"users", "name_index", "alice", "user1", false}}));
+  ASSERT_TRUE(
+      TestHelper::CommitWrites(*db_, {{"users", "user1", "Alice"}},
+                               {{"users", "name_index", "alice", "user1"}}));
 
   ASSERT_TRUE(TestHelper::CommitWrites(
       *db_,
-      {{"users", "user2", "Bob", false, false},
-       {"users", "user3", "Carol", false, false},
-       {"users", "user4", "Erin", false, false}},
+      {{"users", "user2", "Bob"},
+       {"users", "user3", "Carol"},
+       {"users", "user4", "Erin"}},
       {{"users", "name_index", "bob", "user2", false},
        {"users", "name_index", "carol", "user3", false},
        {"users", "name_index", "erin", "user4", false}}));
@@ -89,17 +89,15 @@ TEST_F(ScanSecondaryIndexTest, KeyOrder) {
       db_->CreateSecondaryIndex("users", "name_index", IndexConstraint::kNone));
 
   ASSERT_TRUE(TestHelper::CommitWrites(
-      *db_,
-      {{"users", "user1", "Alice", false, false},
-       {"users", "user4", "Diana", false, false}},
+      *db_, {{"users", "user1", "Alice"}, {"users", "user4", "Diana"}},
       {{"users", "name_index", "alice", "user1", false},
        {"users", "name_index", "diana", "user4", false}}));
 
   ASSERT_TRUE(TestHelper::CommitWrites(
       *db_,
-      {{"users", "user2", "Bob", false, false},
-       {"users", "user3", "Carol", false, false},
-       {"users", "user5", "Erin", false, false}},
+      {{"users", "user2", "Bob"},
+       {"users", "user3", "Carol"},
+       {"users", "user5", "Erin"}},
       {{"users", "name_index", "bob", "user2", false},
        {"users", "name_index", "carol", "user3", false},
        {"users", "name_index", "erin", "user5", false}}));
@@ -118,9 +116,9 @@ TEST_F(ScanSecondaryIndexTest, ReverseScan) {
 
   ASSERT_TRUE(TestHelper::CommitWrites(
       *db_,
-      {{"users", "user1", "Alice", false, false},
-       {"users", "user2", "Bob", false, false},
-       {"users", "user3", "Carol", false, false}},
+      {{"users", "user1", "Alice"},
+       {"users", "user2", "Bob"},
+       {"users", "user3", "Carol"}},
       {{"users", "group_index", "g1", "user2", false},
        {"users", "group_index", "g1", "user1", false},
        {"users", "group_index", "g2", "user3", false}}));
@@ -139,18 +137,18 @@ TEST_F(ScanSecondaryIndexTest, StopScanning) {
 
   ASSERT_TRUE(TestHelper::CommitWrites(
       *db_,
-      {{"users", "user1", "Alice", false, false},
-       {"users", "user4", "Diana", false, false},
-       {"users", "user6", "Frank", false, false}},
+      {{"users", "user1", "Alice"},
+       {"users", "user4", "Diana"},
+       {"users", "user6", "Frank"}},
       {{"users", "name_index", "alice", "user1", false},
        {"users", "name_index", "diana", "user4", false},
        {"users", "name_index", "frank", "user6", false}}));
 
   ASSERT_TRUE(TestHelper::CommitWrites(
       *db_,
-      {{"users", "user2", "Bob", false, false},
-       {"users", "user3", "Carol", false, false},
-       {"users", "user5", "Erin", false, false}},
+      {{"users", "user2", "Bob"},
+       {"users", "user3", "Carol"},
+       {"users", "user5", "Erin"}},
       {{"users", "name_index", "bob", "user2", false},
        {"users", "name_index", "carol", "user3", false},
        {"users", "name_index", "erin", "user5", false}}));
@@ -169,9 +167,9 @@ TEST_F(ScanSecondaryIndexTest, ExcludeDeletedKeys) {
 
   ASSERT_TRUE(TestHelper::CommitWrites(
       *db_,
-      {{"users", "user1", "Alice", false, false},
-       {"users", "user2", "Bob", false, false},
-       {"users", "user3", "Carol", false, false}},
+      {{"users", "user1", "Alice"},
+       {"users", "user2", "Bob"},
+       {"users", "user3", "Carol"}},
       {{"users", "name_index", "alice", "user1", false},
        {"users", "name_index", "bob", "user2", false},
        {"users", "name_index", "carol", "user3", false}}));

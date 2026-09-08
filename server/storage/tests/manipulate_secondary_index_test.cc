@@ -28,12 +28,12 @@
 
 #include "db_helper.h"
 #include "gtest/gtest.h"
-#include "index/index_constraint.h"
 #include "storage/config.h"
 #include "storage/database.h"
+#include "storage/index.h"
 
 namespace {
-using helios::storage::index::IndexConstraint;
+using helios::storage::IndexConstraint;
 }  // namespace
 class ManipulateSecondaryIndexTest : public ::testing::Test {
  protected:
@@ -51,9 +51,9 @@ TEST_F(ManipulateSecondaryIndexTest, ReadWriteSecondaryIndex) {
   ASSERT_TRUE(
       db_->CreateSecondaryIndex("users", "age_index", IndexConstraint::kNone));
 
-  ASSERT_TRUE(TestHelper::CommitWrites(
-      *db_, {{"users", "user1", "Alice", false, false}},
-      {{"users", "age_index", "10", "user1", false}}));
+  ASSERT_TRUE(
+      TestHelper::CommitWrites(*db_, {{"users", "user1", "Alice"}},
+                               {{"users", "age_index", "10", "user1"}}));
 
   const auto result = TestHelper::ReadIndex(*db_, "users", "age_index", "10");
   ASSERT_EQ(result.size(), 1u);
@@ -68,9 +68,9 @@ TEST_F(ManipulateSecondaryIndexTest, DuplicateAddDoesNotDuplicatePrimaryKey) {
   // The repeated 30/user3 entry must not produce a duplicate primary key.
   ASSERT_TRUE(
       TestHelper::CommitWrites(*db_,
-                               {{"users", "user1", "Alice", false, false},
-                                {"users", "user2", "Bob", false, false},
-                                {"users", "user3", "Carol", false, false}},
+                               {{"users", "user1", "Alice"},
+                                {"users", "user2", "Bob"},
+                                {"users", "user3", "Carol"}},
                                {{"users", "age_index", "25", "user1", false},
                                 {"users", "age_index", "25", "user2", false},
                                 {"users", "age_index", "30", "user3", false},
@@ -85,12 +85,10 @@ TEST_F(ManipulateSecondaryIndexTest, ReadDataViaSecondaryIndex) {
   ASSERT_TRUE(
       db_->CreateSecondaryIndex("users", "age_index", IndexConstraint::kNone));
 
-  ASSERT_TRUE(
-      TestHelper::CommitWrites(*db_,
-                               {{"users", "user1", "Alice", false, false},
-                                {"users", "user2", "Bob", false, false}},
-                               {{"users", "age_index", "25", "user1", false},
-                                {"users", "age_index", "25", "user2", false}}));
+  ASSERT_TRUE(TestHelper::CommitWrites(
+      *db_, {{"users", "user1", "Alice"}, {"users", "user2", "Bob"}},
+      {{"users", "age_index", "25", "user1", false},
+       {"users", "age_index", "25", "user2", false}}));
 
   const auto primary_keys =
       TestHelper::ReadIndex(*db_, "users", "age_index", "25");
@@ -110,9 +108,9 @@ TEST_F(ManipulateSecondaryIndexTest, RemoveThenAddRelocatesMapping) {
   ASSERT_TRUE(
       db_->CreateSecondaryIndex("users", "age_index", IndexConstraint::kNone));
 
-  ASSERT_TRUE(TestHelper::CommitWrites(
-      *db_, {{"users", "user1", "Alice", false, false}},
-      {{"users", "age_index", "25", "user1", false}}));
+  ASSERT_TRUE(
+      TestHelper::CommitWrites(*db_, {{"users", "user1", "Alice"}},
+                               {{"users", "age_index", "25", "user1"}}));
 
   // An update is the removal of the old entry and the add of the new one,
   // submitted together.
@@ -132,10 +130,10 @@ TEST_F(ManipulateSecondaryIndexTest, ReAddExistingIndexEntryIsIdempotent) {
   ASSERT_TRUE(
       db_->CreateSecondaryIndex("users", "age_index", IndexConstraint::kNone));
 
-  ASSERT_TRUE(TestHelper::CommitWrites(
-      *db_, {{"users", "user1", "Alice", false, false}},
-      {{"users", "age_index", "25", "user1", false},
-       {"users", "age_index", "30", "user1", false}}));
+  ASSERT_TRUE(
+      TestHelper::CommitWrites(*db_, {{"users", "user1", "Alice"}},
+                               {{"users", "age_index", "25", "user1", false},
+                                {"users", "age_index", "30", "user1", false}}));
 
   ASSERT_TRUE(
       TestHelper::CommitWrites(*db_, {},
@@ -153,8 +151,7 @@ TEST_F(ManipulateSecondaryIndexTest, MissingRemoveDoesNotBlockAdd) {
   ASSERT_TRUE(
       db_->CreateSecondaryIndex("users", "age_index", IndexConstraint::kNone));
 
-  ASSERT_TRUE(TestHelper::CommitWrites(
-      *db_, {{"users", "user1", "Alice", false, false}}));
+  ASSERT_TRUE(TestHelper::CommitWrites(*db_, {{"users", "user1", "Alice"}}));
 
   // Removing an entry that was never there leaves the add unaffected.
   ASSERT_TRUE(
@@ -173,9 +170,9 @@ TEST_F(ManipulateSecondaryIndexTest, DeleteSecondaryIndexRemovesPrimaryKey) {
   ASSERT_TRUE(
       db_->CreateSecondaryIndex("users", "age_index", IndexConstraint::kNone));
 
-  ASSERT_TRUE(TestHelper::CommitWrites(
-      *db_, {{"users", "user1", "Alice", false, false}},
-      {{"users", "age_index", "25", "user1", false}}));
+  ASSERT_TRUE(
+      TestHelper::CommitWrites(*db_, {{"users", "user1", "Alice"}},
+                               {{"users", "age_index", "25", "user1"}}));
   ASSERT_EQ(TestHelper::ReadIndex(*db_, "users", "age_index", "25").size(), 1u);
 
   ASSERT_TRUE(TestHelper::CommitWrites(
@@ -191,9 +188,9 @@ TEST_F(ManipulateSecondaryIndexTest, RemoveIndexEntryLeavesOtherPrimaryKeys) {
 
   ASSERT_TRUE(
       TestHelper::CommitWrites(*db_,
-                               {{"users", "user1", "Alice", false, false},
-                                {"users", "user2", "Bob", false, false},
-                                {"users", "user3", "Carol", false, false}},
+                               {{"users", "user1", "Alice"},
+                                {"users", "user2", "Bob"},
+                                {"users", "user3", "Carol"}},
                                {{"users", "age_index", "25", "user1", false},
                                 {"users", "age_index", "25", "user2", false},
                                 {"users", "age_index", "25", "user3", false}}));
@@ -214,9 +211,9 @@ TEST_F(ManipulateSecondaryIndexTest,
   ASSERT_TRUE(
       db_->CreateSecondaryIndex("users", "age_index", IndexConstraint::kNone));
 
-  ASSERT_TRUE(TestHelper::CommitWrites(
-      *db_, {{"users", "user1", "Alice", false, false}},
-      {{"users", "age_index", "18", "user1", false}}));
+  ASSERT_TRUE(
+      TestHelper::CommitWrites(*db_, {{"users", "user1", "Alice"}},
+                               {{"users", "age_index", "18", "user1"}}));
 
   // 18 -> 19 -> 20 in one request: the index ops are applied in order.
   ASSERT_TRUE(

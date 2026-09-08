@@ -29,7 +29,7 @@ bool CommitWrite(helios::storage::Database &db, const std::string &key,
                  const std::string &value) {
   std::string reason;
   const bool committed =
-      db.Commit({}, {{kTable, key, value, false}}, {}, {},
+      db.Commit({}, {{kTable, key, value}}, {}, {},
                 helios::storage::CommitDurability::kSync, &reason);
   db.ReleaseThreadEpoch();
   EXPECT_TRUE(committed) << "write " << key << " aborted: " << reason;
@@ -39,8 +39,8 @@ bool CommitWrite(helios::storage::Database &db, const std::string &key,
 bool CommitDelete(helios::storage::Database &db, const std::string &key) {
   std::string reason;
   const bool committed =
-      db.Commit({}, {{kTable, key, "", true}}, {}, {},
-                helios::storage::CommitDurability::kSync, &reason);
+      db.Commit({}, {{kTable, key, "", helios::storage::RowOp::kDelete}}, {},
+                {}, helios::storage::CommitDurability::kSync, &reason);
   db.ReleaseThreadEpoch();
   EXPECT_TRUE(committed) << "delete " << key << " aborted: " << reason;
   return committed;
@@ -91,7 +91,7 @@ void SeedRows(helios::storage::Database &db) {
 void LeaveBlankSlot(helios::storage::Database &db, const std::string &key) {
   std::string reason;
   const bool committed =
-      db.Commit({{kTable, "k1", 0, true}}, {{kTable, key, "v", false}}, {}, {},
+      db.Commit({{kTable, "k1", 0, true}}, {{kTable, key, "v"}}, {}, {},
                 helios::storage::CommitDurability::kSync, &reason);
   db.ReleaseThreadEpoch();
   ASSERT_FALSE(committed) << "the write was supposed to abort";

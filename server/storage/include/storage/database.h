@@ -33,6 +33,7 @@
 
 #include "storage/commit.h"
 #include "storage/config.h"
+#include "storage/index.h"
 #include "storage/read.h"
 
 namespace helios::storage {
@@ -96,9 +97,15 @@ class Database {
    */
   void ReleaseThreadEpoch();
 
+  /**
+   * @brief Declares a secondary index on a table.
+   *
+   * @return false when the table does not exist, an index of that name
+   * already exists, or `index_type` is not one of the declared values.
+   */
   bool CreateSecondaryIndex(const std::string_view table_name,
                             const std::string_view index_name,
-                            const uint constraints);
+                            IndexConstraint index_type);
 
   // True when the dictionary holds this table.
   bool HasTable(const std::string_view table_name);

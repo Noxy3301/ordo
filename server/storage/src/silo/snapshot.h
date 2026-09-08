@@ -30,7 +30,7 @@
 #include <vector>
 
 #include "index/data_item.h"
-#include "index/index_constraint.h"
+#include "storage/index.h"
 #include "util/epoch.h"
 
 namespace helios::storage {
@@ -58,7 +58,7 @@ struct Snapshot {
   DataItem *item;
   std::string table_name;
   std::string index_name;
-  index::IndexConstraint index_type;
+  IndexConstraint index_type;
   struct SecondaryIndexDelta {
     std::string primary_key;
     SecondaryIndexOp op;
@@ -68,7 +68,7 @@ struct Snapshot {
   Snapshot(const std::string_view key, const std::byte row[], const size_t len,
            DataItem *const item, std::string_view table_name,
            std::string_view index_name, const TransactionId tid = {},
-           index::IndexConstraint index_type = index::IndexConstraint())
+           IndexConstraint index_type = IndexConstraint::kNone)
       : key(key),
         item(item),
         table_name(table_name),

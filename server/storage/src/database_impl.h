@@ -91,7 +91,7 @@ class Database::Impl {
 
   bool CreateSecondaryIndex(const std::string_view table_name,
                             const std::string_view index_name,
-                            const uint constraints);
+                            IndexConstraint index_type);
 
   ReadResult Read(const std::string_view table_name, const std::string_view key,
                   const std::vector<uint32_t> *selected_columns = nullptr);

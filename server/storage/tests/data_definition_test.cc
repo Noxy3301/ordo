@@ -69,9 +69,8 @@ TEST_F(DataDefinitionTest, SeparateTableKeySpaces) {
     tx1_ready = true;
     while (!tx2_ready) std::this_thread::yield();  // Wait for tx2 to be ready
     EXPECT_TRUE(TestHelper::CommitWrites(
-        *db_, {{"users", "user1", TestHelper::Pack<int>(42), false, false},
-               {"users", "user1_only_users", TestHelper::Pack<int>(42), false,
-                false}}));
+        *db_, {{"users", "user1", TestHelper::Pack<int>(42)},
+               {"users", "user1_only_users", TestHelper::Pack<int>(42)}}));
   });
 
   std::thread thread2([&]() {
@@ -101,8 +100,8 @@ TEST_F(DataDefinitionTest, WriteSameKeyIntoTwoTables) {
   ASSERT_TRUE(db_->CreateTable("accounts"));
 
   ASSERT_TRUE(TestHelper::CommitWrites(
-      *db_, {{"users", "user1", TestHelper::Pack<int>(42), false, false},
-             {"accounts", "user1", TestHelper::Pack<int>(100), false, false}}));
+      *db_, {{"users", "user1", TestHelper::Pack<int>(42)},
+             {"accounts", "user1", TestHelper::Pack<int>(100)}}));
 
   // Check Results
   auto data = TestHelper::Read<int>(*db_, "users", "user1");

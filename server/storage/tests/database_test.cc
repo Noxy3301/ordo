@@ -67,9 +67,9 @@ TEST_F(DatabaseTest, LargeSizeBuffer) {
 
 TEST_F(DatabaseTest, Scan) {
   ASSERT_TRUE(TestHelper::CommitWrites(
-      *db_, {{kTable, "alice", TestHelper::Pack<int>(1), false, false},
-             {kTable, "bob", TestHelper::Pack<int>(2), false, false},
-             {kTable, "carol", TestHelper::Pack<int>(3), false, false}}));
+      *db_, {{kTable, "alice", TestHelper::Pack<int>(1)},
+             {kTable, "bob", TestHelper::Pack<int>(2)},
+             {kTable, "carol", TestHelper::Pack<int>(3)}}));
 
   // Half-open: carol is the exclusive upper bound.
   const auto rows = TestHelper::Scan(*db_, kTable, "alice", "carol");
@@ -102,8 +102,8 @@ TEST_F(DatabaseTest, ThreadSafetyWrites) {
 
   std::vector<helios::storage::ExternalWriteEntry> writes;
   for (size_t idx = 0; idx < kKeys; idx++) {
-    writes.push_back({kTable, "alice" + std::to_string(idx),
-                      TestHelper::Pack<int>(kValue), false, false});
+    writes.push_back(
+        {kTable, "alice" + std::to_string(idx), TestHelper::Pack<int>(kValue)});
   }
 
   std::vector<std::thread> threads;

@@ -168,7 +168,7 @@ void FoldPrimary(const Write &write, WriteSetType &recovery_set,
                                 write.transaction_id);
       item.table_name = write.table_name;
       item.index_name = write.index_name;
-      item.index_type = index::IndexConstraint::FromRaw(write.index_type);
+      item.index_type = static_cast<IndexConstraint>(write.index_type);
     }
     return;
   }
@@ -183,7 +183,7 @@ void FoldPrimary(const Write &write, WriteSetType &recovery_set,
       write.table_name,
       write.index_name,
       write.transaction_id,
-      index::IndexConstraint::FromRaw(write.index_type),
+      static_cast<IndexConstraint>(write.index_type),
   };
   recovery_set.emplace_back(std::move(snapshot));
 }
@@ -216,7 +216,7 @@ void GroupSecondary(const SecondaryOps &ops, WriteSetType &recovery_set) {
                          group_key.table_name,
                          group_key.index_name,
                          entry.max_tid,
-                         index::IndexConstraint::FromRaw(group_key.index_type)};
+                         static_cast<IndexConstraint>(group_key.index_type)};
     snapshot.data_item_copy.SetPrimaryKeys(std::move(entry.primary_keys));
     snapshot.data_item_copy.Reset(nullptr, 0, entry.max_tid);
     recovery_set.emplace_back(std::move(snapshot));

@@ -10,16 +10,16 @@
 #include <string_view>
 #include <utility>
 
-#include "index/index_constraint.h"
 #include "index/masstree_index.h"
 #include "silo/stable_read.h"
+#include "storage/index.h"
 
 namespace helios::storage {
 namespace index {
 
 class SecondaryIndex {
  public:
-  explicit SecondaryIndex(IndexConstraint index_type = IndexConstraint())
+  explicit SecondaryIndex(IndexConstraint index_type = IndexConstraint::kNone)
       : index_type_(index_type) {}
 
   DataItem *Get(std::string_view key) { return index_.Get(key); }
@@ -70,7 +70,7 @@ class SecondaryIndex {
     index_.Put(key, std::move(value));
   }
 
-  bool IsUnique() const { return index_type_.IsUnique(); }
+  bool IsUnique() const { return index_type_ == IndexConstraint::kUnique; }
 
   IndexConstraint GetIndexType() const { return index_type_; }
 

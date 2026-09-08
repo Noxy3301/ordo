@@ -169,8 +169,8 @@ TEST(CommitDurabilityTest, AsyncDoesNotWaitForTheDevice) {
     const auto commit = [&db](const std::string &key,
                               helios::storage::CommitDurability durability) {
       const auto started = std::chrono::steady_clock::now();
-      const bool committed = db.Commit({}, {{kTable, key, "v", false}}, {}, {},
-                                       durability, nullptr);
+      const bool committed =
+          db.Commit({}, {{kTable, key, "v"}}, {}, {}, durability, nullptr);
       db.ReleaseThreadEpoch();
       EXPECT_TRUE(committed);
       return std::chrono::duration_cast<std::chrono::milliseconds>(

@@ -12,11 +12,13 @@
 
 #include "db_helper.h"
 #include "gtest/gtest.h"
+#include "index/index_constraint.h"
 #include "storage/config.h"
 #include "storage/database.h"
 
 namespace {
-using Entries = std::vector<std::pair<std::string, std::string>>;
+using helios::storage::index::IndexConstraint;
+using SecondaryScanRows = std::vector<std::pair<std::string, std::string>>;
 }  // namespace
 
 class ScanSecondaryIndexTest : public ::testing::Test {
@@ -31,29 +33,10 @@ class ScanSecondaryIndexTest : public ::testing::Test {
   }
 };
 
-TEST_F(ScanSecondaryIndexTest, Delete) {
-  ASSERT_TRUE(db_->CreateTable("users"));
-  ASSERT_TRUE(db_->CreateSecondaryIndex("users", "age_index", 0));
-
-  ASSERT_TRUE(TestHelper::CommitWrites(
-      *db_, {{"users", "user1", "Alice", false, false}},
-      {{"users", "age_index", "25", "user1", false}}));
-
-  const auto entries =
-      TestHelper::ReadSecondaryIndex(*db_, "users", "age_index", "25");
-  ASSERT_EQ(entries.size(), 1u);
-  EXPECT_EQ(entries[0], "user1");
-
-  ASSERT_TRUE(TestHelper::CommitWrites(
-      *db_, {}, {{"users", "age_index", "25", "user1", true}}));
-
-  EXPECT_TRUE(
-      TestHelper::ReadSecondaryIndex(*db_, "users", "age_index", "25").empty());
-}
-
 TEST_F(ScanSecondaryIndexTest, DeleteAndScan) {
   ASSERT_TRUE(db_->CreateTable("users"));
-  ASSERT_TRUE(db_->CreateSecondaryIndex("users", "alpha_index", 0));
+  ASSERT_TRUE(db_->CreateSecondaryIndex("users", "alpha_index",
+                                        IndexConstraint::kNone));
 
   ASSERT_TRUE(TestHelper::CommitWrites(
       *db_,
@@ -65,23 +48,21 @@ TEST_F(ScanSecondaryIndexTest, DeleteAndScan) {
        {"users", "alpha_index", "c", "user3", false}}));
 
   // The scan range is half-open: c is the exclusive upper bound.
-  EXPECT_EQ(
-      TestHelper::ScanSecondaryIndex(*db_, "users", "alpha_index", "a", "c"),
-      (Entries{{"a", "user1"}, {"b", "user2"}}));
+  EXPECT_EQ(TestHelper::ScanIndex(*db_, "users", "alpha_index", "a", "c"),
+            (SecondaryScanRows{{"a", "user1"}, {"b", "user2"}}));
 
   ASSERT_TRUE(TestHelper::CommitWrites(
       *db_, {}, {{"users", "alpha_index", "b", "user2", true}}));
-  EXPECT_TRUE(TestHelper::ReadSecondaryIndex(*db_, "users", "alpha_index", "b")
-                  .empty());
+  EXPECT_TRUE(TestHelper::ReadIndex(*db_, "users", "alpha_index", "b").empty());
 
-  EXPECT_EQ(
-      TestHelper::ScanSecondaryIndex(*db_, "users", "alpha_index", "a", "c"),
-      (Entries{{"a", "user1"}}));
+  EXPECT_EQ(TestHelper::ScanIndex(*db_, "users", "alpha_index", "a", "c"),
+            (SecondaryScanRows{{"a", "user1"}}));
 }
 
-TEST_F(ScanSecondaryIndexTest, ScanShouldIncludeInsertedKeys) {
+TEST_F(ScanSecondaryIndexTest, IncludeInsertedKeys) {
   ASSERT_TRUE(db_->CreateTable("users"));
-  ASSERT_TRUE(db_->CreateSecondaryIndex("users", "name_index", 0));
+  ASSERT_TRUE(
+      db_->CreateSecondaryIndex("users", "name_index", IndexConstraint::kNone));
 
   ASSERT_TRUE(TestHelper::CommitWrites(
       *db_, {{"users", "user1", "Alice", false, false}},
@@ -97,15 +78,15 @@ TEST_F(ScanSecondaryIndexTest, ScanShouldIncludeInsertedKeys) {
        {"users", "name_index", "erin", "user4", false}}));
 
   // erin is the exclusive upper bound.
-  EXPECT_EQ(
-      TestHelper::ScanSecondaryIndex(*db_, "users", "name_index", "alice",
-                                     "erin"),
-      (Entries{{"alice", "user1"}, {"bob", "user2"}, {"carol", "user3"}}));
+  EXPECT_EQ(TestHelper::ScanIndex(*db_, "users", "name_index", "alice", "erin"),
+            (SecondaryScanRows{
+                {"alice", "user1"}, {"bob", "user2"}, {"carol", "user3"}}));
 }
 
-TEST_F(ScanSecondaryIndexTest, ScanShouldReturnKeysInOrder) {
+TEST_F(ScanSecondaryIndexTest, KeyOrder) {
   ASSERT_TRUE(db_->CreateTable("users"));
-  ASSERT_TRUE(db_->CreateSecondaryIndex("users", "name_index", 0));
+  ASSERT_TRUE(
+      db_->CreateSecondaryIndex("users", "name_index", IndexConstraint::kNone));
 
   ASSERT_TRUE(TestHelper::CommitWrites(
       *db_,
@@ -123,18 +104,17 @@ TEST_F(ScanSecondaryIndexTest, ScanShouldReturnKeysInOrder) {
        {"users", "name_index", "carol", "user3", false},
        {"users", "name_index", "erin", "user5", false}}));
 
-  EXPECT_EQ(TestHelper::ScanSecondaryIndex(*db_, "users", "name_index", "alice",
-                                           "erin"),
-            (Entries{{"alice", "user1"},
-                     {"bob", "user2"},
-                     {"carol", "user3"},
-                     {"diana", "user4"}}));
+  EXPECT_EQ(TestHelper::ScanIndex(*db_, "users", "name_index", "alice", "erin"),
+            (SecondaryScanRows{{"alice", "user1"},
+                               {"bob", "user2"},
+                               {"carol", "user3"},
+                               {"diana", "user4"}}));
 }
 
-TEST_F(ScanSecondaryIndexTest,
-       ScanReverseShouldReturnSecondaryKeysInReverseOrder) {
+TEST_F(ScanSecondaryIndexTest, ReverseScan) {
   ASSERT_TRUE(db_->CreateTable("users"));
-  ASSERT_TRUE(db_->CreateSecondaryIndex("users", "group_index", 0));
+  ASSERT_TRUE(db_->CreateSecondaryIndex("users", "group_index",
+                                        IndexConstraint::kNone));
 
   ASSERT_TRUE(TestHelper::CommitWrites(
       *db_,
@@ -147,14 +127,15 @@ TEST_F(ScanSecondaryIndexTest,
 
   // Reverse walks the secondary keys backwards; the primary keys under one
   // secondary key keep their stored ascending order.
-  EXPECT_EQ(TestHelper::ScanSecondaryIndex(*db_, "users", "group_index", "g1",
-                                           "g3", 0, true),
-            (Entries{{"g2", "user3"}, {"g1", "user1"}, {"g1", "user2"}}));
+  EXPECT_EQ(
+      TestHelper::ScanIndex(*db_, "users", "group_index", "g1", "g3", 0, true),
+      (SecondaryScanRows{{"g2", "user3"}, {"g1", "user1"}, {"g1", "user2"}}));
 }
 
-TEST_F(ScanSecondaryIndexTest, ScanShouldStopAtCorrectPosition) {
+TEST_F(ScanSecondaryIndexTest, StopScanning) {
   ASSERT_TRUE(db_->CreateTable("users"));
-  ASSERT_TRUE(db_->CreateSecondaryIndex("users", "name_index", 0));
+  ASSERT_TRUE(
+      db_->CreateSecondaryIndex("users", "name_index", IndexConstraint::kNone));
 
   ASSERT_TRUE(TestHelper::CommitWrites(
       *db_,
@@ -176,14 +157,15 @@ TEST_F(ScanSecondaryIndexTest, ScanShouldStopAtCorrectPosition) {
 
   // The row limit caps the scan at carol, well inside the range.
   EXPECT_EQ(
-      TestHelper::ScanSecondaryIndex(*db_, "users", "name_index", "alice",
-                                     "zzz", 3),
-      (Entries{{"alice", "user1"}, {"bob", "user2"}, {"carol", "user3"}}));
+      TestHelper::ScanIndex(*db_, "users", "name_index", "alice", "zzz", 3),
+      (SecondaryScanRows{
+          {"alice", "user1"}, {"bob", "user2"}, {"carol", "user3"}}));
 }
 
-TEST_F(ScanSecondaryIndexTest, ScanShouldExcludeDeletedKeys) {
+TEST_F(ScanSecondaryIndexTest, ExcludeDeletedKeys) {
   ASSERT_TRUE(db_->CreateTable("users"));
-  ASSERT_TRUE(db_->CreateSecondaryIndex("users", "name_index", 0));
+  ASSERT_TRUE(
+      db_->CreateSecondaryIndex("users", "name_index", IndexConstraint::kNone));
 
   ASSERT_TRUE(TestHelper::CommitWrites(
       *db_,
@@ -198,7 +180,7 @@ TEST_F(ScanSecondaryIndexTest, ScanShouldExcludeDeletedKeys) {
       *db_, {}, {{"users", "name_index", "bob", "user2", true}}));
 
   // bob is deleted, carol is the exclusive upper bound.
-  EXPECT_EQ(TestHelper::ScanSecondaryIndex(*db_, "users", "name_index", "alice",
-                                           "carol"),
-            (Entries{{"alice", "user1"}}));
+  EXPECT_EQ(
+      TestHelper::ScanIndex(*db_, "users", "name_index", "alice", "carol"),
+      (SecondaryScanRows{{"alice", "user1"}}));
 }

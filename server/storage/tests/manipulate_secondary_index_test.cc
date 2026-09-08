@@ -28,9 +28,13 @@
 
 #include "db_helper.h"
 #include "gtest/gtest.h"
+#include "index/index_constraint.h"
 #include "storage/config.h"
 #include "storage/database.h"
 
+namespace {
+using helios::storage::index::IndexConstraint;
+}  // namespace
 class ManipulateSecondaryIndexTest : public ::testing::Test {
  protected:
   helios::storage::Config config_;
@@ -38,28 +42,28 @@ class ManipulateSecondaryIndexTest : public ::testing::Test {
   virtual void SetUp() {
     std::filesystem::remove_all(config_.work_dir);
     config_.epoch_duration_ms = 100;
-    db_.reset(nullptr);
     db_ = std::make_unique<helios::storage::Database>(config_);
   }
 };
 
 TEST_F(ManipulateSecondaryIndexTest, ReadWriteSecondaryIndex) {
   ASSERT_TRUE(db_->CreateTable("users"));
-  ASSERT_TRUE(db_->CreateSecondaryIndex("users", "age_index", 0));
+  ASSERT_TRUE(
+      db_->CreateSecondaryIndex("users", "age_index", IndexConstraint::kNone));
 
   ASSERT_TRUE(TestHelper::CommitWrites(
       *db_, {{"users", "user1", "Alice", false, false}},
       {{"users", "age_index", "10", "user1", false}}));
 
-  const auto result =
-      TestHelper::ReadSecondaryIndex(*db_, "users", "age_index", "10");
+  const auto result = TestHelper::ReadIndex(*db_, "users", "age_index", "10");
   ASSERT_EQ(result.size(), 1u);
   EXPECT_EQ(result[0], "user1");
 }
 
-TEST_F(ManipulateSecondaryIndexTest, ReadWriteMultipleSecondaryIndex) {
+TEST_F(ManipulateSecondaryIndexTest, DuplicateAddDoesNotDuplicatePrimaryKey) {
   ASSERT_TRUE(db_->CreateTable("users"));
-  ASSERT_TRUE(db_->CreateSecondaryIndex("users", "age_index", 0));
+  ASSERT_TRUE(
+      db_->CreateSecondaryIndex("users", "age_index", IndexConstraint::kNone));
 
   // The repeated 30/user3 entry must not produce a duplicate primary key.
   ASSERT_TRUE(
@@ -72,17 +76,14 @@ TEST_F(ManipulateSecondaryIndexTest, ReadWriteMultipleSecondaryIndex) {
                                 {"users", "age_index", "30", "user3", false},
                                 {"users", "age_index", "30", "user3", false}}));
 
-  EXPECT_EQ(
-      TestHelper::ReadSecondaryIndex(*db_, "users", "age_index", "25").size(),
-      2u);
-  EXPECT_EQ(
-      TestHelper::ReadSecondaryIndex(*db_, "users", "age_index", "30").size(),
-      1u);
+  EXPECT_EQ(TestHelper::ReadIndex(*db_, "users", "age_index", "25").size(), 2u);
+  EXPECT_EQ(TestHelper::ReadIndex(*db_, "users", "age_index", "30").size(), 1u);
 }
 
 TEST_F(ManipulateSecondaryIndexTest, ReadDataViaSecondaryIndex) {
   ASSERT_TRUE(db_->CreateTable("users"));
-  ASSERT_TRUE(db_->CreateSecondaryIndex("users", "age_index", 0));
+  ASSERT_TRUE(
+      db_->CreateSecondaryIndex("users", "age_index", IndexConstraint::kNone));
 
   ASSERT_TRUE(
       TestHelper::CommitWrites(*db_,
@@ -92,7 +93,7 @@ TEST_F(ManipulateSecondaryIndexTest, ReadDataViaSecondaryIndex) {
                                 {"users", "age_index", "25", "user2", false}}));
 
   const auto primary_keys =
-      TestHelper::ReadSecondaryIndex(*db_, "users", "age_index", "25");
+      TestHelper::ReadIndex(*db_, "users", "age_index", "25");
   ASSERT_EQ(primary_keys.size(), 2u);
 
   std::vector<std::string> names;
@@ -104,9 +105,10 @@ TEST_F(ManipulateSecondaryIndexTest, ReadDataViaSecondaryIndex) {
   EXPECT_EQ(names, (std::vector<std::string>{"Alice", "Bob"}));
 }
 
-TEST_F(ManipulateSecondaryIndexTest, UpdateSecondaryIndexMovesPrimaryKey) {
+TEST_F(ManipulateSecondaryIndexTest, RemoveThenAddRelocatesMapping) {
   ASSERT_TRUE(db_->CreateTable("users"));
-  ASSERT_TRUE(db_->CreateSecondaryIndex("users", "age_index", 0));
+  ASSERT_TRUE(
+      db_->CreateSecondaryIndex("users", "age_index", IndexConstraint::kNone));
 
   ASSERT_TRUE(TestHelper::CommitWrites(
       *db_, {{"users", "user1", "Alice", false, false}},
@@ -119,18 +121,16 @@ TEST_F(ManipulateSecondaryIndexTest, UpdateSecondaryIndexMovesPrimaryKey) {
                                {{"users", "age_index", "25", "user1", true},
                                 {"users", "age_index", "30", "user1", false}}));
 
-  EXPECT_TRUE(
-      TestHelper::ReadSecondaryIndex(*db_, "users", "age_index", "25").empty());
-  const auto moved =
-      TestHelper::ReadSecondaryIndex(*db_, "users", "age_index", "30");
+  EXPECT_TRUE(TestHelper::ReadIndex(*db_, "users", "age_index", "25").empty());
+  const auto moved = TestHelper::ReadIndex(*db_, "users", "age_index", "30");
   ASSERT_EQ(moved.size(), 1u);
   EXPECT_EQ(moved[0], "user1");
 }
 
-TEST_F(ManipulateSecondaryIndexTest,
-       UpdateSecondaryIndexNoopWhenNewKeyAlreadyHasPrimaryKey) {
+TEST_F(ManipulateSecondaryIndexTest, ReAddExistingIndexEntryIsIdempotent) {
   ASSERT_TRUE(db_->CreateTable("users"));
-  ASSERT_TRUE(db_->CreateSecondaryIndex("users", "age_index", 0));
+  ASSERT_TRUE(
+      db_->CreateSecondaryIndex("users", "age_index", IndexConstraint::kNone));
 
   ASSERT_TRUE(TestHelper::CommitWrites(
       *db_, {{"users", "user1", "Alice", false, false}},
@@ -142,18 +142,16 @@ TEST_F(ManipulateSecondaryIndexTest,
                                {{"users", "age_index", "25", "user1", true},
                                 {"users", "age_index", "30", "user1", false}}));
 
-  EXPECT_TRUE(
-      TestHelper::ReadSecondaryIndex(*db_, "users", "age_index", "25").empty());
-  const auto moved =
-      TestHelper::ReadSecondaryIndex(*db_, "users", "age_index", "30");
+  EXPECT_TRUE(TestHelper::ReadIndex(*db_, "users", "age_index", "25").empty());
+  const auto moved = TestHelper::ReadIndex(*db_, "users", "age_index", "30");
   ASSERT_EQ(moved.size(), 1u);
   EXPECT_EQ(moved[0], "user1");
 }
 
-TEST_F(ManipulateSecondaryIndexTest,
-       UpdateSecondaryIndexWithMissingOldKeyActsAsInsert) {
+TEST_F(ManipulateSecondaryIndexTest, MissingRemoveDoesNotBlockAdd) {
   ASSERT_TRUE(db_->CreateTable("users"));
-  ASSERT_TRUE(db_->CreateSecondaryIndex("users", "age_index", 0));
+  ASSERT_TRUE(
+      db_->CreateSecondaryIndex("users", "age_index", IndexConstraint::kNone));
 
   ASSERT_TRUE(TestHelper::CommitWrites(
       *db_, {{"users", "user1", "Alice", false, false}}));
@@ -164,36 +162,32 @@ TEST_F(ManipulateSecondaryIndexTest,
                                {{"users", "age_index", "99", "user1", true},
                                 {"users", "age_index", "40", "user1", false}}));
 
-  EXPECT_TRUE(
-      TestHelper::ReadSecondaryIndex(*db_, "users", "age_index", "99").empty());
-  const auto inserted =
-      TestHelper::ReadSecondaryIndex(*db_, "users", "age_index", "40");
+  EXPECT_TRUE(TestHelper::ReadIndex(*db_, "users", "age_index", "99").empty());
+  const auto inserted = TestHelper::ReadIndex(*db_, "users", "age_index", "40");
   ASSERT_EQ(inserted.size(), 1u);
   EXPECT_EQ(inserted[0], "user1");
 }
 
 TEST_F(ManipulateSecondaryIndexTest, DeleteSecondaryIndexRemovesPrimaryKey) {
   ASSERT_TRUE(db_->CreateTable("users"));
-  ASSERT_TRUE(db_->CreateSecondaryIndex("users", "age_index", 0));
+  ASSERT_TRUE(
+      db_->CreateSecondaryIndex("users", "age_index", IndexConstraint::kNone));
 
   ASSERT_TRUE(TestHelper::CommitWrites(
       *db_, {{"users", "user1", "Alice", false, false}},
       {{"users", "age_index", "25", "user1", false}}));
-  ASSERT_EQ(
-      TestHelper::ReadSecondaryIndex(*db_, "users", "age_index", "25").size(),
-      1u);
+  ASSERT_EQ(TestHelper::ReadIndex(*db_, "users", "age_index", "25").size(), 1u);
 
   ASSERT_TRUE(TestHelper::CommitWrites(
       *db_, {}, {{"users", "age_index", "25", "user1", true}}));
 
-  EXPECT_TRUE(
-      TestHelper::ReadSecondaryIndex(*db_, "users", "age_index", "25").empty());
+  EXPECT_TRUE(TestHelper::ReadIndex(*db_, "users", "age_index", "25").empty());
 }
 
-TEST_F(ManipulateSecondaryIndexTest,
-       DeleteSecondaryIndexRemovesOnlySpecifiedPrimaryKey) {
+TEST_F(ManipulateSecondaryIndexTest, RemoveIndexEntryLeavesOtherPrimaryKeys) {
   ASSERT_TRUE(db_->CreateTable("users"));
-  ASSERT_TRUE(db_->CreateSecondaryIndex("users", "age_index", 0));
+  ASSERT_TRUE(
+      db_->CreateSecondaryIndex("users", "age_index", IndexConstraint::kNone));
 
   ASSERT_TRUE(
       TestHelper::CommitWrites(*db_,
@@ -203,15 +197,13 @@ TEST_F(ManipulateSecondaryIndexTest,
                                {{"users", "age_index", "25", "user1", false},
                                 {"users", "age_index", "25", "user2", false},
                                 {"users", "age_index", "25", "user3", false}}));
-  ASSERT_EQ(
-      TestHelper::ReadSecondaryIndex(*db_, "users", "age_index", "25").size(),
-      3u);
+  ASSERT_EQ(TestHelper::ReadIndex(*db_, "users", "age_index", "25").size(), 3u);
 
   ASSERT_TRUE(TestHelper::CommitWrites(
       *db_, {}, {{"users", "age_index", "25", "user2", true}}));
 
   const auto remaining =
-      TestHelper::ReadSecondaryIndex(*db_, "users", "age_index", "25");
+      TestHelper::ReadIndex(*db_, "users", "age_index", "25");
   EXPECT_EQ(std::set<std::string>(remaining.begin(), remaining.end()),
             (std::set<std::string>{"user1", "user3"}));
 }
@@ -219,7 +211,8 @@ TEST_F(ManipulateSecondaryIndexTest,
 TEST_F(ManipulateSecondaryIndexTest,
        MultipleUpdatesInSingleTransactionMaintainConsistency) {
   ASSERT_TRUE(db_->CreateTable("users"));
-  ASSERT_TRUE(db_->CreateSecondaryIndex("users", "age_index", 0));
+  ASSERT_TRUE(
+      db_->CreateSecondaryIndex("users", "age_index", IndexConstraint::kNone));
 
   ASSERT_TRUE(TestHelper::CommitWrites(
       *db_, {{"users", "user1", "Alice", false, false}},
@@ -233,12 +226,9 @@ TEST_F(ManipulateSecondaryIndexTest,
                                 {"users", "age_index", "19", "user1", true},
                                 {"users", "age_index", "20", "user1", false}}));
 
-  EXPECT_TRUE(
-      TestHelper::ReadSecondaryIndex(*db_, "users", "age_index", "18").empty());
-  EXPECT_TRUE(
-      TestHelper::ReadSecondaryIndex(*db_, "users", "age_index", "19").empty());
-  const auto current =
-      TestHelper::ReadSecondaryIndex(*db_, "users", "age_index", "20");
+  EXPECT_TRUE(TestHelper::ReadIndex(*db_, "users", "age_index", "18").empty());
+  EXPECT_TRUE(TestHelper::ReadIndex(*db_, "users", "age_index", "19").empty());
+  const auto current = TestHelper::ReadIndex(*db_, "users", "age_index", "20");
   ASSERT_EQ(current.size(), 1u);
   EXPECT_EQ(current[0], "user1");
 }

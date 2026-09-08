@@ -117,7 +117,7 @@ inline std::vector<std::pair<std::string, std::string>> Scan(
 }
 
 // (secondary key, primary key) pairs a secondary-index range scan returned.
-inline std::vector<std::pair<std::string, std::string>> ScanSecondaryIndex(
+inline std::vector<std::pair<std::string, std::string>> ScanIndex(
     helios::storage::Database &db, const std::string &table,
     const std::string &index_name, const std::string &start_key,
     const std::string &end_key, uint64_t row_limit = 0,
@@ -135,12 +135,14 @@ inline std::vector<std::pair<std::string, std::string>> ScanSecondaryIndex(
 }
 
 // Primary keys a single secondary key resolves to.
-inline std::vector<std::string> ReadSecondaryIndex(
-    helios::storage::Database &db, const std::string &table,
-    const std::string &index_name, const std::string &secondary_key) {
+inline std::vector<std::string> ReadIndex(helios::storage::Database &db,
+                                          const std::string &table,
+                                          const std::string &index_name,
+                                          const std::string &secondary_key) {
   std::vector<std::string> primary_keys;
-  for (auto &entry : ScanSecondaryIndex(db, table, index_name, secondary_key,
-                                        secondary_key + '\0')) {
+  // The exclusive end of an exact-match scan of one secondary key.
+  for (auto &entry :
+       ScanIndex(db, table, index_name, secondary_key, secondary_key + '\0')) {
     primary_keys.push_back(std::move(entry.second));
   }
   return primary_keys;

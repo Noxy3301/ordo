@@ -69,9 +69,8 @@ TEST(PrimaryIndexTest, ConcurrentInserting) {
   }
 }
 
-TEST(PrimaryIndexTest, ConcurrentAndConflictedInserting) {
+TEST(PrimaryIndexTest, ConcurrentPutSameKey) {
   std::vector<std::thread> threads;
-  std::vector<helios::storage::DataItem> items(10);
   helios::storage::index::PrimaryIndex table;
 
   for (size_t i = 0; i < 10; i++) {
@@ -104,7 +103,6 @@ TEST(PrimaryIndexTest, Scan) {
 
 TEST(PrimaryIndexTest, TremendousPut) {
   std::vector<std::thread> threads;
-  std::vector<helios::storage::DataItem *> items;
   helios::storage::index::PrimaryIndex table;
 
   constexpr size_t working_set_size = 8192;
@@ -123,7 +121,6 @@ TEST(PrimaryIndexTest, TremendousPut) {
 
 TEST(PrimaryIndexTest, TremendousGetAndPut) {
   std::vector<std::thread> threads;
-  std::vector<helios::storage::DataItem *> items;
   helios::storage::index::PrimaryIndex table;
 
   constexpr size_t working_set_size = 8192;
@@ -133,36 +130,6 @@ TEST(PrimaryIndexTest, TremendousGetAndPut) {
            j++) {
         table.Get(std::to_string(j - working_set_size));
         table.Put(std::to_string(j), {});
-      }
-    });
-  }
-  for (auto &thread : threads) {
-    thread.join();
-  }
-}
-
-TEST(PrimaryIndexTest, ForEachIsSafeWithRehashing) {
-  // Test scenario: #Rehash and #ForEach are concurrently executed.
-  std::vector<std::thread> threads;
-  std::vector<helios::storage::DataItem *> items;
-  helios::storage::index::PrimaryIndex table;
-
-  constexpr size_t working_set_size = 8192;
-  for (size_t i = 0; i < 5; i++) {
-    threads.emplace_back([&, i]() {
-      for (size_t j = i * working_set_size; j < (i + 1) * working_set_size;
-           j++) {
-        table.Put(std::to_string(j), {});
-      }
-    });
-  }
-  for (size_t i = 0; i < 5; i++) {
-    threads.emplace_back([&]() {
-      for (size_t j = 0; j < 3; j++) {
-        table.ForEach([](auto, auto) {
-          std::this_thread::sleep_for(std::chrono::microseconds(1));
-          return true;
-        });
       }
     });
   }

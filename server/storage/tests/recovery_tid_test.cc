@@ -4,7 +4,6 @@
  */
 
 #include <filesystem>
-#include <memory>
 #include <string>
 
 #include "gtest/gtest.h"
@@ -44,12 +43,13 @@ TEST(RecoveryTidTest, ARecoveredKeyAcceptsTheNextWrite) {
 
   {
     helios::storage::Database db(config);
+    // Recovery re-created the table, so this call is expected to find it.
     db.CreateTable(kTable);
 
-    auto read = db.Read(kTable, "alice");
+    auto recovered = db.Read(kTable, "alice");
     db.ReleaseThreadEpoch();
-    ASSERT_TRUE(read.found);
-    EXPECT_EQ(read.tid % 2, 0u)
+    ASSERT_TRUE(recovered.found);
+    EXPECT_EQ(recovered.tid % 2, 0u)
         << "the recovered TID still carries the lock bit";
 
     std::string reason;
@@ -60,7 +60,7 @@ TEST(RecoveryTidTest, ARecoveredKeyAcceptsTheNextWrite) {
     EXPECT_TRUE(committed) << reason;
   }
 
-  std::filesystem::remove_all(MakeConfig().work_dir);
+  std::filesystem::remove_all(config.work_dir);
 }
 
 }  // namespace

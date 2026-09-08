@@ -47,11 +47,14 @@ class ConcurrentCreateTableTest : public ::testing::Test {
 // the epoch tick.
 TEST_F(ConcurrentCreateTableTest, ConcurrentCreateTableAcrossEpochs) {
   constexpr size_t kNumWorkers = 4;
-  constexpr size_t kTablesPerSec = 100;
+  constexpr size_t kNumTables = 100;
+  constexpr size_t kYieldInterval = 128;
+  // Long enough for the epoch writer to tick across the race.
+  constexpr size_t kNumEpochs = 3;
 
   std::atomic<bool> stop{false};
   // One name may be created once, whichever worker wins the race for it.
-  std::vector<std::atomic<size_t>> created(kTablesPerSec);
+  std::vector<std::atomic<size_t>> created(kNumTables);
   for (auto &count : created) count.store(0);
 
   std::vector<std::thread> workers;
@@ -59,24 +62,24 @@ TEST_F(ConcurrentCreateTableTest, ConcurrentCreateTableAcrossEpochs) {
     workers.emplace_back([&]() {
       size_t i = 0;
       while (!stop.load()) {
-        const size_t slot = i % kTablesPerSec;
+        const size_t slot = i % kNumTables;
         const std::string table_name = "table_" + std::to_string(slot);
         if (db_->CreateTable(table_name)) created[slot].fetch_add(1);
         ++i;
-        if (i % 128 == 0) std::this_thread::yield();
+        if (i % kYieldInterval == 0) std::this_thread::yield();
       }
     });
   }
 
   std::this_thread::sleep_for(
-      std::chrono::milliseconds(config_.epoch_duration_ms * 3));
+      std::chrono::milliseconds(config_.epoch_duration_ms * kNumEpochs));
 
   stop.store(true);
   for (auto &w : workers) {
     w.join();
   }
 
-  for (size_t slot = 0; slot < kTablesPerSec; ++slot) {
+  for (size_t slot = 0; slot < kNumTables; ++slot) {
     const std::string table_name = "table_" + std::to_string(slot);
     EXPECT_EQ(created[slot].load(), 1u) << table_name;
   }

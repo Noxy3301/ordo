@@ -96,7 +96,7 @@ TEST_F(DatabaseTest, DeleteRemovesKeyAcrossTransactions) {
   ASSERT_FALSE(TestHelper::Read<int>(*db_, kTable, "alice").has_value());
 }
 
-TEST_F(DatabaseTest, ThreadSafetyInsertions) {
+TEST_F(DatabaseTest, ThreadSafetyWrites) {
   constexpr int kValue = 0xBEEF;
   constexpr size_t kKeys = 11;
 

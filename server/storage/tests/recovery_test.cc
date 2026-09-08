@@ -45,12 +45,16 @@ class RecoveryTest : public ::testing::Test {
     std::filesystem::remove_all(root_, ec);
   }
 
-  helios::storage::Config MakeConfig(bool enable_recovery) const {
+  enum class Recovery { kOff, kOn };
+
+  static constexpr uint64_t kWalCapacityBytes = 1ull << 20;
+
+  helios::storage::Config MakeConfig(Recovery recovery) const {
     helios::storage::Config config;
     config.epoch_duration_ms = 10;
-    config.enable_recovery = enable_recovery;
+    config.enable_recovery = recovery == Recovery::kOn;
     config.work_dir = work_dir_;
-    config.wal_initial_capacity_bytes = 1ull << 20;
+    config.wal_initial_capacity_bytes = kWalCapacityBytes;
     return config;
   }
 
@@ -87,14 +91,14 @@ class RecoveryTest : public ::testing::Test {
 
 TEST_F(RecoveryTest, ALoggedWriteCarriesTheUnlockedTid) {
   {
-    auto config = MakeConfig(false);
+    auto config = MakeConfig(Recovery::kOff);
     helios::storage::Database db(config);
     db.CreateTable(kTable);
     ASSERT_TRUE(db.CreateSecondaryIndex(kTable, kIndex, 0));
     ASSERT_TRUE(CommitWriteWithIndexEntry(db, "k", "v1", "s"));
   }
 
-  Wal wal(work_dir_, helios::storage::wal::WalIo::Posix(), 1ull << 20);
+  Wal wal(work_dir_, helios::storage::wal::WalIo::Posix(), kWalCapacityBytes);
   auto scan = wal.ScanAndRepair();
   ASSERT_EQ(scan.status, WalScanResult::Status::kOk);
 
@@ -127,7 +131,7 @@ TEST_F(RecoveryTest, ALoggedWriteCarriesTheUnlockedTid) {
 
 TEST_F(RecoveryTest, ARecoveredKeyAcceptsAFurtherWrite) {
   {
-    auto config = MakeConfig(false);
+    auto config = MakeConfig(Recovery::kOff);
     helios::storage::Database db(config);
     db.CreateTable(kTable);
     ASSERT_TRUE(CommitWrite(db, "k", "v1"));
@@ -136,7 +140,7 @@ TEST_F(RecoveryTest, ARecoveredKeyAcceptsAFurtherWrite) {
   // Guarded by the assertion above: a locked TID in the log makes the read
   // and the write below spin rather than fail.
   {
-    Wal wal(work_dir_, helios::storage::wal::WalIo::Posix(), 1ull << 20);
+    Wal wal(work_dir_, helios::storage::wal::WalIo::Posix(), kWalCapacityBytes);
     auto scan = wal.ScanAndRepair();
     ASSERT_EQ(scan.status, WalScanResult::Status::kOk);
     bool seen = false;
@@ -150,7 +154,7 @@ TEST_F(RecoveryTest, ARecoveredKeyAcceptsAFurtherWrite) {
     ASSERT_TRUE(seen) << "the log holds no record of the key";
   }
 
-  auto config = MakeConfig(true);
+  auto config = MakeConfig(Recovery::kOn);
   helios::storage::Database db(config);
   db.CreateTable(kTable);
   const auto recovered = Read(db, "k");

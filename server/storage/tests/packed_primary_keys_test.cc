@@ -51,7 +51,7 @@ std::vector<std::string> ToVector(PackedPrimaryKeysView view) {
   return values;
 }
 
-void ExpectMatchesOracle(const PackedPrimaryKeys::Ptr &primary_keys,
+void AssertMatchesOracle(const PackedPrimaryKeys::Ptr &primary_keys,
                          const std::vector<std::string> &oracle,
                          const std::vector<std::string> &probes) {
   const PackedPrimaryKeysView view(primary_keys);
@@ -193,6 +193,6 @@ TEST(PackedPrimaryKeysTest, RandomizedOperationsLockstepWithVectorOracle) {
       }
     }
 
-    ExpectMatchesOracle(primary_keys, oracle, ProbeKeys(oracle, universe));
+    AssertMatchesOracle(primary_keys, oracle, ProbeKeys(oracle, universe));
   }
 }

@@ -41,8 +41,15 @@ class DurabilityTest : public ::testing::Test {
  protected:
   helios::storage::Config config_;
   std::unique_ptr<helios::storage::Database> db_;
+
+  /// Destroys the database and opens it again, which is what recovers it.
+  void Restart(const helios::storage::Config &config) {
+    db_.reset(nullptr);
+    db_ = std::make_unique<helios::storage::Database>(config);
+  }
+
   virtual void SetUp() {
-    std::filesystem::remove_all("helios_wal");
+    std::filesystem::remove_all(config_.work_dir);
     config_.enable_recovery = true;
     db_ = std::make_unique<helios::storage::Database>(config_);
     ASSERT_TRUE(db_->CreateTable(kTable));
@@ -59,8 +66,7 @@ TEST_F(DurabilityTest, Recovery) {
 
   // Expect that recovery procedure has idempotence
   for (size_t i = 0; i < 3; i++) {
-    db_.reset(nullptr);
-    db_ = std::make_unique<helios::storage::Database>(config);
+    Restart(config);
 
     auto alice = TestHelper::Read<int>(*db_, kTable, "alice");
     ASSERT_TRUE(alice.has_value());
@@ -81,8 +87,7 @@ TEST_F(DurabilityTest, RecoveryKeepsDeletedKeysAbsent) {
 
   // Expect that recovery procedure has idempotence
   for (size_t i = 0; i < 3; i++) {
-    db_.reset(nullptr);
-    db_ = std::make_unique<helios::storage::Database>(config);
+    Restart(config);
 
     auto alice = TestHelper::Read<int>(*db_, kTable, "alice");
     ASSERT_FALSE(alice.has_value());
@@ -95,8 +100,7 @@ TEST_F(DurabilityTest, RecoveryLargeObject) {
   ASSERT_TRUE(TestHelper::Write(*db_, kTable, "alice", initial_value));
 
   for (size_t i = 0; i < 3; i++) {
-    db_.reset(nullptr);
-    db_ = std::make_unique<helios::storage::Database>(config);
+    Restart(config);
 
     auto alice = TestHelper::Read(*db_, kTable, "alice");
     ASSERT_TRUE(alice.has_value());
@@ -118,8 +122,7 @@ TEST_F(DurabilityTest, RecoveryInContendedWorkload) {
   }
   for (auto &writer : writers) writer.join();
 
-  db_.reset(nullptr);
-  db_ = std::make_unique<helios::storage::Database>(config);
+  Restart(config);
 
   auto alice = TestHelper::Read<int>(*db_, kTable, "alice");
   ASSERT_TRUE(alice.has_value());
@@ -137,8 +140,7 @@ TEST_F(DurabilityTest, RecoveryWithNamedTable) {
   ASSERT_TRUE(TestHelper::Write<int>(*db_, table_name, key, value));
 
   // 2. Restart DB to trigger recovery
-  db_.reset(nullptr);
-  db_ = std::make_unique<helios::storage::Database>(config);
+  Restart(config);
 
   // 3. Verify data is recovered in the correct table
   auto data = TestHelper::Read<int>(*db_, table_name, key);

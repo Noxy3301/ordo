@@ -103,7 +103,7 @@ TEST_F(DebugSyncTest, ArriveAndWaitBlocksUntilReleased) {
   reached.get();
 }
 
-TEST_F(DebugSyncTest, AnUnarmedPointFallsThrough) {
+TEST_F(DebugSyncTest, LookupMissFallsThrough) {
   // No variable for this name: the point must return without blocking. The
   // process is armed by the sentinel, so this exercises the lookup-miss path
   // of an armed process, not the cached fast path of an unarmed one.
@@ -113,7 +113,7 @@ TEST_F(DebugSyncTest, AnUnarmedPointFallsThrough) {
             std::chrono::milliseconds(50));
 }
 
-TEST_F(DebugSyncTest, SleepStillWorks) {
+TEST_F(DebugSyncTest, SleepWaitsTheConfiguredMs) {
   Arm("HELIOS_DEBUG_SYNC_TEST_SLEEP", "sleep:120");
   auto start = std::chrono::steady_clock::now();
   HELIOS_DEBUG_SYNC("test.sleep");

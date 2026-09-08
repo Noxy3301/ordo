@@ -22,6 +22,11 @@
 
 namespace {
 
+// Offsets inside a frame header (magic, version, flags, payload length,
+// epoch, checksum).
+constexpr off_t kFlagsOffset = 6;
+constexpr off_t kPayloadLenOffset = 8;
+
 using helios::storage::EpochNumber;
 using helios::storage::wal::Crc32c;
 using helios::storage::wal::LogRecord;
@@ -57,11 +62,11 @@ class WalFrameTest : public ::testing::Test {
     std::filesystem::remove_all(root_, ec);
   }
 
-  std::string wal_path() const { return work_dir_ + "/wal.log"; }
+  std::string WalPath() const { return work_dir_ + "/wal.log"; }
 
   off_t FileSize() const {
     struct stat file_stat {};
-    EXPECT_EQ(::stat(wal_path().c_str(), &file_stat), 0);
+    EXPECT_EQ(::stat(WalPath().c_str(), &file_stat), 0);
     return file_stat.st_size;
   }
 
@@ -80,7 +85,7 @@ class WalFrameTest : public ::testing::Test {
   // Flips a bit at an absolute offset, standing in for a torn or damaged
   // write.
   void FlipByteAt(off_t offset) {
-    const int fd = ::open(wal_path().c_str(), O_RDWR);
+    const int fd = ::open(WalPath().c_str(), O_RDWR);
     ASSERT_GE(fd, 0);
     uint8_t byte = 0;
     const bool read_ok = ::pread(fd, &byte, 1, offset) == 1;
@@ -94,7 +99,7 @@ class WalFrameTest : public ::testing::Test {
   // Asserts every byte in [from, to) reads back zero: repair is expected to
   // have overwritten this range, not merely to have stopped trusting it.
   void AssertRangeIsZero(off_t from, off_t to) {
-    const int fd = ::open(wal_path().c_str(), O_RDONLY);
+    const int fd = ::open(WalPath().c_str(), O_RDONLY);
     ASSERT_GE(fd, 0);
     std::vector<uint8_t> chunk(1 << 16);
     for (off_t at = from; at < to;) {
@@ -118,13 +123,15 @@ class WalFrameTest : public ::testing::Test {
    * reaches, which is the field a repair must not take on trust.
    */
   void SetPayloadLengthAt(off_t frame_offset, uint32_t length) {
-    const int fd = ::open(wal_path().c_str(), O_WRONLY);
+    const int fd = ::open(WalPath().c_str(), O_WRONLY);
     ASSERT_GE(fd, 0);
     const uint8_t bytes[4] = {static_cast<uint8_t>(length & 0xffu),
                               static_cast<uint8_t>((length >> 8) & 0xffu),
                               static_cast<uint8_t>((length >> 16) & 0xffu),
                               static_cast<uint8_t>((length >> 24) & 0xffu)};
-    ASSERT_EQ(::pwrite(fd, bytes, sizeof(bytes), frame_offset + 8), 4);
+    ASSERT_EQ(
+        ::pwrite(fd, bytes, sizeof(bytes), frame_offset + kPayloadLenOffset),
+        4);
     ASSERT_EQ(::close(fd), 0);
   }
 
@@ -132,7 +139,7 @@ class WalFrameTest : public ::testing::Test {
    * length. */
   off_t FrameEnd(off_t frame_offset) {
     uint8_t header[Wal::kHeaderSize];
-    const int fd = ::open(wal_path().c_str(), O_RDONLY);
+    const int fd = ::open(WalPath().c_str(), O_RDONLY);
     EXPECT_GE(fd, 0);
     EXPECT_EQ(::pread(fd, header, sizeof(header), frame_offset),
               static_cast<ssize_t>(sizeof(header)));
@@ -161,7 +168,7 @@ class WalFrameTest : public ::testing::Test {
   // must be addressed by offset rather than by appending: the file's own end
   // is capacity, not the log's end.
   void WriteRawBytesAt(off_t offset, const std::vector<uint8_t> &bytes) {
-    const int fd = ::open(wal_path().c_str(), O_WRONLY);
+    const int fd = ::open(WalPath().c_str(), O_WRONLY);
     ASSERT_GE(fd, 0);
     const bool write_ok = ::pwrite(fd, bytes.data(), bytes.size(), offset) ==
                           static_cast<ssize_t>(bytes.size());
@@ -413,10 +420,11 @@ TEST_F(WalFrameTest, WholeHeaderWithUnknownFlagsAtTheLogEndFails) {
 }
 
 // The same header inside the log rather than at its end.
-TEST_F(WalFrameTest, WholeHeaderWithUnknownFlagsMidLogFails) {
+TEST_F(WalFrameTest, UnknownFlagsInAnExistingFrameFail) {
   AppendEpochs({1});
 
-  WriteRawBytesAt(6, {0x07, 0x00});
+  // The flags field of the frame the log opens with.
+  WriteRawBytesAt(kFlagsOffset, {0x07, 0x00});
 
   Wal wal(work_dir_, helios::storage::wal::WalIo::Posix(), kCapacity);
   const auto result = wal.ScanAndRepair();
@@ -521,7 +529,7 @@ TEST_F(WalFrameTest, AChecksumBrokenFrameFollowedByJunkFailsWithoutRepairing) {
 
   // The failed scan must not have touched the file: the junk reads back
   // unchanged.
-  const int fd = ::open(wal_path().c_str(), O_RDONLY);
+  const int fd = ::open(WalPath().c_str(), O_RDONLY);
   ASSERT_GE(fd, 0);
   uint8_t readback[4] = {0, 0, 0, 0};
   ASSERT_EQ(::pread(fd, readback, sizeof(readback), frame_end),
@@ -1035,7 +1043,7 @@ TEST_F(WalFrameTest, AHalfWrittenCapacityIsCompleted) {
   AppendEpochs({1});
   const off_t log_end = EndOfLog();
 
-  ASSERT_EQ(::truncate(wal_path().c_str(),
+  ASSERT_EQ(::truncate(WalPath().c_str(),
                        log_end + static_cast<off_t>(kCapacity) / 4),
             0);
 

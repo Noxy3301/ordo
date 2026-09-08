@@ -188,7 +188,7 @@ TEST(RangeValidationTest, ALimitedRangeIgnoresChangesPastItsCap) {
   EXPECT_TRUE(Revalidate(db, range, &reason)) << reason;
 }
 
-TEST(RangeValidationTest, ANonLiveSlotDoesNotConsumeTheCap) {
+TEST(RangeValidationTest, ABlankSlotDoesNotConsumeTheCap) {
   // The cap counts live rows. A blank slot between the first two of them must
   // leave the replay room to reach the second.
   auto config = MakeConfig();

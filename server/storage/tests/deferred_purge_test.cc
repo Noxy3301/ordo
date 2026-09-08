@@ -29,10 +29,9 @@ helios::storage::Config MakeConfig(size_t epoch_duration_ms) {
 }
 
 bool CommitWrite(helios::storage::Database &db, const std::string &key,
-                 const std::string &value, std::string *reason = nullptr) {
-  const bool committed =
-      db.Commit({}, {{kTable, key, value, false}}, {}, {},
-                helios::storage::CommitDurability::kSync, reason);
+                 const std::string &value) {
+  const bool committed = db.Commit({}, {{kTable, key, value, false}}, {}, {},
+                                   helios::storage::CommitDurability::kSync);
   db.ReleaseThreadEpoch();
   return committed;
 }
@@ -46,11 +45,9 @@ bool CommitInsert(helios::storage::Database &db, const std::string &key,
   return committed;
 }
 
-bool CommitDelete(helios::storage::Database &db, const std::string &key,
-                  std::string *reason = nullptr) {
-  const bool committed =
-      db.Commit({}, {{kTable, key, "", true}}, {}, {},
-                helios::storage::CommitDurability::kSync, reason);
+bool CommitDelete(helios::storage::Database &db, const std::string &key) {
+  const bool committed = db.Commit({}, {{kTable, key, "", true}}, {}, {},
+                                   helios::storage::CommitDurability::kSync);
   db.ReleaseThreadEpoch();
   return committed;
 }
@@ -76,9 +73,10 @@ bool StartsWith(const std::string &value, const std::string &prefix) {
   return value.rfind(prefix, 0) == 0;
 }
 
-void WaitForEpochReaper(helios::storage::Database &db,
-                        std::chrono::milliseconds duration) {
-  std::this_thread::sleep_for(duration);
+// The reaper runs on the epoch hook, so a purge needs epochs to pass with
+// this thread outside of one.
+void SleepAroundEpochRelease(helios::storage::Database &db,
+                             std::chrono::milliseconds duration) {
   db.ReleaseThreadEpoch();
   std::this_thread::sleep_for(duration);
 }
@@ -132,7 +130,7 @@ TEST(DeferredPurgeTest, ReinsertBeforeReaperKeepsLiveRow) {
   ASSERT_TRUE(CommitDelete(db, "k"));
   ASSERT_TRUE(CommitWrite(db, "k", "v2"));
 
-  WaitForEpochReaper(db, std::chrono::milliseconds(300));
+  SleepAroundEpochRelease(db, std::chrono::milliseconds(600));
 
   const auto live = Read(db, "k");
   EXPECT_TRUE(live.found);
@@ -154,7 +152,7 @@ TEST(DeferredPurgeTest, AbsentReadStillAbortsWhenRowAppears) {
   EXPECT_TRUE(StartsWith(reason, "exact_read_appeared")) << reason;
 }
 
-TEST(DeferredPurgeTest, InsertAfterThePurgeClaimsAFreshSlot) {
+TEST(DeferredPurgeTest, InsertAfterPurgeWaitSeesLiveRow) {
   auto config = MakeConfig(5);
   helios::storage::Database db(config);
   ASSERT_TRUE(db.CreateTable(kTable));
@@ -165,7 +163,7 @@ TEST(DeferredPurgeTest, InsertAfterThePurgeClaimsAFreshSlot) {
 
   // Several epochs, so the reaper retires the tombstone's slot before the
   // insert below claims the key again.
-  WaitForEpochReaper(db, std::chrono::milliseconds(100));
+  SleepAroundEpochRelease(db, std::chrono::milliseconds(200));
 
   ASSERT_TRUE(CommitInsert(db, key, "v2"));
   const auto live = Read(db, key);

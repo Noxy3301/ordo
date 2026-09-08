@@ -37,7 +37,6 @@ class DataDefinitionTest : public ::testing::Test {
   virtual void SetUp() {
     std::filesystem::remove_all(config_.work_dir);
     config_.epoch_duration_ms = 100;
-    db_.reset(nullptr);
     db_ = std::make_unique<helios::storage::Database>(config_);
   }
 };
@@ -45,8 +44,8 @@ class DataDefinitionTest : public ::testing::Test {
 TEST_F(DataDefinitionTest, CreateTable) {
   bool success = db_->CreateTable("users");
   ASSERT_TRUE(success);
-  bool duplicated = db_->CreateTable("users");
-  ASSERT_FALSE(duplicated);
+  bool created = db_->CreateTable("users");
+  ASSERT_FALSE(created);
 }
 
 TEST_F(DataDefinitionTest, ReadWrite) {
@@ -59,7 +58,7 @@ TEST_F(DataDefinitionTest, ReadWrite) {
   ASSERT_EQ(data.value(), 42);
 }
 
-TEST_F(DataDefinitionTest, ConcurrencyControlBetweenMultipleTables) {
+TEST_F(DataDefinitionTest, SeparateTableKeySpaces) {
   ASSERT_TRUE(db_->CreateTable("users"));
   ASSERT_TRUE(db_->CreateTable("accounts"));
 

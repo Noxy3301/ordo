@@ -44,7 +44,7 @@
 namespace {
 
 struct SecondaryLogStats {
-  size_t record_count = 0;
+  size_t secondary_entry_count = 0;
   size_t primary_keys_count = 0;
   size_t primary_keys_bytes = 0;
 };
@@ -94,7 +94,7 @@ SecondaryLogStats GetSecondaryIndexLogStatsForLatestEpoch(
     if (record.epoch != max_epoch) continue;
     for (const auto &write : record.writes) {
       if (write.index_name.empty()) continue;
-      stats.record_count++;
+      stats.secondary_entry_count++;
       stats.primary_keys_count += write.primary_keys.size();
       for (const auto &pk : write.primary_keys) {
         stats.primary_keys_bytes += pk.size();
@@ -197,10 +197,10 @@ TEST_F(SecondaryIndexLoggingTest,
   db_.reset(nullptr);
 
   const auto stats = GetSecondaryIndexLogStatsForLatestEpoch(config);
-  ASSERT_GT(stats.record_count, 0u);
+  ASSERT_GT(stats.secondary_entry_count, 0u);
   EXPECT_EQ(stats.primary_keys_count, 0u);
   std::cout << "[SecondaryIndexLogStats] secondary_entries="
-            << stats.record_count
+            << stats.secondary_entry_count
             << " secondary_pk_count=" << stats.primary_keys_count
             << " secondary_pk_bytes=" << stats.primary_keys_bytes << std::endl;
 }
@@ -238,7 +238,7 @@ TEST_F(SecondaryIndexLoggingTest, RecoveryWithSecondaryIndexWithoutCheckpoint) {
   db_ = std::make_unique<helios::storage::Database>(config);
 
   const auto results =
-      TestHelper::ReadSecondaryIndex(*db_, table_name, index_name, index_key);
+      TestHelper::ReadIndex(*db_, table_name, index_name, index_key);
   const std::set<std::string> recovered(results.begin(), results.end());
   ASSERT_EQ(recovered.size(), primary_keys.size());
   for (const auto &expected : primary_keys) {

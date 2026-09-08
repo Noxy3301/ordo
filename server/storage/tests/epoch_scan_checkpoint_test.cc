@@ -159,7 +159,8 @@ class EpochScanCheckpointTest : public ::testing::Test {
   }
 
   // Every key's value, in key order, as the database currently holds it.
-  static std::vector<std::string> ReadAll(helios::storage::Database &db) {
+  static std::vector<std::string> ReadAliceBobCarol(
+      helios::storage::Database &db) {
     std::vector<std::string> rows;
     for (const char *key : {"alice", "bob", "carol"}) {
       const auto row = Read(db, key);
@@ -365,7 +366,7 @@ TEST_F(EpochScanCheckpointTest, RecoveryWithTheImageMatchesRecoveryWithout) {
     auto config = MakeConfig(true);
     helios::storage::Database db(config);
     db.CreateTable(kTable);
-    with_image = ReadAll(db);
+    with_image = ReadAliceBobCarol(db);
     index_with_image = ReadIndex(db);
   }
 
@@ -377,7 +378,7 @@ TEST_F(EpochScanCheckpointTest, RecoveryWithTheImageMatchesRecoveryWithout) {
     auto config = MakeConfig(true);
     helios::storage::Database db(config);
     db.CreateTable(kTable);
-    without_image = ReadAll(db);
+    without_image = ReadAliceBobCarol(db);
     index_without_image = ReadIndex(db);
   }
 
@@ -466,7 +467,7 @@ TEST_F(EpochScanCheckpointTest, ALogShorterThanThePublishFrontierIsRejected) {
   EXPECT_FALSE(Read(db, "dave").found);
 }
 
-TEST_F(EpochScanCheckpointTest, AV1FormatImageIsRefused) {
+TEST_F(EpochScanCheckpointTest, V1FormatImageIsRefused) {
   {
     auto config = MakeConfig(false);
     helios::storage::Database db(config);
@@ -481,7 +482,7 @@ TEST_F(EpochScanCheckpointTest, AV1FormatImageIsRefused) {
     std::fstream file(image_path(),
                       std::ios::in | std::ios::out | std::ios::binary);
     ASSERT_TRUE(file.is_open());
-    file.seekp(4);
+    file.seekp(sizeof(uint32_t));
     const uint8_t v1_version[2] = {0x01, 0x00};
     file.write(reinterpret_cast<const char *>(v1_version), sizeof(v1_version));
   }

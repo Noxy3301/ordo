@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <iterator>
 #include <random>
 #include <string>
 #include <vector>
@@ -105,7 +106,8 @@ TEST(Crc32cTest, ChunkedUpdateMatchesOneShot) {
   size_t chunk_index = 0;
   while (offset < data.size()) {
     const size_t chunk =
-        std::min(chunk_sizes[chunk_index % 5], data.size() - offset);
+        std::min(chunk_sizes[chunk_index % std::size(chunk_sizes)],
+                 data.size() - offset);
     chunked.Update(data.data() + offset, chunk);
     offset += chunk;
     ++chunk_index;

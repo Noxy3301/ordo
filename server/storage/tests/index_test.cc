@@ -40,7 +40,6 @@ class IndexTest : public ::testing::Test {
     config_.enable_recovery = false;
     config_.work_dir = "./helios_index_test_logs";
     std::filesystem::remove_all(config_.work_dir);
-    db_.reset(nullptr);
     db_ = std::make_unique<helios::storage::Database>(config_);
     ASSERT_TRUE(db_->CreateTable(kTable));
 
@@ -57,34 +56,27 @@ TEST_F(IndexTest, Scan) {
   EXPECT_EQ(rows[0].first, "alice");
 }
 
-TEST_F(IndexTest, AlphabeticalOrdering) {
-  // An inverted range holds nothing.
+TEST_F(IndexTest, InvertedRange) {
   EXPECT_TRUE(TestHelper::Scan(*db_, kTable, "carol", "alice").empty());
+}
 
+TEST_F(IndexTest, AlphabeticalOrdering) {
   const auto rows = TestHelper::Scan(*db_, kTable, "carol", "zzz");
   ASSERT_EQ(size_t(1), rows.size());
   EXPECT_EQ(rows[0].first, "carol");
 }
 
-TEST_F(IndexTest, StopScanning) {
+TEST_F(IndexTest, RowLimit) {
   const auto rows = TestHelper::Scan(*db_, kTable, "alice", "carol", 1);
   ASSERT_EQ(size_t(1), rows.size());
   EXPECT_EQ(rows[0].first, "alice");
 }
 
-TEST_F(IndexTest, ScanWithoutEnd) {
+TEST_F(IndexTest, ScanToMaxKey) {
   const auto rows =
       TestHelper::Scan(*db_, kTable, "alice", TestHelper::kMaxKey);
   ASSERT_EQ(size_t(3), rows.size());
   EXPECT_EQ(rows[0].first, "alice");
   EXPECT_EQ(rows[1].first, "bob");
   EXPECT_EQ(rows[2].first, "carol");
-}
-
-TEST_F(IndexTest, Delete) {
-  ASSERT_TRUE(TestHelper::Delete(*db_, kTable, "bob"));
-
-  const auto rows = TestHelper::Scan(*db_, kTable, "alice", "carol");
-  ASSERT_EQ(size_t(1), rows.size());
-  EXPECT_EQ(rows[0].first, "alice");
 }

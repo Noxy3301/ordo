@@ -18,11 +18,12 @@ namespace {
 constexpr uint kUnique =
     static_cast<uint>(helios::storage::index::IndexConstraint::kUnique);
 
-bool WriteSecondary(helios::storage::Database &db,
-                    const std::string &table_name,
-                    const std::string &primary_key, const std::string &value,
-                    const std::string &index_name,
-                    const std::string &secondary_key) {
+bool WriteRowAndSecondary(helios::storage::Database &db,
+                          const std::string &table_name,
+                          const std::string &primary_key,
+                          const std::string &value,
+                          const std::string &index_name,
+                          const std::string &secondary_key) {
   return TestHelper::CommitWrites(
       db, {{table_name, primary_key, value, false, false}},
       {{table_name, index_name, secondary_key, primary_key, false}});
@@ -35,11 +36,11 @@ class UniqueSecondaryIndexTest : public ::testing::Test {
   helios::storage::Config config_;
 
   void SetUp() override {
-    std::filesystem::remove_all("helios_wal");
+    std::filesystem::remove_all(config_.work_dir);
     config_.epoch_duration_ms = 100;
   }
 
-  void TearDown() override { std::filesystem::remove_all("helios_wal"); }
+  void TearDown() override { std::filesystem::remove_all(config_.work_dir); }
 };
 
 TEST_F(UniqueSecondaryIndexTest, DictUniqueFlagRejectsDuplicateSecondaryKey) {
@@ -51,10 +52,10 @@ TEST_F(UniqueSecondaryIndexTest, DictUniqueFlagRejectsDuplicateSecondaryKey) {
   ASSERT_TRUE(db.CreateTable("users"));
   ASSERT_TRUE(db.CreateSecondaryIndex("users", "email_idx", kUnique));
 
-  ASSERT_TRUE(WriteSecondary(db, "users", "user1", "Alice", "email_idx",
-                             "alice@example.com"));
-  EXPECT_FALSE(WriteSecondary(db, "users", "user2", "Bob", "email_idx",
-                              "alice@example.com"));
+  ASSERT_TRUE(WriteRowAndSecondary(db, "users", "user1", "Alice", "email_idx",
+                                   "alice@example.com"));
+  EXPECT_FALSE(WriteRowAndSecondary(db, "users", "user2", "Bob", "email_idx",
+                                    "alice@example.com"));
 }
 
 TEST_F(UniqueSecondaryIndexTest,
@@ -66,17 +67,17 @@ TEST_F(UniqueSecondaryIndexTest,
     ASSERT_TRUE(db.CreateTable("users"));
     ASSERT_TRUE(db.CreateSecondaryIndex("users", "email_idx", kUnique));
 
-    ASSERT_TRUE(WriteSecondary(db, "users", "user1", "Alice", "email_idx",
-                               "alice@example.com"));
+    ASSERT_TRUE(WriteRowAndSecondary(db, "users", "user1", "Alice", "email_idx",
+                                     "alice@example.com"));
   }
 
   helios::storage::Database recovered_db(config_);
 
-  const auto recovered = TestHelper::ReadSecondaryIndex(
+  const auto recovered = TestHelper::ReadIndex(
       recovered_db, "users", "email_idx", "alice@example.com");
   ASSERT_EQ(recovered.size(), 1u);
   EXPECT_EQ(recovered[0], "user1");
 
-  EXPECT_FALSE(WriteSecondary(recovered_db, "users", "user2", "Bob",
-                              "email_idx", "alice@example.com"));
+  EXPECT_FALSE(WriteRowAndSecondary(recovered_db, "users", "user2", "Bob",
+                                    "email_idx", "alice@example.com"));
 }

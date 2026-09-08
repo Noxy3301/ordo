@@ -223,20 +223,6 @@ class PaxGroup {
   }
 
   /**
-   * @brief Appends one field's row-format value into `out`.
-   *
-   * @details Verbatim for an UNTYPED cell; reformatted to the exact val_str
-   * ASCII for a typed present cell. An empty cell is emitted as a NULL field.
-   * Used by the projected and masked gathers.
-   *
-   * @param field Field index, where 0 is the null-flags field and MySQL column
-   * i is field i + 1.
-   * @param slot Slot inside this group.
-   * @param out Destination string; the packed field is appended.
-   */
-  void AppendCellField(uint32_t field, uint32_t slot, std::string &out) const;
-
-  /**
    * @brief Returns the first cell byte for `field` in this group.
    *
    * @param field Field index, starting with the null-flags field.
@@ -263,6 +249,19 @@ class PaxGroup {
   PaxStore *store() const { return store_; }
 
  private:
+  /**
+   * @brief Appends one field's row-format value into `out`.
+   *
+   * @details Verbatim for an UNTYPED cell; reformatted to the exact val_str
+   * ASCII for a typed present cell. An empty cell is emitted as a NULL field.
+   *
+   * @param field Field index, where 0 is the null-flags field and MySQL column
+   * i is field i + 1.
+   * @param slot Slot inside this group.
+   * @param out Destination string; the packed field is appended.
+   */
+  void AppendCellField(size_t field, uint32_t slot, std::string &out) const;
+
   const TableSchema &schema_;  // Owned by PaxStore; outlives all groups.
   PaxStore *store_;
   std::vector<uint32_t> stride_;
@@ -350,6 +349,9 @@ std::unordered_map<uint32_t, std::vector<UndoEntry>> UndoGroupEntries(
 
 /**
  * @brief Copies the undo entries recorded for one (group, slot).
+ *
+ * @details Ordered as published and epoch-non-decreasing, and immune to a
+ * concurrent capture, as UndoGroupEntries is.
  */
 std::vector<UndoEntry> UndoSlotEntries(const PaxGroup *group, uint32_t slot);
 

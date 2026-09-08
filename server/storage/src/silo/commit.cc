@@ -195,7 +195,7 @@ bool Resolve(CommitCtx &ctx, std::shared_mutex &schema_mutex) {
         if (live_it == live_in_request.end()) {
           check_committed_row = true;
         } else if (live_it->second) {
-          return ctx.Abort(kDuplicateKeyAbortReason);
+          return ctx.Abort(kDuplicatePrimaryKeyAbortReason);
         }
       }
       live_in_request[request_key] = !write.is_delete;
@@ -493,7 +493,7 @@ bool ValidateInserts(CommitCtx &ctx) {
   for (const auto &write : ctx.writes) {
     if (!write.check_committed_row) continue;
     if (write.item->HasRow()) {
-      return ctx.AbortLocked(kDuplicateKeyAbortReason);
+      return ctx.AbortLocked(kDuplicatePrimaryKeyAbortReason);
     }
   }
   return true;

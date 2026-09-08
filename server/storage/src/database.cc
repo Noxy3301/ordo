@@ -47,7 +47,7 @@ Database::Database(const Config &config)
 
 Database::~Database() noexcept = default;
 
-const Config Database::GetConfig() const noexcept {
+const Config &Database::GetConfig() const noexcept {
   return db_pimpl_->GetConfig();
 }
 
@@ -129,13 +129,14 @@ ScanPaxResult Database::ScanPax(const std::string_view table_name,
 
 bool Database::IndexNdv(const std::string_view table_name,
                         const std::string_view index_name, uint32_t num_parts,
-                        const KeyParts &parts, std::vector<uint64_t> &out_ndv) {
+                        const KeyPartEnds &parts,
+                        std::vector<uint64_t> &out_ndv) {
   return db_pimpl_->IndexNdv(table_name, index_name, num_parts, parts, out_ndv);
 }
 
 bool Database::IndexHistogram(const std::string_view table_name,
                               const std::string_view index_name,
-                              uint32_t buckets, const KeyParts &parts,
+                              uint32_t buckets, const KeyPartEnds &parts,
                               std::vector<std::string> &out_bounds,
                               std::vector<uint64_t> &out_cum) {
   return db_pimpl_->IndexHistogram(table_name, index_name, buckets, parts,

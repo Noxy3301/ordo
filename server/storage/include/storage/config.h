@@ -34,14 +34,13 @@ namespace helios::storage {
  */
 struct Config {
   /**
-   * @brief Length of one epoch, in milliseconds.
+   * @brief How often the global epoch advances, in milliseconds.
    *
-   * @details Transactions inside the same epoch are group-committed together,
-   * so a longer duration raises throughput and raises average response time
-   * with it. Default 40 ms.
+   * @details Transactions of one epoch are group-committed together, so a
+   * longer duration raises throughput and raises response time with it.
+   *
+   * Default: 40 ms
    * @see [Tu13] https://dl.acm.org/doi/10.1145/2517349.2522713
-   * @see [Chandramouli18]
-   * https://www.microsoft.com/en-us/research/uploads/prod/2018/03/faster-sigmod18.pdf
    */
   size_t epoch_duration_ms = 40;
 
@@ -54,7 +53,12 @@ struct Config {
   bool enable_pax_storage = false;
 
   /**
-   * @brief Whether the instance recovers from its log at construction.
+   * @brief Whether the instance replays its log at construction.
+   *
+   * @details The log is always scanned and its interrupted tail truncated,
+   * since that tail has to go before the first append lands behind it. This
+   * decides only whether the records the scan read are replayed, and whether
+   * a published checkpoint is loaded at all.
    *
    * Default: true
    */
@@ -113,7 +117,7 @@ struct Config {
    * @brief The working directory, which holds the log and every related
    *        file.
    *
-   * Default: "helios_wal"
+   * Default: "./helios_wal"
    */
   std::string work_dir = "./helios_wal";
 };

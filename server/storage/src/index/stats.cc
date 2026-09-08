@@ -33,7 +33,7 @@ using silo::StableLive;
 
 bool Database::Impl::IndexNdv(const std::string_view table_name,
                               const std::string_view index_name,
-                              uint32_t num_parts, const KeyParts &parts,
+                              uint32_t num_parts, const KeyPartEnds &parts,
                               std::vector<uint64_t> &out_ndv) {
   out_ndv.assign(num_parts, 0);
   if (num_parts == 0) return false;
@@ -122,7 +122,7 @@ bool Database::Impl::IndexNdv(const std::string_view table_name,
 
 bool Database::Impl::IndexHistogram(const std::string_view table_name,
                                     const std::string_view index_name,
-                                    uint32_t buckets, const KeyParts &parts,
+                                    uint32_t buckets, const KeyPartEnds &parts,
                                     std::vector<std::string> &out_bounds,
                                     std::vector<uint64_t> &out_cum) {
   out_bounds.clear();

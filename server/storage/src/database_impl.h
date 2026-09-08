@@ -125,7 +125,7 @@ class Database::Impl {
    */
   bool IndexNdv(const std::string_view table_name,
                 const std::string_view index_name, uint32_t num_parts,
-                const KeyParts &parts, std::vector<uint64_t> &out_ndv);
+                const KeyPartEnds &parts, std::vector<uint64_t> &out_ndv);
 
   /**
    * @brief Builds an equi-depth histogram for one index's leading key part.
@@ -140,7 +140,7 @@ class Database::Impl {
    */
   bool IndexHistogram(const std::string_view table_name,
                       const std::string_view index_name, uint32_t buckets,
-                      const KeyParts &parts,
+                      const KeyPartEnds &parts,
                       std::vector<std::string> &out_bounds,
                       std::vector<uint64_t> &out_cum);
 

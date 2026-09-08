@@ -41,17 +41,26 @@ namespace pax {
 class PaxStore;
 }
 
+/**
+ * @brief One storage instance: its tables, its epoch framework and its log.
+ *
+ * @details One per process. Constructing a second one ends the process, as
+ * does a log the constructor cannot read or replay; the working directory is
+ * the one failure the caller is given a chance to handle. Every method below
+ * is safe to call from several threads at once.
+ */
 class Database {
  public:
   /**
    * @brief Constructs a database under a default-constructed Config.
    *
-   * @details Thread-safe.
+   * @throws std::system_error as the Config constructor does.
    */
   Database();
 
   /**
-   * @brief Constructs a new Database object. Thread-safe.
+   * @brief Constructs a database under `config`.
+   *
    * @param config See Config for more details of configuration.
    * @throws std::system_error when the working directory cannot be opened,
    * which includes another process already holding the log's exclusive lock.
@@ -68,11 +77,8 @@ class Database {
 
   /**
    * @brief Returns the configuration the instance was constructed with.
-   *
-   * @details Thread-safe. The result is a copy, so the configuration cannot
-   * be changed through it.
    */
-  const Config GetConfig() const noexcept;
+  const Config &GetConfig() const noexcept;
 
   /**
    * @brief Ends the calling thread's masstree RCU critical section, drains
@@ -118,9 +124,14 @@ class Database {
    *
    * @param[in] table_name The table that should use PAX storage.
    * @param[in] field_max_bytes Maximum packed bytes for each row field.
+   * @param[in] field_kind Per-field storage kind (see pax::FieldKind). Empty
+   * leaves every field untyped, as does a length that does not match
+   * `field_max_bytes`, or a width that is not the one that kind stores.
+   * @param[in] field_scale Per-field DECIMAL scale, used by the typed decimal
+   * kind. Empty, or a length that does not match, means a scale of zero.
    * @return true when the schema is installed for the table.
-   * @return false when the table is missing, the schema is empty, unsupported
-   * by the configured index backend, or already installed.
+   * @return false when PAX storage is disabled by the config, the schema is
+   * empty, the table is missing, or a schema is already installed.
    */
   bool InstallPaxSchema(const std::string_view table_name,
                         const std::vector<uint32_t> &field_max_bytes,
@@ -131,8 +142,8 @@ class Database {
    * @brief Returns the PAX store installed for `table_name`.
    *
    * @param table_name Target table.
-   * @return Store pointer, or nullptr when the table is missing or has no PAX
-   * schema.
+   * @return A pointer this database owns, valid as long as it is, or nullptr
+   * when the table is missing or has no PAX schema.
    */
   pax::PaxStore *GetPaxStore(const std::string_view table_name);
 
@@ -305,8 +316,8 @@ class Database {
    * @return false to leave this key out of the statistics, which is how a
    * caller refuses a part whose bytes do not order like its values.
    */
-  using KeyParts = std::function<bool(std::string_view key, uint32_t num_parts,
-                                      size_t *ends)>;
+  using KeyPartEnds = std::function<bool(std::string_view key,
+                                         uint32_t num_parts, size_t *ends)>;
 
   /**
    * @brief Computes per-key-part-prefix NDV for one index.
@@ -318,7 +329,7 @@ class Database {
    */
   bool IndexNdv(const std::string_view table_name,
                 const std::string_view index_name, uint32_t num_parts,
-                const KeyParts &parts, std::vector<uint64_t> &out_ndv);
+                const KeyPartEnds &parts, std::vector<uint64_t> &out_ndv);
 
   /**
    * @brief Builds an equi-depth histogram for one index's leading key part.
@@ -332,7 +343,7 @@ class Database {
    */
   bool IndexHistogram(const std::string_view table_name,
                       const std::string_view index_name, uint32_t buckets,
-                      const KeyParts &parts,
+                      const KeyPartEnds &parts,
                       std::vector<std::string> &out_bounds,
                       std::vector<uint64_t> &out_cum);
 

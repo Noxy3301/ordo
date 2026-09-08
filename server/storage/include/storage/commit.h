@@ -16,9 +16,10 @@ namespace helios::storage {
 /**
  * @brief Point read to revalidate at commit.
  *
- * `tid` and `found` come from an earlier read or scan row. Commit
- * aborts when the row's TID moved; `found == false` asserts the key was
- * absent and aborts when a row appeared.
+ * `tid` and `found` come from an earlier read or scan row, and `tid` is the
+ * packed `(epoch:32 | tid:32)` word that read returned; it is ignored when
+ * `found` is false. Commit aborts when the row's TID moved; `found == false`
+ * asserts the key was absent and aborts when a row appeared.
  */
 struct ExternalReadEntry {
   std::string table_name;
@@ -32,7 +33,7 @@ struct ExternalReadEntry {
  *
  * When `is_delete` is true, `value` is ignored and the row is removed.
  * When `is_insert` is true, the key must hold no live row at commit; if it
- * does, Commit aborts with @ref kDuplicateKeyAbortReason.
+ * does, Commit aborts with @ref kDuplicatePrimaryKeyAbortReason.
  */
 struct ExternalWriteEntry {
   std::string table_name;
@@ -45,18 +46,12 @@ struct ExternalWriteEntry {
 /**
  * @brief Abort reason Commit reports when an insert entry finds a live row.
  */
-inline constexpr char kDuplicateKeyAbortReason[] = "duplicate_primary_key";
+inline constexpr char kDuplicatePrimaryKeyAbortReason[] =
+    "duplicate_primary_key";
 
 /**
- * @brief Every abort reason for a refused UNIQUE secondary key starts with
- * this.
- */
-inline constexpr char kDuplicateSecondaryKeyAbortPrefix[] = "unique_si_";
-
-/**
- * @brief When a commit is acknowledged, relative to its record reaching the
- * device. Carried per commit; a Volatile database writes no log and ignores
- * it.
+ * @brief When a commit is acknowledged, relative to its record reaching
+ * stable storage. Carried per commit.
  *
  * The equivalent settings elsewhere, to keep Async from being read as a
  * faster Sync: Sync is PostgreSQL's synchronous_commit=on, SQL Server's full
@@ -78,6 +73,12 @@ struct ExternalSecondaryIndexEntry {
   std::string primary_key;
   bool is_delete = false;
 };
+
+/**
+ * @brief Every abort reason for a refused UNIQUE secondary key starts with
+ * this.
+ */
+inline constexpr char kDuplicateSecondaryKeyAbortPrefix[] = "unique_si_";
 
 /**
  * @brief Range read to revalidate at commit.

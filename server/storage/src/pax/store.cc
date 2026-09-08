@@ -391,7 +391,7 @@ void AppendField(std::string &out, std::string_view payload) {
 
 }  // namespace
 
-void PaxGroup::AppendCellField(uint32_t field, uint32_t slot,
+void PaxGroup::AppendCellField(size_t field, uint32_t slot,
                                std::string &out) const {
   const std::string_view cv = cell(field, slot);
   const uint8_t k = schema_.kind_of(field);
@@ -415,7 +415,7 @@ bool PaxGroup::GatherRowProjected(uint32_t slot, const uint32_t *columns,
   for (size_t i = 0; i < n_columns; i++) {
     const size_t field = static_cast<size_t>(columns[i]) + 1;
     if (field >= fields) return false;
-    AppendCellField(static_cast<uint32_t>(field), slot, out);
+    AppendCellField(field, slot, out);
   }
   return true;
 }
@@ -429,7 +429,7 @@ void PaxGroup::GatherRowMasked(uint32_t slot, const uint32_t *columns,
   for (size_t field = 1; field < fields; ++field) {
     if (column_index < n_columns &&
         static_cast<size_t>(columns[column_index]) + 1 == field) {
-      AppendCellField(static_cast<uint32_t>(field), slot, out);
+      AppendCellField(field, slot, out);
       ++column_index;
       continue;
     }

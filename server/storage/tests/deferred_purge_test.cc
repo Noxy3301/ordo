@@ -184,7 +184,7 @@ TEST(DeferredPurgeTest, TwoInsertsOfOneKeyInARequestAreRefused) {
       {}, {{kTable, key, "v1", false, true}, {kTable, key, "v2", false, true}},
       {}, {}, helios::storage::CommitDurability::kSync, &reason));
   db.ReleaseThreadEpoch();
-  EXPECT_EQ(reason, helios::storage::kDuplicateKeyAbortReason);
+  EXPECT_EQ(reason, helios::storage::kDuplicatePrimaryKeyAbortReason);
   EXPECT_FALSE(Read(db, key).found);
 
   // Deleted in between, the second insert is not a duplicate.
@@ -211,7 +211,7 @@ TEST(DeferredPurgeTest, InsertOntoALiveKeyIsRefused) {
 
   std::string reason;
   EXPECT_FALSE(CommitInsert(db, key, "v2", &reason));
-  EXPECT_EQ(reason, helios::storage::kDuplicateKeyAbortReason);
+  EXPECT_EQ(reason, helios::storage::kDuplicatePrimaryKeyAbortReason);
 
   const auto live = Read(db, key);
   EXPECT_TRUE(live.found);

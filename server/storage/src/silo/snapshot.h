@@ -56,7 +56,7 @@ struct Snapshot {
 
   Snapshot(const std::string_view k, const std::byte v[], const size_t s,
            DataItem *const i, std::string_view tn, std::string_view in,
-           const TransactionId ver = 0,
+           const TransactionId ver = {},
            index::IndexConstraint it = index::IndexConstraint())
       : key(k), index_cache(i), table_name(tn), index_name(in), index_type(it) {
     if (v != nullptr) data_item_copy.Reset(v, s, ver);

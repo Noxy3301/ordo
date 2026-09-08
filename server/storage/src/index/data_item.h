@@ -30,7 +30,6 @@
 #include <cstddef>
 #include <cstring>
 #include <memory>
-#include <msgpack.hpp>
 #include <string>
 #include <type_traits>
 #include <vector>
@@ -86,33 +85,18 @@ struct DataItem {
     auto packed = PackedPrimaryKeys::FromSortedDeduped(primary_keys);
     std::atomic_store(&primary_keys_, std::move(packed));
   }
-  void SetPrimaryKeys(std::vector<std::string> &&primary_keys) {
-    assert(IsSortedDeduped(primary_keys));
-    auto packed = PackedPrimaryKeys::FromSortedDeduped(primary_keys);
-    std::atomic_store(&primary_keys_, std::move(packed));
-  }
 
-  DataItem() : transaction_id(0) {}
+  DataItem() : transaction_id(TransactionId()) {}
   DataItem(const DataItem &rhs)
       : transaction_id(rhs.transaction_id.load()),
         primary_keys_(std::atomic_load(&rhs.primary_keys_)) {
     buffer.Reset(rhs.buffer);
-    /* if (rhs.sec_idx_buffers) {
-      sec_idx_buffers =
-          std::make_unique<std::vector<DataBuffer>>(*rhs.sec_idx_buffers);
-    } */
   }
 
   DataItem &operator=(const DataItem &rhs) {
     transaction_id.store(rhs.transaction_id.load());
     buffer.Reset(rhs.buffer);
 
-    /* if (rhs.sec_idx_buffers) {
-      sec_idx_buffers =
-          std::make_unique<std::vector<DataBuffer>>(*rhs.sec_idx_buffers);
-    } else {
-      sec_idx_buffers = nullptr;
-    } */
     auto primary_keys = std::atomic_load(&rhs.primary_keys_);
     std::atomic_store(&primary_keys_, std::move(primary_keys));
     return *this;
@@ -130,7 +114,7 @@ struct DataItem {
     return *this;
   }
 
-  void Reset(const std::byte *v, const size_t s, TransactionId tid = 0) {
+  void Reset(const std::byte *v, const size_t s, TransactionId tid = {}) {
     buffer.Reset(v, s);
     if (!tid.IsEmpty()) transaction_id.store(tid);
   }

@@ -183,8 +183,6 @@ struct ScanValueAdapter {
   }
 };
 
-using leaf_type = Masstree::leaf<table_params>;
-
 }  // namespace
 
 struct MasstreeIndex::Impl {
@@ -234,8 +232,8 @@ struct MasstreeIndex::Impl {
     return item;
   }
 
-  // Upsert with a freshly-allocated DataItem. Returns true on success.
-  bool Put(std::string_view key, DataItem &&value) {
+  // Upsert with a freshly-allocated DataItem.
+  void Put(std::string_view key, DataItem &&value) {
     ensure_thread_active();
     auto *fresh = new DataItem(std::move(value));
     cursor_type lp(table_, key.data(), key.size());
@@ -252,7 +250,6 @@ struct MasstreeIndex::Impl {
     // overwrite. Claiming an insert on overwrite would falsely trigger phantom
     // retries on concurrent scanners watching this leaf.
     lp.finish(found ? 0 : 1, *tls_ti);
-    return true;
   }
 
   // Structural removal of a committed delete. Invoked by the deferred reaper
@@ -375,8 +372,8 @@ void MasstreeIndex::SetPaxStore(pax::PaxStore *store) {
 
 DataItem *MasstreeIndex::Get(std::string_view key) { return impl_->Get(key); }
 
-bool MasstreeIndex::Put(std::string_view key, DataItem &&value) {
-  return impl_->Put(key, std::move(value));
+void MasstreeIndex::Put(std::string_view key, DataItem &&value) {
+  impl_->Put(key, std::move(value));
 }
 
 void MasstreeIndex::PutBlank(std::string_view key) { impl_->PutBlank(key); }
@@ -430,21 +427,6 @@ void MasstreeReleaseThreadEpoch() {
   if (tls_ti == nullptr) return;
   tls_ti->rcu_stop();
   tls_enrolled = false;
-}
-
-void MasstreeFullyDrainThread() {  // FIXME: expose a cross-thread drain
-  // Leave the participant set first, so the first rcu_stop frees what is
-  // already eligible, then advance the global epoch and stop again to peel
-  // further batches. A limbo belongs to one threadinfo and only its owning
-  // thread may drain it, so what the cap below leaves behind stays for the
-  // lifetime of the process.
-  if (tls_ti == nullptr) return;
-  tls_ti->rcu_stop();
-  tls_enrolled = false;
-  for (int i = 0; i < 4096; ++i) {
-    MasstreeAdvanceEpoch();
-    tls_ti->rcu_stop();
-  }
 }
 
 }  // namespace index

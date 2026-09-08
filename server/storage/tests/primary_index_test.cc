@@ -106,9 +106,9 @@ TEST(PrimaryIndexTest, Scan) {
   helios::storage::epoch::Framework epoch;
   epoch.Start();
   helios::storage::index::PrimaryIndex table(epoch);
-  ASSERT_TRUE(table.Put("alice", {}));
-  ASSERT_TRUE(table.Put("bob", {}));
-  ASSERT_TRUE(table.Put("carol", {}));
+  table.Put("alice", {});
+  table.Put("bob", {});
+  table.Put("carol", {});
 
   // Scan is half-open: carol is the exclusive upper bound.
   ASSERT_EQ(size_t(2),

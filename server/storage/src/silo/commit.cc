@@ -599,7 +599,7 @@ WriteSetType BuildLog(Ctx &c) {
   }
   for (const auto &op : c.si_ops) {
     Snapshot snapshot(op.secondary_key, nullptr, 0, op.item, op.table_name,
-                      op.index_name, 0, op.index_type);
+                      op.index_name, {}, op.index_type);
     snapshot.data_item_copy = *op.item;
     snapshot.RecordIndexDelta(op.primary_key, op.is_delete
                                                   ? SecondaryIndexOp::Remove

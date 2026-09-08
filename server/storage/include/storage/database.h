@@ -90,15 +90,6 @@ class Database {
    */
   void ReleaseThreadEpoch();
 
-  /**
-   * @brief Like ReleaseThreadEpoch but pessimistically advances
-   * the global masstree epoch so the calling thread's RCU limbo is fully
-   * drained before it returns. Intended for the connection-close path
-   * only; substantially heavier than a regular release at high
-   * concurrency.
-   */
-  void DrainThread();
-
   bool CreateSecondaryIndex(const std::string_view table_name,
                             const std::string_view index_name,
                             const uint constraints);

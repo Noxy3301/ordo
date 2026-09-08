@@ -49,7 +49,7 @@ class PrimaryIndex {
 
   DataItem *Get(const std::string_view key);
   DataItem *GetOrInsert(const std::string_view key);
-  bool Put(const std::string_view key, DataItem &&value);
+  void Put(const std::string_view key, DataItem &&value);
   void ForEach(std::function<bool(std::string_view, DataItem &)>);
   size_t Scan(const std::string_view begin,
               const std::optional<std::string_view> end,

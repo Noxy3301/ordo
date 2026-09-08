@@ -41,10 +41,8 @@ class Reaper {
   /**
    * @brief Registers one logically deleted slot for a later physical purge.
    *
-   * External-path form: the committer passes the already resolved owning
-   * index, exactly one of primary_index / secondary_index. The call is a
-   * no-op when `item` is null, `delete_commit_tid` is empty, or neither
-   * index is given.
+   * The committer passes the already resolved owning index, exactly one of
+   * primary_index / secondary_index.
    */
   void Enqueue(PrimaryIndex *primary_index, SecondaryIndex *secondary_index,
                std::string_view key, DataItem *item,
@@ -82,18 +80,6 @@ class Reaper {
   };
 
   /**
-   * @brief Const-correct TID equality.
-   *
-   * TransactionId::operator== is not const-qualified upstream, so it cannot
-   * be called with a const left-hand side; this helper compares the same
-   * two fields.
-   */
-  static bool SameTransactionId(const TransactionId &lhs,
-                                const TransactionId &rhs) {
-    return lhs.epoch == rhs.epoch && lhs.tid == rhs.tid;
-  }
-
-  /**
    * @brief Re-resolves the tombstone's key in its owning index.
    *
    * Returns the DataItem currently installed under the key, or nullptr.
@@ -114,10 +100,6 @@ class Reaper {
   // Guards the queue: Enqueue runs on committers, Reap on the epoch thread.
   std::mutex mtx_;
   std::vector<Tombstone> tombstones_;
-  // Cumulative totals for the debug log emitted by Reap.
-  uint64_t deferred_purge_reaped_ = 0;
-  uint64_t deferred_purge_requeued_ = 0;
-  uint64_t deferred_purge_dropped_ = 0;
 };
 
 }  // namespace index

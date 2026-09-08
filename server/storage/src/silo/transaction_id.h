@@ -23,6 +23,9 @@
 #ifndef HELIOS_STORAGE_SRC_SILO_TRANSACTION_ID_H
 #define HELIOS_STORAGE_SRC_SILO_TRANSACTION_ID_H
 
+#include <cstdint>
+#include <msgpack.hpp>
+
 #include "util/epoch.h"
 
 namespace helios::storage {
@@ -34,20 +37,18 @@ struct TransactionId {
   TransactionId() noexcept : epoch(0), tid(0) {}
   TransactionId(const EpochNumber e, uint32_t t) : epoch(e), tid(t) {}
   TransactionId(const TransactionId &) = default;
-  TransactionId(uint64_t n) : epoch(n >> 32), tid(n & ~1llu >> 32) {}
   TransactionId &operator=(const TransactionId &) = default;
-  bool operator==(const TransactionId &rhs) {
-    return (epoch == rhs.epoch && tid == rhs.tid);
+  bool operator==(const TransactionId &rhs) const noexcept {
+    return epoch == rhs.epoch && tid == rhs.tid;
   }
-  bool operator!=(const TransactionId &rhs) { return !(*this == rhs); }
-  bool operator<(const TransactionId &rhs) {
-    if (epoch == rhs.epoch) {
-      return tid < rhs.tid;
-    } else {
-      return epoch < rhs.epoch;
-    }
+  bool operator!=(const TransactionId &rhs) const noexcept {
+    return !(*this == rhs);
   }
-  bool IsEmpty() { return (epoch == 0 && tid == 0); }
+  bool operator<(const TransactionId &rhs) const noexcept {
+    if (epoch == rhs.epoch) return tid < rhs.tid;
+    return epoch < rhs.epoch;
+  }
+  bool IsEmpty() const noexcept { return epoch == 0 && tid == 0; }
   MSGPACK_DEFINE(epoch, tid);
 };
 

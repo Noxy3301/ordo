@@ -67,8 +67,8 @@ class SecondaryIndex {
     index_.ForEach(f);
   }
 
-  bool Put(const std::string_view key, DataItem &&value) {
-    return index_.Put(key, std::forward<DataItem>(value));
+  void Put(const std::string_view key, DataItem &&value) {
+    index_.Put(key, std::move(value));
   }
 
   bool IsUnique() { return index_type_.IsUnique(); }

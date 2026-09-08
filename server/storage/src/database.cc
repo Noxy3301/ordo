@@ -48,7 +48,6 @@ const Config Database::GetConfig() const noexcept {
 }
 
 void Database::ReleaseThreadEpoch() { index::MasstreeReleaseThreadEpoch(); }
-void Database::DrainThread() { index::MasstreeFullyDrainThread(); }
 bool Database::CreateTable(const std::string_view table_name) {
   return db_pimpl_->CreateTable(table_name);
 }

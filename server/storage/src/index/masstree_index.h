@@ -42,7 +42,7 @@ class MasstreeIndex final {
   void SetPaxStore(pax::PaxStore *store);
 
   DataItem *Get(std::string_view key);
-  bool Put(std::string_view key, DataItem &&rhs);
+  void Put(std::string_view key, DataItem &&value);
 
   /**
    * @brief Seeds a blank entry for a key that later writes fill in.
@@ -96,15 +96,6 @@ void MasstreeAdvanceEpoch();
  * still holds. A no-op on a thread with no masstree threadinfo.
  */
 void MasstreeReleaseThreadEpoch();
-
-/**
- * @brief Releases, then advances the global epoch in a loop until this
- *        thread's limbo is drained.
- *
- * @details Heavier than a plain release, and meant for the path a closing
- * connection takes. A no-op on a thread with no masstree threadinfo.
- */
-void MasstreeFullyDrainThread();
 
 }  // namespace index
 }  // namespace helios::storage

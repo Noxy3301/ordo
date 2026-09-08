@@ -55,8 +55,8 @@ DataItem *PrimaryIndex::GetOrInsert(const std::string_view key) {
 }
 
 // return false if a corresponding entry already exists
-bool PrimaryIndex::Put(const std::string_view key, DataItem &&rhs) {
-  return index_.Put(key, std::forward<decltype(rhs)>(rhs));
+void PrimaryIndex::Put(const std::string_view key, DataItem &&value) {
+  index_.Put(key, std::move(value));
 }
 
 void PrimaryIndex::ForEach(

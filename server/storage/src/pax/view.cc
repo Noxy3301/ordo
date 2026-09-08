@@ -98,7 +98,6 @@ bool Database::Impl::InstallPaxSchema(
     const std::vector<uint32_t> &field_max_bytes,
     const std::vector<uint8_t> &field_kind,
     const std::vector<int8_t> &field_scale) {
-  if (!config_.enable_pax_storage) return false;
   if (field_max_bytes.empty()) return false;
   // A definition change, like CreateSecondaryIndex: every request holds this
   // lock shared, and the blank rows it creates read the store pointer.

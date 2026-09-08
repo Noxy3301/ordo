@@ -6,30 +6,10 @@
 
 #include "pax/version_store.h"
 
-#include <cstdlib>
-
 #include "util/spdlog.h"
 
 namespace helios::storage {
 namespace pax {
-
-namespace {
-/**
- * @brief Byte budget for captured before-images.
- *
- * @details Exceeding it fails the capture, and with it every active read
- * view, instead of growing writer-side memory without bound.
- */
-uint64_t ByteBudgetFromEnv() {
-  constexpr uint64_t kDefault = 256ull << 20;
-  const char *env = std::getenv("HELIOS_VERSION_STORE_BUDGET_BYTES");
-  if (env == nullptr) return kDefault;
-  const long long parsed = std::strtoll(env, nullptr, 10);
-  return parsed > 0 ? static_cast<uint64_t>(parsed) : kDefault;
-}
-}  // namespace
-
-VersionStore::VersionStore() : byte_budget_(ByteBudgetFromEnv()) {}
 
 VersionStore &VersionStore::Global() {
   static VersionStore instance;
@@ -62,7 +42,7 @@ void VersionStore::Capture(PaxGroup *group, uint32_t slot,
 
   const uint64_t added = old_row.size() + sizeof(Entry);
   if (captured_bytes_.fetch_add(added, std::memory_order_relaxed) + added >
-      byte_budget_) {
+      kByteBudget) {
     capture_failed_.store(true, std::memory_order_seq_cst);
     SPDLOG_WARN(
         "PAX version store byte budget exceeded; the capture failed and the "

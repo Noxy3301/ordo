@@ -84,7 +84,7 @@ struct ScanPaxRow {
  * @details `ok == false` for a scan that was refused outright, which the
  * caller must treat as an abort (the table is missing, or the exclusive end
  * bound is empty), and for a table strip-direct references cannot serve
- * (no PAX store, or some row fell back to the heap), where the materializing
+ * (no PAX table, or some row overflowed to the heap), where the materializing
  * Scan path answers the same range.
  */
 struct ScanPaxResult {

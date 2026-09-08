@@ -34,7 +34,7 @@ class MasstreeIndex final {
   ~MasstreeIndex();
 
   /**
-   * @brief Routes future blank primary rows through a table PAX store.
+   * @brief Routes future blank primary rows through a table's PaxTable.
    *
    * @details Secondary indexes never set a PaxTable: they store index
    * metadata rather than table row payloads.

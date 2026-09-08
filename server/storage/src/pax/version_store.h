@@ -141,6 +141,10 @@ class VersionStore {
   // seq_cst on both sides is load-bearing for the fence proof; do not
   // weaken.
   std::atomic<uint64_t> active_captures_{0};
+  // Byte budget for captured before-images. Exceeding it fails the capture,
+  // and with it every active read view, instead of growing writer-side
+  // memory without bound.
+  static constexpr uint64_t kByteBudget = 256ull << 20;
   std::atomic<uint64_t> captured_bytes_{0};
   // Covers the whole active generation; resets when the last read view
   // releases.
@@ -154,9 +158,8 @@ class VersionStore {
   std::unordered_map<const PaxGroup *, std::unique_ptr<GroupUndo>> groups_;
 
   uint64_t next_view_id_ = 1;
-  uint64_t byte_budget_;
 
-  VersionStore();
+  VersionStore() = default;
   // The group pointer is a key here and is never dereferenced.
   GroupUndo *GetOrCreateUndo(const PaxGroup *group);
   const GroupUndo *FindUndo(const PaxGroup *group) const;

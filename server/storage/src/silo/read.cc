@@ -177,7 +177,8 @@ ScanPaxResult ScanPax(TableDictionary &tables, std::shared_mutex &schema_mutex,
   if (table == nullptr) return result;
 
   // PAX row references are only valid when every live row is in PAX strips.
-  // Heap fallback rows are invisible to strip-only readers, so fall back.
+  // A row that overflowed to the heap is invisible to strip-only readers, so
+  // refuse and let the caller take the Scan path.
   auto *store = table->GetPaxTable();
   if (store == nullptr || store->overflow_count() > 0) return result;
   result.ok = true;

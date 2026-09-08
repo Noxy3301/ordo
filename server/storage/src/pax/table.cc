@@ -24,7 +24,7 @@ namespace {
 // original val_str ASCII at gather time. The round trip must be byte-identical:
 // DataBuffer::size tracks the original ASCII payload size, so a gather that
 // renders a different length would corrupt the row. Any parse/range failure
-// returns false so the caller takes the heap fallback (never wrong, just
+// returns false so the row overflows to the heap (never wrong, just
 // unaccelerated), exactly like an over-wide UNTYPED cell.
 // ---------------------------------------------------------------------------
 
@@ -95,7 +95,7 @@ inline bool ParseDecScaled(const char *s, size_t len, int scale, int64_t *out) {
 }
 
 // Parse one field's ASCII into the low bytes of *out. Returns false on any
-// failure (caller -> heap fallback).
+// failure, and the caller overflows the row to the heap.
 inline bool ParseTyped(FieldKind kind, int scale, const std::byte *payload,
                        uint32_t len, uint64_t *out) {
   const char *s = reinterpret_cast<const char *>(payload);
@@ -299,8 +299,8 @@ PaxGroup::PaxGroup(const TableSchema &schema, PaxTable *store)
 bool PaxGroup::ScatterRow(uint32_t slot, const std::byte *row, size_t size) {
   assert(slot < kRows);
   const size_t fields = schema_.field_count();
-  // Stack refs keep typical rows allocation-free; unusually wide tables take
-  // the heap fallback instead.
+  // Stack refs keep typical rows allocation-free; an unusually wide table
+  // overflows its rows to the heap instead.
   constexpr size_t kMaxFields = 512;
   if (fields > kMaxFields) return false;
   FieldRef refs[kMaxFields];
@@ -308,7 +308,7 @@ bool PaxGroup::ScatterRow(uint32_t slot, const std::byte *row, size_t size) {
   if (parsed != fields) return false;
   // Validate every field before any cell write. UNTYPED fields must fit their
   // cell width; typed non-null fields are parsed into a fixed-width LE binary
-  // scratch. Any failure takes the per-row heap fallback with the slot
+  // scratch. Any failure overflows the row to the heap with the slot
   // untouched.
   uint64_t typed_bin[kMaxFields];  // low field_max_bytes[f] bytes = LE payload
   for (size_t f = 0; f < fields; f++) {
@@ -478,7 +478,7 @@ uint64_t SlotsAllocated(const PaxTable *store) {
 
 size_t GroupCount(const PaxTable *store) { return store->group_count(); }
 
-uint64_t HeapFallbacks(const PaxTable *store) {
+uint64_t OverflowCount(const PaxTable *store) {
   return store->overflow_count();
 }
 

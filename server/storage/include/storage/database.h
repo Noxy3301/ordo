@@ -119,7 +119,7 @@ class Database {
    * @details Installs the per-field maximum cell widths: index 0 is the row
    * format's null-flags field, followed by one entry per column in field order.
    * Rows written after installation are stored in per-column strips when they
-   * fit the configured cell widths; oversize rows fall back to heap storage.
+   * fit the configured cell widths; oversize rows overflow to the heap.
    * Call once after CreateTable and before loading rows.
    *
    * @param[in] table_name The table that should use PAX storage.
@@ -130,8 +130,8 @@ class Database {
    * @param[in] field_scale Per-field DECIMAL scale, used by the typed decimal
    * kind. Empty, or a length that does not match, means a scale of zero.
    * @return true when the schema is installed for the table.
-   * @return false when PAX storage is disabled by the config, the schema is
-   * empty, the table is missing, or a schema is already installed.
+   * @return false when the schema is empty, the table is missing, or a
+   * schema is already installed.
    */
   bool InstallPaxSchema(const std::string_view table_name,
                         const std::vector<uint32_t> &field_max_bytes,
@@ -139,7 +139,7 @@ class Database {
                         const std::vector<int8_t> &field_scale = {});
 
   /**
-   * @brief Returns the PAX store installed for `table_name`.
+   * @brief Returns the PAX table installed for `table_name`.
    *
    * @param table_name Target table.
    * @return A pointer this database owns, valid as long as it is, or nullptr

@@ -45,7 +45,7 @@ class PaxTable {
    * @details Slots are append-only and are not reused.
    *
    * @return `{nullptr, 0}` when the table has exhausted the fixed directory, so
-   * the caller can fall back to heap row storage without losing correctness.
+   * the caller overflows the row to the heap without losing correctness.
    */
   std::pair<PaxGroup *, uint32_t> AllocateSlot();
 
@@ -66,7 +66,7 @@ class PaxTable {
 
   /**
    * @brief Returns slots handed out, an upper bound on populated rows: a slot
-   * whose row later fell back to the heap is still counted.
+   * whose row later overflowed to the heap is still counted.
    */
   uint64_t slots_allocated() const {
     return next_slot_.load(std::memory_order_acquire);
@@ -83,7 +83,7 @@ class PaxTable {
   }
 
   /**
-   * @brief Records one row that used heap fallback instead of PAX cells.
+   * @brief Records one row that overflowed to the heap.
    */
   void RecordOverflow() {
     overflow_count_.fetch_add(1, std::memory_order_relaxed);

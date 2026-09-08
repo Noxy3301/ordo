@@ -45,14 +45,6 @@ struct Config {
   size_t epoch_duration_ms = 40;
 
   /**
-   * @brief Whether tables may install PAX storage metadata and route newly
-   *        created row payloads through PaxTable.
-   *
-   * Default: false.
-   */
-  bool enable_pax_storage = false;
-
-  /**
    * @brief Whether the instance replays its log at construction.
    *
    * @details The log is always scanned and its interrupted tail truncated,

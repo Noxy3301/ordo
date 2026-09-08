@@ -28,8 +28,9 @@ namespace pax {
  * fixed-width little-endian binary payload whose width is `field_max_bytes[f]`
  * (4 or 8). A typed cell's u16 length prefix is 0 for SQL NULL and equal to the
  * binary width for a present value, so "empty cell == NULL" still holds.
- * `ScatterRow` parses the ASCII once (heap fallback on any parse/range
- * failure); `GatherRow` reformats the binary back into the exact original
+ * `ScatterRow` parses the ASCII once (the row overflows to the heap on any
+ * parse/range failure); `GatherRow` reformats the binary back into the exact
+ * original
  * val_str ASCII (a byte-identical round trip, which is the row-format
  * contract).
  */
@@ -75,7 +76,7 @@ struct TableSchema {
   std::vector<uint8_t> field_kind;
   // Per-field DECIMAL scale for FK_DEC64 (else 0). Same length when present.
   std::vector<int8_t> field_scale;
-  // Table name, carried for diagnostics (heap-fallback logging).
+  // Table name, carried for diagnostics (overflow logging).
   std::string table_name;
 
   /**
@@ -248,7 +249,7 @@ class PaxGroup {
   const TableSchema &schema() const { return schema_; }
 
   /**
-   * @brief Returns the table store that owns this group.
+   * @brief Returns the PaxTable that owns this group.
    */
   PaxTable *table() const { return table_; }
 
@@ -296,9 +297,9 @@ uint64_t SlotsAllocated(const PaxTable *store);
 size_t GroupCount(const PaxTable *store);
 
 /**
- * @brief Returns the number of rows that used heap fallback instead of cells.
+ * @brief Returns the number of rows that overflowed to the heap.
  */
-uint64_t HeapFallbacks(const PaxTable *store);
+uint64_t OverflowCount(const PaxTable *store);
 
 // ---------------------------------------------------------------------------
 // Columnar read view surface.

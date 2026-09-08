@@ -29,10 +29,7 @@ class Table {
    * @return false when an index of that name already exists.
    */
   bool CreateSecondaryIndex(const std::string_view index_name,
-                            const index::IndexConstraint index_type) {
-    if (GetSecondaryIndex(index_name) != nullptr) return false;
-    return GetOrCreateSecondaryIndex(index_name, index_type) != nullptr;
-  }
+                            const index::IndexConstraint index_type);
 
   /**
    * @brief Installs PAX storage metadata for rows created after the call.
@@ -44,22 +41,13 @@ class Table {
    * @return true when the schema is installed for this table.
    * @return false when a schema has already been installed.
    */
-  bool InstallPaxSchema(pax::TableSchema schema) {
-    std::unique_lock<std::shared_mutex> lk(table_lock_);
-    if (pax_table_ != nullptr) return false;
-    pax_table_ = std::make_unique<pax::PaxTable>(std::move(schema));
-    primary_index_.SetPaxTable(pax_table_.get());
-    return true;
-  }
+  bool InstallPaxSchema(pax::TableSchema schema);
 
   /**
-   * @brief Returns the table's PAX store, or nullptr when no PAX schema has
+   * @brief Returns the table's PAX table, or nullptr when no PAX schema has
    * been installed on it.
    */
-  pax::PaxTable *GetPaxTable() const {
-    std::shared_lock<std::shared_mutex> lk(table_lock_);
-    return pax_table_.get();
-  }
+  pax::PaxTable *GetPaxTable() const;
 
   const std::string &Name() const;
 
@@ -90,18 +78,7 @@ class Table {
    */
   index::SecondaryIndex *GetOrCreateSecondaryIndex(
       const std::string_view index_name,
-      const index::IndexConstraint index_type) {
-    std::unique_lock<std::shared_mutex> lk(table_lock_);
-    auto it = secondary_indices_.find(std::string(index_name));
-    if (it != secondary_indices_.end()) {
-      const bool same = it->second->GetIndexType().Raw() == index_type.Raw();
-      return same ? it->second.get() : nullptr;
-    }
-    auto new_index = std::make_unique<index::SecondaryIndex>(index_type);
-    auto *created = new_index.get();
-    secondary_indices_[std::string(index_name)] = std::move(new_index);
-    return created;
-  }
+      const index::IndexConstraint index_type);
 
  private:
   index::PrimaryIndex primary_index_;

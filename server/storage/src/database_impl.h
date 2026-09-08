@@ -78,7 +78,7 @@ class Database::Impl {
 
   bool CreateTable(const std::string_view table_name);
 
-  pax::PaxStore *GetPaxStore(const std::string_view table_name);
+  pax::PaxTable *GetPaxTable(const std::string_view table_name);
   Database::PaxReadView AcquirePaxView(uint32_t fence_timeout_ms);
   void ReleasePaxView(const Database::PaxReadView &view);
 

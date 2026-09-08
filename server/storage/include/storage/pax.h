@@ -106,7 +106,7 @@ struct TableSchema {
   }
 };
 
-class PaxStore;
+class PaxTable;
 
 /**
  * @brief Stores a fixed-size row group as per-field PAX strips.
@@ -128,12 +128,15 @@ class PaxGroup {
   // Number of bytes used for the little-endian uint16_t cell length.
   static constexpr uint32_t kCellLenBytes = 2;
 
+  // Width of one word of the slot visibility bitmap.
+  static constexpr uint32_t kVisibilityWordBits = 64;
+
   /**
    * @brief Creates an empty group whose strips are sized from `schema`.
    *
-   * @param schema Table schema owned by `PaxStore`; must outlive this group.
+   * @param schema Table schema owned by `PaxTable`; must outlive this group.
    */
-  PaxGroup(const TableSchema &schema, PaxStore *store);
+  PaxGroup(const TableSchema &schema, PaxTable *store);
 
   /**
    * @brief Scatters one row into this group's strip cells.
@@ -200,8 +203,9 @@ class PaxGroup {
    */
   bool IsVisible(uint32_t slot) const {
     // Read this slot's visibility flag for strip-direct scans.
-    return (visible_[slot >> 6].load(std::memory_order_acquire) >>
-            (slot & 63)) &
+    return (visible_[slot / kVisibilityWordBits].load(
+                std::memory_order_acquire) >>
+            (slot % kVisibilityWordBits)) &
            1u;
   }
 
@@ -246,7 +250,7 @@ class PaxGroup {
   /**
    * @brief Returns the table store that owns this group.
    */
-  PaxStore *store() const { return store_; }
+  PaxTable *table() const { return table_; }
 
  private:
   /**
@@ -262,8 +266,8 @@ class PaxGroup {
    */
   void AppendCellField(size_t field, uint32_t slot, std::string &out) const;
 
-  const TableSchema &schema_;  // Owned by PaxStore; outlives all groups.
-  PaxStore *store_;
+  const TableSchema &schema_;  // Owned by PaxTable; outlives all groups.
+  PaxTable *table_;
   std::vector<uint32_t> stride_;
   std::vector<size_t> strip_offset_;
   std::unique_ptr<std::byte[]> arena_;
@@ -274,34 +278,34 @@ class PaxGroup {
 /**
  * @brief Returns the schema every group in `store` is sized from.
  */
-const TableSchema &Schema(const PaxStore *store);
+const TableSchema &Schema(const PaxTable *store);
 
 /**
  * @brief Returns group `idx` of `store`, or nullptr if it is not allocated.
  */
-PaxGroup *Group(const PaxStore *store, size_t idx);
+PaxGroup *Group(const PaxTable *store, size_t idx);
 
 /**
  * @brief Returns slots handed out, an upper bound on populated rows.
  */
-uint64_t SlotsAllocated(const PaxStore *store);
+uint64_t SlotsAllocated(const PaxTable *store);
 
 /**
  * @brief Returns the number of row groups that may contain allocated slots.
  */
-size_t GroupCount(const PaxStore *store);
+size_t GroupCount(const PaxTable *store);
 
 /**
  * @brief Returns the number of rows that used heap fallback instead of cells.
  */
-uint64_t HeapFallbacks(const PaxStore *store);
+uint64_t HeapFallbacks(const PaxTable *store);
 
 // ---------------------------------------------------------------------------
 // Columnar read view surface.
 //
 // While a read view acquired through Database::AcquirePaxView is active,
 // every PAX install publishes the replaced row image into a per-group undo
-// map before its first strip mutation, or poisons the active capture
+// map before its first strip mutation, or fails the capture for the active
 // generation when it cannot (src/pax/version_store.h holds the full
 // contract). A reader with cut epoch E resolves a slot to the before-image
 // of the oldest entry whose writer epoch exceeds E (was_visible == false:

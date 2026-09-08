@@ -64,8 +64,8 @@ bool Database::InstallPaxSchema(const std::string_view table_name,
                                      field_scale);
 }
 
-pax::PaxStore *Database::GetPaxStore(const std::string_view table_name) {
-  return db_pimpl_->GetPaxStore(table_name);
+pax::PaxTable *Database::GetPaxTable(const std::string_view table_name) {
+  return db_pimpl_->GetPaxTable(table_name);
 }
 
 Database::PaxReadView Database::AcquirePaxView(uint32_t fence_timeout_ms) {

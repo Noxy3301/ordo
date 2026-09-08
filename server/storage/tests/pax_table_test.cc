@@ -1,5 +1,5 @@
 /**
- * @file server/storage/tests/pax_store_test.cc
+ * @file server/storage/tests/pax_table_test.cc
  * Typed PAX cells whose declared width does not match their kind.
  */
 
@@ -8,7 +8,7 @@
 #include <vector>
 
 #include "gtest/gtest.h"
-#include "pax/store.h"
+#include "pax/table.h"
 #include "storage/pax.h"
 
 namespace {
@@ -65,7 +65,7 @@ TableSchema MakeSchema(std::vector<uint32_t> widths,
 
 // A kind whose declared width is not the width that kind stores would be
 // gathered by reading past the cell, into the next slot's length prefix.
-TEST(PaxStoreTest, TooNarrowTypedFieldStaysVerbatim) {
+TEST(PaxTableTest, TooNarrowTypedFieldStaysVerbatim) {
   const TableSchema schema = MakeSchema({1, 2}, {FK_UNTYPED, FK_INT32});
   EXPECT_EQ(schema.kind_of(1), FK_UNTYPED);
 
@@ -81,7 +81,7 @@ TEST(PaxStoreTest, TooNarrowTypedFieldStaysVerbatim) {
 
 // field_kind is allowed to be shorter than the field count; the fields it
 // does not reach are untyped rather than read past its end.
-TEST(PaxStoreTest, ShortKindVectorLeavesTheRestUntyped) {
+TEST(PaxTableTest, ShortKindVectorLeavesTheRestUntyped) {
   const TableSchema schema = MakeSchema({1, 4}, {FK_UNTYPED});
   EXPECT_EQ(schema.kind_of(1), FK_UNTYPED);
 

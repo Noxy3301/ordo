@@ -14,7 +14,7 @@
 
 #include "index/primary_index.h"
 #include "index/secondary_index.h"
-#include "pax/store.h"
+#include "pax/table.h"
 #include "storage/pax.h"
 
 namespace helios::storage {
@@ -39,16 +39,16 @@ class Table {
    *
    * @details The schema records per-field maximum cell widths. Existing rows
    * remain on the heap-backed DataBuffer layout; future rows are initialized
-   * with the table's PaxStore. A table accepts only one PAX schema.
+   * with the table's PaxTable. A table accepts only one PAX schema.
    *
    * @return true when the schema is installed for this table.
    * @return false when a schema has already been installed.
    */
   bool InstallPaxSchema(pax::TableSchema schema) {
     std::unique_lock<std::shared_mutex> lk(table_lock_);
-    if (pax_store_ != nullptr) return false;
-    pax_store_ = std::make_unique<pax::PaxStore>(std::move(schema));
-    primary_index_.SetPaxStore(pax_store_.get());
+    if (pax_table_ != nullptr) return false;
+    pax_table_ = std::make_unique<pax::PaxTable>(std::move(schema));
+    primary_index_.SetPaxTable(pax_table_.get());
     return true;
   }
 
@@ -56,9 +56,9 @@ class Table {
    * @brief Returns the table's PAX store, or nullptr when no PAX schema has
    * been installed on it.
    */
-  pax::PaxStore *GetPaxStore() const {
+  pax::PaxTable *GetPaxTable() const {
     std::shared_lock<std::shared_mutex> lk(table_lock_);
-    return pax_store_.get();
+    return pax_table_.get();
   }
 
   const std::string &Name() const;
@@ -105,7 +105,7 @@ class Table {
 
  private:
   index::PrimaryIndex primary_index_;
-  std::unique_ptr<pax::PaxStore> pax_store_;
+  std::unique_ptr<pax::PaxTable> pax_table_;
   mutable std::shared_mutex table_lock_;
   std::unordered_map<std::string, std::unique_ptr<index::SecondaryIndex>>
       secondary_indices_;

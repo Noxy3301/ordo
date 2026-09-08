@@ -34,7 +34,7 @@
 #include <string>
 #include <vector>
 
-#include "pax/store.h"
+#include "pax/table.h"
 #include "pax/version_store.h"
 #include "storage/pax.h"
 #include "util/spdlog.h"
@@ -52,7 +52,7 @@ namespace helios::storage {
  * PAX mode: the payload bytes live in a PaxGroup's column strips; this
  * buffer only references them. `value` carries a tagged pointer
  * (bit0 = PAX, bit1 = slot allocated): before the first install it points
- * to the table's PaxStore, afterwards to the owning PaxGroup with
+ * to the table's PaxTable, afterwards to the owning PaxGroup with
  * `capacity_or_slot` = slot index. `size` keeps its meaning (payload byte size,
  * 0 = tombstone/blank), so every liveness check (`size != 0`) works
  * unchanged in both modes.
@@ -91,8 +91,8 @@ struct DataBuffer {
     return reinterpret_cast<pax::PaxGroup *>(
         reinterpret_cast<uintptr_t>(value) & ~kPaxMask);
   }
-  pax::PaxStore *pax_store() const {
-    return reinterpret_cast<pax::PaxStore *>(
+  pax::PaxTable *pax_table() const {
+    return reinterpret_cast<pax::PaxTable *>(
         reinterpret_cast<uintptr_t>(value) & ~kPaxMask);
   }
   uint32_t pax_slot() const { return static_cast<uint32_t>(capacity_or_slot); }
@@ -103,7 +103,7 @@ struct DataBuffer {
    * @param store Table store that will allocate the concrete row slot on the
    * first non-empty install.
    */
-  void InitPaxBlank(pax::PaxStore *store) {
+  void InitPaxBlank(pax::PaxTable *store) {
     assert((reinterpret_cast<uintptr_t>(store) & kPaxMask) == 0);
     value = reinterpret_cast<std::byte *>(reinterpret_cast<uintptr_t>(store) |
                                           kPaxTag);
@@ -228,7 +228,7 @@ struct DataBuffer {
    * @details Must run before the first strip mutation of this install
    * (ScatterRow or RetireSlot). A zero commit epoch means the install is
    * outside an epoch-tagged commit (recovery replay); a read view observed
-   * active in that state poisons the generation, fail-closed.
+   * active in that state fails the capture for the generation, fail-closed.
    */
   void CaptureBeforeImage() {
     auto &version_store = pax::VersionStore::Global();
@@ -238,7 +238,7 @@ struct DataBuffer {
       // Fail closed: skipping silently would let cells change with no
       // entry and no count advance, and the reader's end recheck would
       // pass on a torn result. The writer proceeds.
-      version_store.PoisonActiveGeneration(
+      version_store.FailCapture(
           "PAX install without a commit epoch while a read view is active");
       return;
     }
@@ -263,10 +263,10 @@ struct DataBuffer {
       return;
     }
     if (!pax_allocated()) {
-      auto *store = pax_store();
+      auto *store = pax_table();
       auto [group, slot] = store->AllocateSlot();
       if (group == nullptr) {
-        FallbackToHeap(store, "no free slot", row, len);
+        OverflowToHeap(store, "no free slot", row, len);
         return;
       }
       assert((reinterpret_cast<uintptr_t>(group) & kPaxMask) == 0);
@@ -283,7 +283,7 @@ struct DataBuffer {
     // Hide the abandoned slot: strip-direct scans must not read a row this
     // buffer now keeps on the heap.
     pax_group()->RetireSlot(pax_slot());
-    FallbackToHeap(pax_group()->store(), "row wider than its cell", row, len);
+    OverflowToHeap(pax_group()->table(), "row wider than its cell", row, len);
   }
 
   /**
@@ -292,16 +292,18 @@ struct DataBuffer {
    * @details A table with one such row is no longer a complete set of rows in
    * its strips, which is what the store's counter tells strip-direct readers.
    */
-  void FallbackToHeap(pax::PaxStore *store, const char *why,
+  void OverflowToHeap(pax::PaxTable *store, const char *why,
                       const std::byte *row, const size_t len) {
     if (store->overflow_count() == 0) {
-      SPDLOG_WARN("PAX heap fallback engaged for table '{}': {} (row size {})",
-                  store->schema().table_name, why, len);
+      SPDLOG_WARN(
+          "PAX overflow for table '{}': {} (row size {}); the row stays on the "
+          "heap",
+          store->schema().table_name, why, len);
     } else {
-      SPDLOG_DEBUG("PAX heap fallback for table '{}': {} (row size {})",
+      SPDLOG_DEBUG("PAX overflow for table '{}': {} (row size {})",
                    store->schema().table_name, why, len);
     }
-    store->RecordHeapFallback();
+    store->RecordOverflow();
     value = nullptr;
     capacity_or_slot = 0;
     Reset(row, len);

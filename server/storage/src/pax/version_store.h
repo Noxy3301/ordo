@@ -28,8 +28,8 @@ namespace pax {
  * PAX install publishes the replaced row image before its first strip-cell
  * or visibility-bit mutation; a first install publishes an empty
  * was_visible=false entry. An install that cannot publish (byte budget
- * exceeded, or no commit epoch) poisons the active generation instead, and
- * every result produced under a poisoned generation is discarded. A reader
+ * exceeded, or no commit epoch) fails the capture for the active generation
+ * instead, and every result produced under it is discarded. A reader
  * with cut epoch E resolves a slot to the before-image of the oldest entry
  * whose writer epoch exceeds E and reads the strip in place when no entry
  * qualifies. With no read view active the writer side pays one atomic load
@@ -45,7 +45,7 @@ class VersionStore {
    * counter.
    */
   struct GroupUndo {
-    mutable std::mutex m;
+    mutable std::mutex mutex;
     // Monotonic publish counter, incremented after the entry is appended
     // and before the writer's first strip mutation; readers sample it to
     // detect concurrent writers.
@@ -64,7 +64,7 @@ class VersionStore {
    * @brief Returns whether at least one read view is active.
    */
   bool CaptureActive() const {
-    return capture_active_.load(std::memory_order_seq_cst) > 0;
+    return active_captures_.load(std::memory_order_seq_cst) > 0;
   }
 
   /**
@@ -96,27 +96,27 @@ class VersionStore {
    * @brief Releases one registration; call exactly once per valid token.
    *
    * @details The release of the last active registration clears every
-   * group's entries and resets the poison flag. Token ids are diagnostic;
+   * group's entries and clears the capture failure. Token ids are diagnostic;
    * a double or stale release is not detected.
    */
   void EndCapture(const ReadViewToken &token);
 
   /**
-   * @brief Returns whether the generation was poisoned while this read view
-   * was active; a poisoned read view's result must be discarded.
+   * @brief Returns whether the capture failed for the active generation;
+   * every result that generation produced must be discarded.
    */
-  bool Poisoned(const ReadViewToken &token) const;
+  bool CaptureFailed() const;
 
   /**
    * @brief Fails every active read view and rejects new ones until the last
    * active read view releases.
    *
-   * @details Callers must publish the poison before mutating any cell the
-   * failed capture should have covered. A poison racing the last release
+   * @details Callers must publish the failure before mutating any cell the
+   * failed capture should have covered. A failure racing the last release
    * may land on the next generation, whose results are then discarded;
    * both orderings fail closed.
    */
-  void PoisonActiveGeneration(const char *reason);
+  void FailCapture(const char *reason);
 
   /**
    * @brief Returns the capture_count of the group's undo map, 0 if the
@@ -129,7 +129,7 @@ class VersionStore {
    *
    * @details Copies keep callers immune to concurrent vector reallocation.
    */
-  std::vector<Entry> EntriesFor(const PaxGroup *group, uint32_t slot) const;
+  std::vector<Entry> SlotEntries(const PaxGroup *group, uint32_t slot) const;
 
   /**
    * @brief Copies the group's whole slot->entries map in one locking pass.
@@ -140,16 +140,16 @@ class VersionStore {
  private:
   // seq_cst on both sides is load-bearing for the fence proof; do not
   // weaken.
-  std::atomic<uint64_t> capture_active_{0};
+  std::atomic<uint64_t> active_captures_{0};
   std::atomic<uint64_t> captured_bytes_{0};
   // Covers the whole active generation; resets when the last read view
   // releases.
-  std::atomic<bool> poisoned_{false};
+  std::atomic<bool> capture_failed_{false};
 
-  // shared: captures; exclusive: the zero-transition clear. Group
-  // pointers serve as map keys only and are never dereferenced by the
-  // store.
+  // shared: Capture; exclusive: BeginCapture, EndCapture and the clear the
+  // last release performs. Const readers take neither.
   mutable std::shared_mutex registry_mutex_;
+  // Lock order: registry_mutex_, then this, then GroupUndo::mutex.
   mutable std::mutex groups_mutex_;
   std::unordered_map<const PaxGroup *, std::unique_ptr<GroupUndo>> groups_;
 
@@ -157,7 +157,8 @@ class VersionStore {
   uint64_t byte_budget_;
 
   VersionStore();
-  GroupUndo *GetOrCreateUndo(PaxGroup *group);
+  // The group pointer is a key here and is never dereferenced.
+  GroupUndo *GetOrCreateUndo(const PaxGroup *group);
   const GroupUndo *FindUndo(const PaxGroup *group) const;
   void ClearAllLocked();
 };
@@ -166,8 +167,8 @@ class VersionStore {
  * @brief Thread-local commit epoch of the install region in progress; zero
  * outside one (e.g. recovery replay).
  *
- * @details The capture hook tags entries with it and poisons the active
- * generation on a zero-epoch install.
+ * @details The capture hook tags entries with it and fails the capture for
+ * the active generation on a zero-epoch install.
  */
 struct CurrentCommitEpoch {
   static uint32_t &Get();

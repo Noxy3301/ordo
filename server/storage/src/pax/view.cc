@@ -11,7 +11,7 @@
 #include <utility>
 
 #include "database_impl.h"
-#include "pax/store.h"
+#include "pax/table.h"
 #include "pax/version_store.h"
 #include "util/debug_sync.h"
 
@@ -21,9 +21,9 @@ namespace helios::storage {
 // could have missed the capture flag has drained.
 constexpr EpochNumber kInstallDrainEpochs = 2;
 
-pax::PaxStore *Database::Impl::GetPaxStore(const std::string_view table_name) {
+pax::PaxTable *Database::Impl::GetPaxTable(const std::string_view table_name) {
   Table *table = GetTable(table_name);
-  return table == nullptr ? nullptr : table->GetPaxStore();
+  return table == nullptr ? nullptr : table->GetPaxTable();
 }
 
 Database::PaxReadView Database::Impl::AcquirePaxView(
@@ -32,8 +32,8 @@ Database::PaxReadView Database::Impl::AcquirePaxView(
   auto token = pax::VersionStore::Global().BeginCapture();
   if (!token.valid) {
     view.error =
-        "columnar read view rejected: the active capture generation is "
-        "poisoned";
+        "columnar read view rejected: the capture failed for the active "
+        "generation";
     return view;
   }
   // Fence order (do not reorder): arm the capture flag (seq_cst
@@ -63,11 +63,11 @@ Database::PaxReadView Database::Impl::AcquirePaxView(
   }
   // Test hook: holds the read view open between the fence and the scan.
   HELIOS_DEBUG_SYNC("pax_read_view.after_fence");
-  // A poison landing during acquisition must fail it here; callers
+  // A capture failure landing during acquisition must fail it here; callers
   // treat a valid view as a serviceable read view.
-  if (pax::VersionStore::Global().Poisoned(token)) {
+  if (pax::VersionStore::Global().CaptureFailed()) {
     pax::VersionStore::Global().EndCapture(token);
-    view.error = "columnar read view poisoned during acquisition";
+    view.error = "columnar read view invalidated during acquisition";
     return view;
   }
   view.valid = true;
@@ -90,10 +90,7 @@ bool Database::Impl::PaxViewValid(const Database::PaxReadView &view) const {
       kPaxReadViewEpochLifetime) {
     return false;  // expired: comparisons could leave the wrap-free window
   }
-  pax::VersionStore::ReadViewToken token;
-  token.id = view.token;
-  token.valid = true;
-  return !pax::VersionStore::Global().Poisoned(token);
+  return !pax::VersionStore::Global().CaptureFailed();
 }
 
 bool Database::Impl::InstallPaxSchema(

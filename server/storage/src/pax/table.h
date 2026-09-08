@@ -1,10 +1,10 @@
 /**
- * @file server/storage/src/pax/store.h
+ * @file server/storage/src/pax/table.h
  * The append-only group directory behind one table's PAX strips.
  */
 
-#ifndef HELIOS_STORAGE_SRC_PAX_STORE_H
-#define HELIOS_STORAGE_SRC_PAX_STORE_H
+#ifndef HELIOS_STORAGE_SRC_PAX_TABLE_H
+#define HELIOS_STORAGE_SRC_PAX_TABLE_H
 
 #include <algorithm>
 #include <atomic>
@@ -22,11 +22,11 @@ namespace pax {
 /**
  * @brief Owns all PAX row groups for one Helios table.
  *
- * @details `PaxStore` assigns append-only `(group, slot)` locations. It does
+ * @details `PaxTable` assigns append-only `(group, slot)` locations. It does
  * not publish rows to indexes and does not decide transaction visibility; those
  * remain in the existing Helios `DataItem`, Silo, and Masstree layers.
  */
-class PaxStore {
+class PaxTable {
  public:
   // 262,144 groups x 8,192 rows = 2^31 slots per table.
   static constexpr size_t kMaxGroups = 1u << 18;
@@ -37,7 +37,7 @@ class PaxStore {
    *
    * @param schema Schema copied into the store and referenced by its groups.
    */
-  explicit PaxStore(TableSchema schema);
+  explicit PaxTable(TableSchema schema);
 
   /**
    * @brief Allocates the next append-only PAX slot.
@@ -57,14 +57,16 @@ class PaxStore {
   /**
    * @brief Returns group `idx`, or nullptr if it has not been allocated yet.
    *
-   * @param idx Group index in the append-only directory.
+   * @param idx Group index in the append-only directory. The group is owned
+   * by this store and lives as long as it does.
    */
   PaxGroup *group(size_t idx) const {
     return dir_[idx].load(std::memory_order_acquire);
   }
 
   /**
-   * @brief Returns slots handed out, an upper bound on populated rows.
+   * @brief Returns slots handed out, an upper bound on populated rows: a slot
+   * whose row later fell back to the heap is still counted.
    */
   uint64_t slots_allocated() const {
     return next_slot_.load(std::memory_order_acquire);
@@ -83,12 +85,17 @@ class PaxStore {
   /**
    * @brief Records one row that used heap fallback instead of PAX cells.
    */
-  void RecordHeapFallback() {
+  void RecordOverflow() {
     overflow_count_.fetch_add(1, std::memory_order_relaxed);
   }
 
   /**
-   * @brief Returns the number of rows that used heap fallback.
+   * @brief Returns the number of rows that live on the heap instead of in
+   * the strips.
+   *
+   * @details Non-zero means this table's strips are no longer the complete
+   * set of its rows, so a strip-direct scan of it would miss some: readers
+   * must take the row-shaped path instead.
    */
   uint64_t overflow_count() const {
     return overflow_count_.load(std::memory_order_relaxed);
@@ -96,13 +103,17 @@ class PaxStore {
 
  private:
   TableSchema schema_;
+  // Fixed at kMaxGroups entries; the groups it points at are owned here and
+  // are freed only when the store is.
   std::unique_ptr<std::atomic<PaxGroup *>[]> dir_;
   std::atomic<uint64_t> next_slot_{0};
   std::atomic<uint64_t> overflow_count_{0};
-  std::mutex grow_mutex_;
+  // Serializes the first touch of a directory entry, not the directory
+  // itself, which never grows.
+  std::mutex alloc_mutex_;
 };
 
 }  // namespace pax
 }  // namespace helios::storage
 
-#endif  // HELIOS_STORAGE_SRC_PAX_STORE_H
+#endif  // HELIOS_STORAGE_SRC_PAX_TABLE_H

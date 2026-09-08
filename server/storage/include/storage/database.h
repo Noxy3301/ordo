@@ -38,7 +38,7 @@
 namespace helios::storage {
 
 namespace pax {
-class PaxStore;
+class PaxTable;
 }
 
 /**
@@ -145,7 +145,7 @@ class Database {
    * @return A pointer this database owns, valid as long as it is, or nullptr
    * when the table is missing or has no PAX schema.
    */
-  pax::PaxStore *GetPaxStore(const std::string_view table_name);
+  pax::PaxTable *GetPaxTable(const std::string_view table_name);
 
   /**
    * @brief Handle for one columnar read view.
@@ -167,10 +167,10 @@ class Database {
    *
    * @details On return every commit with epoch <= cut_epoch has finished
    * installing, and every later commit captures the rows it overwrites or
-   * poisons the read view. The calling thread must not hold an epoch (it
+   * invalidates the read view. The calling thread must not hold an epoch (it
    * must be outside any transaction). Fails instead of falling back on
-   * fence timeout, near the epoch high-water mark, or when the generation
-   * is poisoned during acquisition.
+   * fence timeout, near the epoch high-water mark, or when the capture fails
+   * during acquisition.
    *
    * @param fence_timeout_ms Upper bound on the fence wait.
    * @return A valid handle, or an invalid one carrying the reason.
@@ -184,10 +184,10 @@ class Database {
   void ReleasePaxView(const PaxReadView &view);
 
   /**
-   * @brief Returns whether this read view's results must be discarded.
+   * @brief Returns whether this read view's results may be used.
    *
-   * @details False for an invalid view, for one whose capture generation was
-   * poisoned, and for one that outlived its epoch-lifetime bound. Callers
+   * @details False for an invalid view, for one whose generation's capture
+   * failed, and for one that outlived its epoch-lifetime bound. Callers
    * gate every result on this before accepting it.
    */
   bool PaxViewValid(const PaxReadView &view) const;

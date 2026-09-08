@@ -40,7 +40,7 @@ class PrimaryIndex {
   /**
    * @brief Routes future primary-row placeholders through `store`.
    */
-  void SetPaxStore(pax::PaxStore *store) { index_.SetPaxStore(store); }
+  void SetPaxTable(pax::PaxTable *store) { index_.SetPaxTable(store); }
 
   DataItem *Get(const std::string_view key);
   DataItem *GetOrInsert(const std::string_view key);

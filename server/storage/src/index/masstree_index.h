@@ -36,10 +36,10 @@ class MasstreeIndex final {
   /**
    * @brief Routes future blank primary rows through a table PAX store.
    *
-   * @details Secondary indexes never set a PaxStore: they store index
+   * @details Secondary indexes never set a PaxTable: they store index
    * metadata rather than table row payloads.
    */
-  void SetPaxStore(pax::PaxStore *store);
+  void SetPaxTable(pax::PaxTable *store);
 
   DataItem *Get(std::string_view key);
   void Put(std::string_view key, DataItem &&value);

@@ -223,12 +223,12 @@ struct MasstreeIndex::Impl {
     return nullptr;
   }
 
-  // Blank rows created after SetPaxStore are initialized in PAX mode so their
+  // Blank rows created after SetPaxTable are initialized in PAX mode so their
   // first committed payload scatters into the table's strips.
-  pax::PaxStore *pax_store_ = nullptr;
+  pax::PaxTable *pax_table_ = nullptr;
   DataItem *NewBlankItem() {
     auto *item = new DataItem();
-    if (pax_store_ != nullptr) item->buffer.InitPaxBlank(pax_store_);
+    if (pax_table_ != nullptr) item->buffer.InitPaxBlank(pax_table_);
     return item;
   }
 
@@ -361,8 +361,8 @@ MasstreeIndex::MasstreeIndex() : impl_(std::make_unique<Impl>()) {}
 
 MasstreeIndex::~MasstreeIndex() = default;
 
-void MasstreeIndex::SetPaxStore(pax::PaxStore *store) {
-  impl_->pax_store_ = store;
+void MasstreeIndex::SetPaxTable(pax::PaxTable *store) {
+  impl_->pax_table_ = store;
 }
 
 DataItem *MasstreeIndex::Get(std::string_view key) { return impl_->Get(key); }

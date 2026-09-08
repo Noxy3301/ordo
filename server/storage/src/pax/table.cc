@@ -1,9 +1,9 @@
 /**
- * @file server/storage/src/pax/store.cc
+ * @file server/storage/src/pax/table.cc
  * Slot allocation and the typed cell round trip behind the PAX strips.
  */
 
-#include "pax/store.h"
+#include "pax/table.h"
 
 #include <algorithm>
 #include <cassert>
@@ -66,7 +66,7 @@ inline bool ParseDecScaled(const char *s, size_t len, int scale, int64_t *out) {
     i = 1;
   }
   __int128 m = 0;
-  int fdig = 0;
+  int frac_digits = 0;
   bool seen_dot = false, any = false;
   for (; i < len; i++) {
     const char c = s[i];
@@ -77,16 +77,16 @@ inline bool ParseDecScaled(const char *s, size_t len, int scale, int64_t *out) {
     }
     if (c < '0' || c > '9') return false;
     m = m * 10 + (c - '0');
-    if (seen_dot) fdig++;
+    if (seen_dot) frac_digits++;
     any = true;
   }
   if (!any) return false;
   // Normalize to the declared scale: val_str emits exactly `scale` fractional
   // digits, fewer are padded, and more are refused rather than rounded.
-  if (fdig > scale) return false;
-  while (fdig < scale) {
+  if (frac_digits > scale) return false;
+  while (frac_digits < scale) {
     m *= 10;
-    fdig++;
+    frac_digits++;
   }
   if (neg) m = -m;
   if (m > INT64_MAX || m < INT64_MIN) return false;
@@ -96,7 +96,7 @@ inline bool ParseDecScaled(const char *s, size_t len, int scale, int64_t *out) {
 
 // Parse one field's ASCII into the low bytes of *out. Returns false on any
 // failure (caller -> heap fallback).
-inline bool ParseTyped(uint8_t kind, int scale, const std::byte *payload,
+inline bool ParseTyped(FieldKind kind, int scale, const std::byte *payload,
                        uint32_t len, uint64_t *out) {
   const char *s = reinterpret_cast<const char *>(payload);
   switch (kind) {
@@ -139,8 +139,8 @@ inline void AppendI64(std::string &out, int64_t v) {
 // `cell` points at the payload (at least `width` bytes are readable because
 // the cell stride reserves them, so this is memory-safe even under a torn
 // read).
-void FormatTyped(uint8_t kind, int scale, const std::byte *cell, uint32_t width,
-                 std::string &out) {
+void FormatTyped(FieldKind kind, int scale, const std::byte *cell,
+                 uint32_t width, std::string &out) {
   (void)width;
   switch (kind) {
     case FK_INT32: {
@@ -188,10 +188,10 @@ void FormatTyped(uint8_t kind, int scale, const std::byte *cell, uint32_t width,
       if (scale == 0) {
         out += digits;
       } else {
-        const size_t ip = digits.size() - static_cast<size_t>(scale);
-        out.append(digits, 0, ip);
+        const size_t int_len = digits.size() - static_cast<size_t>(scale);
+        out.append(digits, 0, int_len);
         out.push_back('.');
-        out.append(digits, ip, std::string::npos);
+        out.append(digits, int_len, std::string::npos);
       }
       break;
     }
@@ -203,6 +203,11 @@ void FormatTyped(uint8_t kind, int scale, const std::byte *cell, uint32_t width,
 // Row format marker for an empty/no-value field.
 constexpr std::byte kNoValue{0xFF};
 
+// Each field's strip starts on a cache line.
+constexpr size_t kStripAlign = 64;
+static_assert(PaxGroup::kRows % PaxGroup::kVisibilityWordBits == 0,
+              "the visibility bitmap covers whole words");
+
 /**
  * @brief Returns the minimum little-endian base-256 byte count for `len`.
  *
@@ -213,6 +218,22 @@ inline uint32_t LengthPrefixBytes(uint32_t len) {
   uint32_t n = 0;
   for (uint32_t v = len; v > 0; v /= 256) n++;
   return n;
+}
+
+// Writes one field in row format: the marker for an empty payload, otherwise
+// the length-prefix width, the little-endian length and the bytes.
+void AppendField(std::string &out, std::string_view payload) {
+  if (payload.empty()) {
+    out.push_back(static_cast<char>(kNoValue));
+    return;
+  }
+  const uint32_t len = static_cast<uint32_t>(payload.size());
+  const uint32_t prefix = LengthPrefixBytes(len);
+  out.push_back(static_cast<char>(prefix));
+  for (uint32_t i = 0; i < prefix; i++) {
+    out.push_back(static_cast<char>((len >> (8 * i)) & 0xFF));
+  }
+  out.append(payload.data(), payload.size());
 }
 
 // Reference to one field payload inside a row.
@@ -237,16 +258,16 @@ size_t UnpackRow(const std::byte *row, size_t size, FieldRef *out,
   size_t n = 0;
   while (off < size) {
     if (n == max_fields) return SIZE_MAX;
-    const auto byte_size = static_cast<uint8_t>(row[off]);
+    const auto prefix = static_cast<uint8_t>(row[off]);
     off += 1;
     uint32_t len = 0;
-    if (byte_size != 0xFF) {
-      if (byte_size > 4 || off + byte_size > size) return SIZE_MAX;
-      for (uint32_t i = 0; i < byte_size; i++) {
+    if (row[off - 1] != kNoValue) {
+      if (prefix > 4 || off + prefix > size) return SIZE_MAX;
+      for (uint32_t i = 0; i < prefix; i++) {
         len |= static_cast<uint32_t>(static_cast<uint8_t>(row[off + i]))
                << (8 * i);
       }
-      off += byte_size;
+      off += prefix;
       if (off + len > size) return SIZE_MAX;
     }
     out[n].payload = row + off;
@@ -258,21 +279,21 @@ size_t UnpackRow(const std::byte *row, size_t size, FieldRef *out,
 }
 }  // namespace
 
-PaxGroup::PaxGroup(const TableSchema &schema, PaxStore *store)
-    : schema_(schema), store_(store) {
+PaxGroup::PaxGroup(const TableSchema &schema, PaxTable *store)
+    : schema_(schema), table_(store) {
   const size_t fields = schema.field_count();
   stride_.resize(fields);
   strip_offset_.resize(fields);
   size_t total = 0;
   for (size_t f = 0; f < fields; f++) {
     stride_[f] = kCellLenBytes + schema.field_max_bytes[f];
-    total = (total + 63) & ~size_t{63};  // 64B-align each strip
+    total = (total + kStripAlign - 1) & ~size_t{kStripAlign - 1};
     strip_offset_[f] = total;
     total += static_cast<size_t>(stride_[f]) * kRows;
   }
   arena_.reset(new std::byte[total]());  // zero-init: len=0 everywhere
   // Allocate visibility flags for this group's slots.
-  visible_.reset(new std::atomic<uint64_t>[kRows / 64]());
+  visible_.reset(new std::atomic<uint64_t>[kRows / kVisibilityWordBits]());
 }
 
 bool PaxGroup::ScatterRow(uint32_t slot, const std::byte *row, size_t size) {
@@ -291,7 +312,7 @@ bool PaxGroup::ScatterRow(uint32_t slot, const std::byte *row, size_t size) {
   // untouched.
   uint64_t typed_bin[kMaxFields];  // low field_max_bytes[f] bytes = LE payload
   for (size_t f = 0; f < fields; f++) {
-    const uint8_t k = schema_.kind_of(f);
+    const auto k = static_cast<FieldKind>(schema_.kind_of(f));
     if (k == FK_UNTYPED) {
       if (refs[f].len > schema_.field_max_bytes[f]) return false;
       if (refs[f].len > 0xFFFF) return false;
@@ -304,7 +325,7 @@ bool PaxGroup::ScatterRow(uint32_t slot, const std::byte *row, size_t size) {
   for (size_t f = 0; f < fields; f++) {
     std::byte *cell = arena_.get() + strip_offset_[f] +
                       static_cast<size_t>(stride_[f]) * slot;
-    const uint8_t k = schema_.kind_of(f);
+    const auto k = static_cast<FieldKind>(schema_.kind_of(f));
     if (k != FK_UNTYPED && refs[f].len != 0) {
       const uint16_t len = static_cast<uint16_t>(schema_.field_max_bytes[f]);
       std::memcpy(cell, &len, sizeof(len));
@@ -317,16 +338,17 @@ bool PaxGroup::ScatterRow(uint32_t slot, const std::byte *row, size_t size) {
     if (len > 0) std::memcpy(cell + kCellLenBytes, refs[f].payload, len);
   }
   // Publish this slot to strip-direct readers after the cells are written.
-  visible_[slot >> 6].fetch_or(uint64_t{1} << (slot & 63),
-                               std::memory_order_release);
+  visible_[slot / kVisibilityWordBits].fetch_or(
+      uint64_t{1} << (slot % kVisibilityWordBits), std::memory_order_release);
   return true;
 }
 
 void PaxGroup::RetireSlot(uint32_t slot) {
   assert(slot < kRows);
   // Hide this slot from strip-direct readers.
-  visible_[slot >> 6].fetch_and(~(uint64_t{1} << (slot & 63)),
-                                std::memory_order_release);
+  visible_[slot / kVisibilityWordBits].fetch_and(
+      ~(uint64_t{1} << (slot % kVisibilityWordBits)),
+      std::memory_order_release);
 }
 
 size_t PaxGroup::GatherRow(uint32_t slot, std::byte *dst,
@@ -348,7 +370,7 @@ size_t PaxGroup::GatherRow(uint32_t slot, std::byte *dst,
       dst[off++] = kNoValue;
       continue;
     }
-    const uint8_t k = schema_.kind_of(f);
+    const auto k = static_cast<FieldKind>(schema_.kind_of(f));
     const char *src;
     uint32_t vlen;
     if (k != FK_UNTYPED) {
@@ -373,28 +395,10 @@ size_t PaxGroup::GatherRow(uint32_t slot, std::byte *dst,
   return off;
 }
 
-namespace {
-
-void AppendField(std::string &out, std::string_view payload) {
-  if (payload.empty()) {
-    out.push_back(static_cast<char>(0xFF));
-    return;
-  }
-  const uint32_t len = static_cast<uint32_t>(payload.size());
-  const uint32_t prefix = LengthPrefixBytes(len);
-  out.push_back(static_cast<char>(prefix));
-  for (uint32_t i = 0; i < prefix; i++) {
-    out.push_back(static_cast<char>((len >> (8 * i)) & 0xFF));
-  }
-  out.append(payload.data(), payload.size());
-}
-
-}  // namespace
-
 void PaxGroup::AppendCellField(size_t field, uint32_t slot,
                                std::string &out) const {
   const std::string_view cv = cell(field, slot);
-  const uint8_t k = schema_.kind_of(field);
+  const auto k = static_cast<FieldKind>(schema_.kind_of(field));
   if (k == FK_UNTYPED || cv.empty()) {
     AppendField(out, cv);
     return;
@@ -422,6 +426,7 @@ bool PaxGroup::GatherRowProjected(uint32_t slot, const uint32_t *columns,
 
 void PaxGroup::GatherRowMasked(uint32_t slot, const uint32_t *columns,
                                size_t n_columns, std::string &out) const {
+  assert(slot < kRows);
   const size_t fields = schema_.field_count();
   AppendCellField(0, slot, out);  // null-flags field (always UNTYPED)
 
@@ -433,21 +438,21 @@ void PaxGroup::GatherRowMasked(uint32_t slot, const uint32_t *columns,
       ++column_index;
       continue;
     }
-    out.push_back(static_cast<char>(0xFF));
+    out.push_back(static_cast<char>(kNoValue));
   }
 }
 
-PaxStore::PaxStore(TableSchema schema) : schema_(std::move(schema)) {
+PaxTable::PaxTable(TableSchema schema) : schema_(std::move(schema)) {
   dir_.reset(new std::atomic<PaxGroup *>[kMaxGroups]());
 }
 
-std::pair<PaxGroup *, uint32_t> PaxStore::AllocateSlot() {
+std::pair<PaxGroup *, uint32_t> PaxTable::AllocateSlot() {
   const uint64_t idx = next_slot_.fetch_add(1, std::memory_order_relaxed);
   const uint64_t group_idx = idx / PaxGroup::kRows;
   if (group_idx >= kMaxGroups) return {nullptr, 0};
   PaxGroup *grp = dir_[group_idx].load(std::memory_order_acquire);
   if (grp == nullptr) {
-    std::lock_guard<std::mutex> lk(grow_mutex_);
+    std::lock_guard<std::mutex> lk(alloc_mutex_);
     grp = dir_[group_idx].load(std::memory_order_acquire);
     if (grp == nullptr) {
       grp = new PaxGroup(schema_, this);
@@ -463,17 +468,17 @@ std::pair<PaxGroup *, uint32_t> PaxStore::AllocateSlot() {
 namespace helios::storage {
 namespace pax {
 
-const TableSchema &Schema(const PaxStore *store) { return store->schema(); }
+const TableSchema &Schema(const PaxTable *store) { return store->schema(); }
 
-PaxGroup *Group(const PaxStore *store, size_t idx) { return store->group(idx); }
+PaxGroup *Group(const PaxTable *store, size_t idx) { return store->group(idx); }
 
-uint64_t SlotsAllocated(const PaxStore *store) {
+uint64_t SlotsAllocated(const PaxTable *store) {
   return store->slots_allocated();
 }
 
-size_t GroupCount(const PaxStore *store) { return store->group_count(); }
+size_t GroupCount(const PaxTable *store) { return store->group_count(); }
 
-uint64_t HeapFallbacks(const PaxStore *store) {
+uint64_t HeapFallbacks(const PaxTable *store) {
   return store->overflow_count();
 }
 

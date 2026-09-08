@@ -46,7 +46,7 @@ struct Config {
 
   /**
    * @brief Whether tables may install PAX storage metadata and route newly
-   *        created row payloads through PaxStore.
+   *        created row payloads through PaxTable.
    *
    * Default: false.
    */

@@ -10,7 +10,7 @@
 
 #include "index/data_item.h"
 #include "index/secondary_index.h"
-#include "pax/store.h"
+#include "pax/table.h"
 #include "silo/packed_transaction_id.h"
 #include "silo/stable_read.h"
 #include "table/table.h"
@@ -178,7 +178,7 @@ ScanPaxResult ScanPax(TableDictionary &tables, std::shared_mutex &schema_mutex,
 
   // PAX row references are only valid when every live row is in PAX strips.
   // Heap fallback rows are invisible to strip-only readers, so fall back.
-  auto *store = table->GetPaxStore();
+  auto *store = table->GetPaxTable();
   if (store == nullptr || store->overflow_count() > 0) return result;
   result.ok = true;
 

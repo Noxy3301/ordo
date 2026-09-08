@@ -132,13 +132,13 @@ bool IsSecondary(const KeyValuePair &kvp) { return !kvp.index_name.empty(); }
 // arrives as one add per primary key it holds.
 void FoldSecondary(const KeyValuePair &kvp, SecondaryOps &ops) {
   const auto op = static_cast<SecondaryIndexOp>(kvp.secondary_op);
-  if (op == SecondaryIndexOp::Full) {
+  if (op == SecondaryIndexOp::kFull) {
     for (const auto &pk : kvp.primary_keys) {
       SecondaryOpKey op_key{kvp.table_name, kvp.index_name, kvp.index_type,
                             kvp.key, pk};
       auto it = ops.find(op_key);
       if (it == ops.end() || it->second.tid < kvp.tid) {
-        ops[op_key] = {kvp.tid, SecondaryIndexOp::Add};
+        ops[op_key] = {kvp.tid, SecondaryIndexOp::kAdd};
       }
     }
   } else if (!kvp.secondary_primary_key.empty()) {
@@ -190,7 +190,7 @@ void GroupSecondary(const SecondaryOps &ops, WriteSetType &recovery_set) {
                      SecondaryGroupKeyHash>
       grouped;
   for (const auto &[op_key, state] : ops) {
-    if (state.op != SecondaryIndexOp::Add) continue;
+    if (state.op != SecondaryIndexOp::kAdd) continue;
     SecondaryGroupKey group_key{op_key.table_name, op_key.index_name,
                                 op_key.index_type, op_key.secondary_key};
     auto &entry = grouped[group_key];

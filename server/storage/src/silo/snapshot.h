@@ -24,6 +24,7 @@
 #ifndef HELIOS_STORAGE_SRC_SILO_SNAPSHOT_H
 #define HELIOS_STORAGE_SRC_SILO_SNAPSHOT_H
 
+#include <cstdint>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -35,16 +36,26 @@
 namespace helios::storage {
 
 enum class SecondaryIndexOp : uint8_t {
-  None = 0,
-  Add = 1,
-  Remove = 2,
-  Full = 3,
+  kNone = 0,
+  kAdd = 1,
+  kRemove = 2,
+  kFull = 3,
 };
 
+/**
+ * @brief One entry of a write set: the row this transaction wrote, and the
+ *        index it belongs to.
+ *
+ * @details An empty `index_name` marks a primary row; otherwise the entry
+ * belongs to that secondary index and `secondary_index_deltas` says what it
+ * does to it. `data_item_copy` is owned. `item` is the live slot the commit
+ * path resolved, borrowed until the commit publishes its TIDs, and null on
+ * the recovery path, which has no slots yet.
+ */
 struct Snapshot {
   std::string key;
   DataItem data_item_copy;
-  DataItem *index_cache;
+  DataItem *item;
   std::string table_name;
   std::string index_name;
   index::IndexConstraint index_type;
@@ -54,12 +65,16 @@ struct Snapshot {
   };
   std::vector<SecondaryIndexDelta> secondary_index_deltas;
 
-  Snapshot(const std::string_view k, const std::byte v[], const size_t s,
-           DataItem *const i, std::string_view tn, std::string_view in,
-           const TransactionId ver = {},
-           index::IndexConstraint it = index::IndexConstraint())
-      : key(k), index_cache(i), table_name(tn), index_name(in), index_type(it) {
-    if (v != nullptr) data_item_copy.Reset(v, s, ver);
+  Snapshot(const std::string_view key, const std::byte row[], const size_t len,
+           DataItem *const item, std::string_view table_name,
+           std::string_view index_name, const TransactionId tid = {},
+           index::IndexConstraint index_type = index::IndexConstraint())
+      : key(key),
+        item(item),
+        table_name(table_name),
+        index_name(index_name),
+        index_type(index_type) {
+    if (row != nullptr) data_item_copy.Reset(row, len, tid);
   }
   Snapshot(const Snapshot &) = default;
   Snapshot &operator=(const Snapshot &) = default;
@@ -69,8 +84,8 @@ struct Snapshot {
   Snapshot(Snapshot &&) = default;
   Snapshot &operator=(Snapshot &&) = default;
 
-  void RecordIndexDelta(const std::string_view primary_key,
-                        SecondaryIndexOp op) {
+  void RecordSecondaryDelta(const std::string_view primary_key,
+                            SecondaryIndexOp op) {
     for (auto &delta : secondary_index_deltas) {
       if (delta.primary_key == primary_key) {
         delta.op = op;

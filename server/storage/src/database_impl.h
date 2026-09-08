@@ -25,16 +25,13 @@
 #include <chrono>
 #include <cstdint>
 #include <functional>
+#include <limits>
 #include <shared_mutex>
 #include <string>
 #include <utility>
 #include <vector>
 
 #include "index/reaper.h"
-#include "silo/commit.h"
-#include "silo/read.h"
-#include "silo/snapshot.h"
-#include "silo/transaction_id.h"
 #include "storage/config.h"
 #include "storage/database.h"
 #include "table/table.h"
@@ -53,10 +50,11 @@ namespace helios::storage {
  * and index/stats.cc for the statistics.
  */
 class Database::Impl {
- public:
-  inline static Database::Impl *CurrentDBInstance;
-
  private:
+  // One database per process: the constructor claims this and the destructor
+  // clears it. The check is not synchronized.
+  inline static Database::Impl *instance_;
+
   /**
    * @brief The first epoch it is safe to resume at, given a recovered
    * durability frontier.
@@ -73,19 +71,10 @@ class Database::Impl {
   static EpochNumber ResumeEpochAbove(EpochNumber frontier);
 
  public:
-  Impl(const Config &c = Config());
+  Impl(const Config &config = Config());
   ~Impl();
 
-  EpochNumber ThreadEpoch();
-
-  // The durable frontier and the epoch it is compared against.
-  EpochNumber GetDurableEpoch() const;
-  EpochNumber GetGlobalEpoch() const;
-
   const Config &GetConfig() const;
-
-  // NOTE: Called by a special thread managed by epoch::Framework.
-  std::function<void(EpochNumber)> EpochHook();
 
   bool CreateTable(const std::string_view table_name);
 
@@ -93,14 +82,7 @@ class Database::Impl {
   Database::PaxReadView AcquirePaxView(uint32_t fence_timeout_ms);
   void ReleasePaxView(const Database::PaxReadView &view);
 
-  // Read view expiry, half the high-water margin. Enforces the wrap-free
-  // window behind plain epoch comparisons: readers gate every attempt on
-  // PaxViewPoisoned, and the cut-to-global distance grows
-  // monotonically over any practical read view lifetime (a full uint32
-  // epoch cycle takes years), keeping accepted results inside the bound.
-  static constexpr EpochNumber kPaxReadViewEpochLifetime = 1u << 19;
-
-  bool PaxViewPoisoned(const Database::PaxReadView &view) const;
+  bool PaxViewValid(const Database::PaxReadView &view) const;
 
   bool InstallPaxSchema(const std::string_view table_name,
                         const std::vector<uint32_t> &field_max_bytes,
@@ -169,20 +151,32 @@ class Database::Impl {
       const std::vector<ExternalRangeReadEntry> &range_reads,
       CommitDurability durability, std::string *abort_reason = nullptr);
 
-  std::optional<Table *> GetTable(const std::string_view table_name);
+  Table *GetTable(const std::string_view table_name) const;
 
   bool WriteCheckpointImage(uint64_t *out_version_retries);
 
  private:
-  void Recovery();
+  // Read view expiry, half the high-water margin. Enforces the wrap-free
+  // window behind plain epoch comparisons: readers gate every attempt on
+  // PaxViewValid, and the cut-to-global distance grows monotonically over
+  // any practical read view lifetime, keeping accepted results inside the
+  // bound.
+  static constexpr EpochNumber kPaxReadViewEpochLifetime =
+      (std::numeric_limits<EpochNumber>::max() -
+       epoch::Framework::kEpochHighWater) /
+      2;
 
- private:
+  // Called by a thread the epoch framework owns.
+  std::function<void(EpochNumber)> EpochHook();
+
+  void Recover();
+
   Config config_;
   wal::Logger logger_;
   epoch::Framework epoch_framework_;
   TableDictionary table_dictionary_;
   wal::EpochScanCheckpoint scan_checkpoint_;
-  mutable std::shared_mutex schema_mutex_;
+  std::shared_mutex schema_mutex_;
   index::Reaper reaper_;
 };
 

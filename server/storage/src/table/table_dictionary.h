@@ -10,7 +10,6 @@
 #include <atomic>
 #include <functional>
 #include <mutex>
-#include <optional>
 #include <string>
 #include <string_view>
 
@@ -42,6 +41,11 @@ class TableDictionary {
     }
   }
 
+  /**
+   * @brief Publishes a new table.
+   *
+   * @return false when a table of that name already exists.
+   */
   bool CreateTable(std::string_view table_name) {
     std::lock_guard<std::mutex> lk(create_mtx_);
     if (Find(table_name) != nullptr) return false;
@@ -50,13 +54,16 @@ class TableDictionary {
     return true;
   }
 
-  std::optional<Table *> GetTable(const std::string_view table_name) {
+  /**
+   * @brief Returns the table of that name, or nullptr.
+   */
+  Table *GetTable(const std::string_view table_name) const {
     Node *node = Find(table_name);
-    if (node == nullptr) return std::nullopt;
+    if (node == nullptr) return nullptr;
     return &node->table;
   }
 
-  void ForEachTable(std::function<void(Table &)> f) {
+  void ForEachTable(const std::function<void(Table &)> &f) const {
     for (Node *node = head_.load(std::memory_order_acquire); node != nullptr;
          node = node->next) {
       f(node->table);

@@ -1,6 +1,7 @@
 /**
  * @file server/storage/src/pax/view.cc
- * PAX schema installation, and the epoch-fenced columnar read view.
+ * PAX schema installation, and the consistent columnar read view, which an
+ * epoch fence makes consistent.
  */
 
 #include <chrono>
@@ -16,59 +17,63 @@
 
 namespace helios::storage {
 
+// How far the global epoch must move past the cut before every install that
+// could have missed the capture flag has drained.
+constexpr EpochNumber kInstallDrainEpochs = 2;
+
 pax::PaxStore *Database::Impl::GetPaxStore(const std::string_view table_name) {
-  auto table = GetTable(table_name);
-  if (!table.has_value()) return nullptr;
-  return table.value()->GetPaxStore();
+  Table *table = GetTable(table_name);
+  return table == nullptr ? nullptr : table->GetPaxStore();
 }
 
 Database::PaxReadView Database::Impl::AcquirePaxView(
     uint32_t fence_timeout_ms) {
-  Database::PaxReadView handle;
+  Database::PaxReadView view;
   auto token = pax::VersionStore::Global().BeginCapture();
   if (!token.valid) {
-    handle.error =
+    view.error =
         "columnar read view rejected: the active capture generation is "
         "poisoned";
-    return handle;
+    return view;
   }
   // Fence order (do not reorder): arm the capture flag (seq_cst
   // increment in BeginCapture), then load the cut epoch. An install
-  // whose flag check missed the capture belongs to a commit with epoch
-  // <= cut, and a thread online in epoch e keeps the global epoch at or
-  // below e + 1; once the global epoch reaches cut + 2 those installs
-  // have drained. Refuse when the fence target would reach or cross
+  // whose flag check missed the capture belongs to a commit at or below the
+  // cut, and a thread online in epoch e keeps the global epoch at or below
+  // e + 1; once the global epoch has moved kInstallDrainEpochs on, those
+  // installs have drained. Refuse when the fence target would reach or cross
   // the high-water mark, compared without addition to stay exact at
   // the numeric limit.
-  const EpochNumber cut = epoch_framework_.GetGlobalEpoch();
-  if (cut >= epoch::Framework::kEpochHighWater - 2) {
+  const EpochNumber cut_epoch = epoch_framework_.GetGlobalEpoch();
+  if (cut_epoch >= epoch::Framework::kEpochHighWater - kInstallDrainEpochs) {
     pax::VersionStore::Global().EndCapture(token);
-    handle.error =
+    view.error =
         "columnar read view rejected: epoch space is near its wrap "
         "high-water mark, restart the server";
-    return handle;
+    return view;
   }
   if (!epoch_framework_.WaitEpoch(
-          cut + 2, std::chrono::milliseconds(fence_timeout_ms))) {
+          cut_epoch + kInstallDrainEpochs,
+          std::chrono::milliseconds(fence_timeout_ms))) {
     pax::VersionStore::Global().EndCapture(token);
-    handle.error =
+    view.error =
         "columnar read view fence timed out; a long-running transaction is "
         "holding the epoch";
-    return handle;
+    return view;
   }
   // Test hook: holds the read view open between the fence and the scan.
   HELIOS_DEBUG_SYNC("pax_read_view.after_fence");
   // A poison landing during acquisition must fail it here; callers
-  // treat a valid handle as a serviceable read view.
+  // treat a valid view as a serviceable read view.
   if (pax::VersionStore::Global().Poisoned(token)) {
     pax::VersionStore::Global().EndCapture(token);
-    handle.error = "columnar read view poisoned during acquisition";
-    return handle;
+    view.error = "columnar read view poisoned during acquisition";
+    return view;
   }
-  handle.valid = true;
-  handle.cut_epoch = cut;
-  handle.token = token.id;
-  return handle;
+  view.valid = true;
+  view.cut_epoch = cut_epoch;
+  view.token = token.id;
+  return view;
 }
 
 void Database::Impl::ReleasePaxView(const Database::PaxReadView &view) {
@@ -79,16 +84,16 @@ void Database::Impl::ReleasePaxView(const Database::PaxReadView &view) {
   pax::VersionStore::Global().EndCapture(token);
 }
 
-bool Database::Impl::PaxViewPoisoned(const Database::PaxReadView &view) const {
-  if (!view.valid) return true;
+bool Database::Impl::PaxViewValid(const Database::PaxReadView &view) const {
+  if (!view.valid) return false;
   if (epoch_framework_.GetGlobalEpoch() - view.cut_epoch >=
       kPaxReadViewEpochLifetime) {
-    return true;  // expired: comparisons could leave the wrap-free window
+    return false;  // expired: comparisons could leave the wrap-free window
   }
   pax::VersionStore::ReadViewToken token;
   token.id = view.token;
   token.valid = true;
-  return pax::VersionStore::Global().Poisoned(token);
+  return !pax::VersionStore::Global().Poisoned(token);
 }
 
 bool Database::Impl::InstallPaxSchema(
@@ -101,8 +106,8 @@ bool Database::Impl::InstallPaxSchema(
   // A definition change, like CreateSecondaryIndex: every request holds this
   // lock shared, and the blank rows it creates read the store pointer.
   std::unique_lock<std::shared_mutex> lk(schema_mutex_);
-  auto table = GetTable(table_name);
-  if (!table.has_value()) return false;
+  Table *table = GetTable(table_name);
+  if (table == nullptr) return false;
   pax::TableSchema schema;
   schema.table_name = std::string(table_name);
   schema.field_max_bytes = field_max_bytes;
@@ -115,7 +120,7 @@ bool Database::Impl::InstallPaxSchema(
     else
       schema.field_scale.assign(field_max_bytes.size(), 0);
   }
-  return table.value()->InstallPaxSchema(std::move(schema));
+  return table->InstallPaxSchema(std::move(schema));
 }
 
 }  // namespace helios::storage

@@ -79,10 +79,9 @@ TEST(SecondaryIndexConstraintTest, GetOrCreateRefusesADifferentConstraint) {
   const helios::storage::index::IndexConstraint none;
 
   helios::storage::index::SecondaryIndex *index =
-      table.GetOrCreateIndex("age_index", none);
+      table.GetOrCreateSecondaryIndex("age_index", none);
   ASSERT_NE(index, nullptr);
 
-  EXPECT_EQ(table.GetOrCreateIndex("age_index", unique), nullptr);
-  EXPECT_EQ(table.GetOrCreateIndex("age_index", none), index);
-  EXPECT_EQ(table.IndexCount(), 1u);
+  EXPECT_EQ(table.GetOrCreateSecondaryIndex("age_index", unique), nullptr);
+  EXPECT_EQ(table.GetOrCreateSecondaryIndex("age_index", none), index);
 }

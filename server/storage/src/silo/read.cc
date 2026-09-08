@@ -19,20 +19,30 @@
 namespace helios::storage {
 namespace silo {
 
+namespace {
+
+// A null column list means the whole row; a non-null one, even an empty one,
+// blanks the PAX fields it does not name.
+StableValue ReadRow(const DataItem &item,
+                    const std::vector<uint32_t> *selected_columns) {
+  if (selected_columns == nullptr) return StableReadValue(item);
+  return StableReadValueMasked(item, selected_columns->data(),
+                               selected_columns->size());
+}
+
+}  // namespace
+
 ReadResult Read(TableDictionary &tables, std::shared_mutex &schema_mutex,
                 const std::string_view table_name, const std::string_view key,
                 const std::vector<uint32_t> *selected_columns) {
   std::shared_lock<std::shared_mutex> lk(schema_mutex);
   auto table = tables.GetTable(table_name);
-  if (!table.has_value()) return {};
+  if (table == nullptr) return {};
 
-  DataItem *item = table.value()->GetPrimaryIndex().Get(key);
+  DataItem *item = table->GetPrimaryIndex().Get(key);
   if (item == nullptr) return {};
 
-  auto row = selected_columns != nullptr
-                 ? StableReadValueMasked(*item, selected_columns->data(),
-                                         selected_columns->size())
-                 : StableReadValue(*item);
+  auto row = ReadRow(*item, selected_columns);
   return {row.found, std::move(row.value), PackTransactionId(row.tid)};
 }
 
@@ -41,8 +51,8 @@ std::vector<ReadResult> BatchRead(
     const std::vector<std::pair<std::string, std::string>> &keys) {
   std::vector<ReadResult> results;
   results.reserve(keys.size());
-  for (const auto &key : keys) {
-    results.emplace_back(Read(tables, schema_mutex, key.first, key.second));
+  for (const auto &[table_name, key] : keys) {
+    results.emplace_back(Read(tables, schema_mutex, table_name, key));
   }
   return results;
 }
@@ -58,7 +68,7 @@ ScanResult Scan(TableDictionary &tables, std::shared_mutex &schema_mutex,
 
   std::shared_lock<std::shared_mutex> lk(schema_mutex);
   auto table = tables.GetTable(table_name);
-  if (!table.has_value()) return result;
+  if (table == nullptr) return result;
   result.ok = true;
 
   uint64_t returned_rows = 0;
@@ -66,26 +76,21 @@ ScanResult Scan(TableDictionary &tables, std::shared_mutex &schema_mutex,
   // The value-yielding Scan/ScanReverse overloads pass the DataItem the leaf
   // walk already resolved, so read it directly instead of re-fetching by key.
   auto append_scan_entry = [&](std::string_view key, DataItem &item_ref) {
-    auto row = selected_columns != nullptr
-                   ? StableReadValueMasked(item_ref, selected_columns->data(),
-                                           selected_columns->size())
-                   : StableReadValue(item_ref);
+    auto row = ReadRow(item_ref, selected_columns);
     if (row.found) {
-      result.rows.push_back({std::string(key), std::move(row.value),
-                             PackTransactionId(row.tid), true});
+      result.rows.push_back(
+          {std::string(key), std::move(row.value), PackTransactionId(row.tid)});
       ++returned_rows;
     }
-    // Tombstones are skipped: Purge erases them at commit, and key-list
-    // validation catches any reuse without needing a per-entry TID.
+    // Tombstones are skipped here: a commit leaves them in place, and the
+    // reaper removes them an epoch later.
     return row_limit > 0 && returned_rows >= row_limit;
   };
 
   if (reverse_scan) {
-    table.value()->GetPrimaryIndex().ScanReverse(start_key, end_key,
-                                                 append_scan_entry);
+    table->GetPrimaryIndex().ScanReverse(start_key, end_key, append_scan_entry);
   } else {
-    table.value()->GetPrimaryIndex().Scan(start_key, end_key,
-                                          append_scan_entry);
+    table->GetPrimaryIndex().Scan(start_key, end_key, append_scan_entry);
   }
   return result;
 }
@@ -112,9 +117,9 @@ ScanIndexResult ScanIndex(TableDictionary &tables,
 
   std::shared_lock<std::shared_mutex> lk(schema_mutex);
   auto table = tables.GetTable(table_name);
-  if (!table.has_value()) return result;
+  if (table == nullptr) return result;
 
-  index::SecondaryIndex *index = table.value()->GetSecondaryIndex(index_name);
+  index::SecondaryIndex *index = table->GetSecondaryIndex(index_name);
   if (index == nullptr) return result;
   result.ok = true;
 
@@ -122,19 +127,16 @@ ScanIndexResult ScanIndex(TableDictionary &tables,
 
   auto append_base_row = [&](std::string_view secondary_key,
                              std::string_view primary_key) {
-    DataItem *item = table.value()->GetPrimaryIndex().Get(primary_key);
+    DataItem *item = table->GetPrimaryIndex().Get(primary_key);
     if (item == nullptr) {
       return false;
     }
 
-    auto row = selected_columns != nullptr
-                   ? StableReadValueMasked(*item, selected_columns->data(),
-                                           selected_columns->size())
-                   : StableReadValue(*item);
+    auto row = ReadRow(*item, selected_columns);
     if (row.found) {
       result.rows.push_back({std::string(secondary_key),
                              std::string(primary_key), std::move(row.value),
-                             PackTransactionId(row.tid), true});
+                             PackTransactionId(row.tid)});
       ++returned_rows;
     }
     return row_limit > 0 && returned_rows >= row_limit;
@@ -147,8 +149,8 @@ ScanIndexResult ScanIndex(TableDictionary &tables,
       return false;
     }
 
-    auto slot = StableReadKeys(*item);
-    for (std::string_view primary_key : slot.primary_keys_view()) {
+    const auto keys = StableReadKeys(*item);
+    for (std::string_view primary_key : keys.primary_keys_view()) {
       if (append_base_row(secondary_key, primary_key)) return true;
     }
     return false;
@@ -171,19 +173,19 @@ ScanPaxResult ScanPax(TableDictionary &tables, std::shared_mutex &schema_mutex,
   if (end_key.empty()) return result;
 
   std::shared_lock<std::shared_mutex> lk(schema_mutex);
-  auto table = tables.GetTable(table_name);
-  if (!table.has_value()) return result;
+  Table *table = tables.GetTable(table_name);
+  if (table == nullptr) return result;
 
   // PAX row references are only valid when every live row is in PAX strips.
   // Heap fallback rows are invisible to strip-only readers, so fall back.
-  auto *store = table.value()->GetPaxStore();
+  auto *store = table->GetPaxStore();
   if (store == nullptr || store->overflow_count() > 0) return result;
   result.ok = true;
 
   uint64_t returned_rows = 0;
   bool saw_non_pax = false;
 
-  auto append_ref = [&](std::string_view key, DataItem &item_ref) {
+  auto append_pax_row = [&](std::string_view key, DataItem &item_ref) {
     // Observe the same stable unlocked TID that a materialized read would use.
     // The caller re-checks this TID after reading cells from the strip.
     TransactionId tid;
@@ -211,10 +213,9 @@ ScanPaxResult ScanPax(TableDictionary &tables, std::shared_mutex &schema_mutex,
   };
 
   if (reverse_scan) {
-    table.value()->GetPrimaryIndex().ScanReverse(start_key, end_key,
-                                                 append_ref);
+    table->GetPrimaryIndex().ScanReverse(start_key, end_key, append_pax_row);
   } else {
-    table.value()->GetPrimaryIndex().Scan(start_key, end_key, append_ref);
+    table->GetPrimaryIndex().Scan(start_key, end_key, append_pax_row);
   }
   if (saw_non_pax) {
     // Keep the fallback contract simple: no partial refs escape on failure.

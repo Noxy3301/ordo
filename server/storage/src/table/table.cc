@@ -14,6 +14,8 @@
 namespace helios::storage {
 Table::Table(std::string_view table_name) : table_name_(table_name) {}
 
+// The lock covers the lookup only: an index is never removed, so the pointer
+// stays valid after it is released.
 index::SecondaryIndex *Table::GetSecondaryIndex(
     const std::string_view index_name) {
   std::shared_lock<std::shared_mutex> lk(table_lock_);

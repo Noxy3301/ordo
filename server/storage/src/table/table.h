@@ -23,16 +23,15 @@ class Table {
  public:
   explicit Table(std::string_view table_name);
 
-  bool CreateSecondaryIndex(
-      const std::string_view index_name,
-      [[maybe_unused]] const index::IndexConstraint index_type) {
-    std::unique_lock<std::shared_mutex> lk(table_lock_);
-    if (secondary_indices_.count(std::string(index_name))) {
-      return false;
-    }
-    secondary_indices_[std::string(index_name)] =
-        std::make_unique<index::SecondaryIndex>(index_type);
-    return true;
+  /**
+   * @brief Creates a secondary index of that name.
+   *
+   * @return false when an index of that name already exists.
+   */
+  bool CreateSecondaryIndex(const std::string_view index_name,
+                            const index::IndexConstraint index_type) {
+    if (GetSecondaryIndex(index_name) != nullptr) return false;
+    return GetOrCreateSecondaryIndex(index_name, index_type) != nullptr;
   }
 
   /**
@@ -54,7 +53,8 @@ class Table {
   }
 
   /**
-   * @brief Returns the table's PAX store, or nullptr when PAX is disabled.
+   * @brief Returns the table's PAX store, or nullptr when no PAX schema has
+   * been installed on it.
    */
   pax::PaxStore *GetPaxStore() const {
     std::shared_lock<std::shared_mutex> lk(table_lock_);
@@ -65,15 +65,17 @@ class Table {
 
   index::PrimaryIndex &GetPrimaryIndex();
 
+  /** The index of that name, or nullptr. */
   index::SecondaryIndex *GetSecondaryIndex(const std::string_view index_name);
 
-  size_t IndexCount() const {
-    std::shared_lock<std::shared_mutex> lk(table_lock_);
-    return secondary_indices_.size();
-  }
-
+  /**
+   * @brief Calls `f(name, index)` for each secondary index of this table.
+   *
+   * @details Runs under the table lock, so `f` must not call back into a
+   * method that changes the table's definition.
+   */
   template <typename Func>
-  void ForEachIndex(Func &&f) {
+  void ForEachSecondaryIndex(Func &&f) {
     std::shared_lock<std::shared_mutex> lk(table_lock_);
     for (auto &[index_name, index_ptr] : secondary_indices_) {
       f(index_name, *index_ptr);
@@ -86,7 +88,7 @@ class Table {
    * @return The index, or nullptr when an index of that name is declared with
    * a different constraint.
    */
-  index::SecondaryIndex *GetOrCreateIndex(
+  index::SecondaryIndex *GetOrCreateSecondaryIndex(
       const std::string_view index_name,
       const index::IndexConstraint index_type) {
     std::unique_lock<std::shared_mutex> lk(table_lock_);

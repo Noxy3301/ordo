@@ -40,7 +40,7 @@ bool Database::Impl::IndexNdv(const std::string_view table_name,
 
   std::shared_lock<std::shared_mutex> lk(schema_mutex_);
   auto table = GetTable(table_name);
-  if (!table.has_value()) return false;
+  if (table == nullptr) return false;
 
   bool ok = true;
   bool first = true;
@@ -78,7 +78,7 @@ bool Database::Impl::IndexNdv(const std::string_view table_name,
     return false;
   };
 
-  auto &primary_index = table.value()->GetPrimaryIndex();
+  auto &primary_index = table->GetPrimaryIndex();
 
   if (index_name.empty()) {
     // Primary index entries are base rows, so count live rows directly.
@@ -88,7 +88,7 @@ bool Database::Impl::IndexNdv(const std::string_view table_name,
                          return count_key(key);
                        });
   } else {
-    index::SecondaryIndex *index = table.value()->GetSecondaryIndex(index_name);
+    index::SecondaryIndex *index = table->GetSecondaryIndex(index_name);
     if (index == nullptr) return false;
 
     // Secondary entries count only if one referenced base row is live.
@@ -130,7 +130,7 @@ bool Database::Impl::IndexHistogram(const std::string_view table_name,
   if (buckets == 0) return false;
   std::shared_lock<std::shared_mutex> lk(schema_mutex_);
   auto table = GetTable(table_name);
-  if (!table.has_value()) return false;
+  if (table == nullptr) return false;
 
   // Histogram bounds are compared as bytes, so a key the caller refuses ends
   // the pass.
@@ -150,7 +150,7 @@ bool Database::Impl::IndexHistogram(const std::string_view table_name,
   bool failed = false;
   auto walk = [&](auto &&fn) {
     if (index_name.empty()) {
-      table.value()->GetPrimaryIndex().Scan(
+      table->GetPrimaryIndex().Scan(
           std::string_view(), std::string_view(kSupremum),
           [&](std::string_view key, DataItem &item) -> bool {
             if (!StableLive(item)) return false;
@@ -161,8 +161,7 @@ bool Database::Impl::IndexHistogram(const std::string_view table_name,
             return fn(key, static_cast<uint64_t>(1));
           });
     } else {
-      index::SecondaryIndex *index =
-          table.value()->GetSecondaryIndex(index_name);
+      index::SecondaryIndex *index = table->GetSecondaryIndex(index_name);
       if (index == nullptr) {
         failed = true;
         return;

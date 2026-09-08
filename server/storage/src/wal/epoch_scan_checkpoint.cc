@@ -208,7 +208,7 @@ EpochScanCheckpoint::Capture EpochScanCheckpoint::CapturePrimaryRow(
     out->buffer = std::move(bytes);
     out->tid = first;
     out->table_name = table_name;
-    out->secondary_op = static_cast<uint8_t>(SecondaryIndexOp::None);
+    out->secondary_op = static_cast<uint8_t>(SecondaryIndexOp::kNone);
     return EpochScanCheckpoint::Capture::Taken;
   }
   return EpochScanCheckpoint::Capture::Unstable;
@@ -248,7 +248,7 @@ EpochScanCheckpoint::Capture EpochScanCheckpoint::CaptureSecondaryEntry(
     for (std::string_view primary_key : keys) {
       out->primary_keys.emplace_back(primary_key.data(), primary_key.size());
     }
-    out->secondary_op = static_cast<uint8_t>(SecondaryIndexOp::Full);
+    out->secondary_op = static_cast<uint8_t>(SecondaryIndexOp::kFull);
     return EpochScanCheckpoint::Capture::Taken;
   }
   return EpochScanCheckpoint::Capture::Unstable;
@@ -409,7 +409,7 @@ bool EpochScanCheckpoint::CaptureTable(Table &table, LogRecord *record,
     return false;
   });
 
-  table.ForEachIndex(
+  table.ForEachSecondaryIndex(
       [&](const std::string &index_name, index::SecondaryIndex &index) {
         const uint32_t index_type = index.GetIndexType().Raw();
         index.ForEach([&](std::string_view key, DataItem &item) {

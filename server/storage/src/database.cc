@@ -29,6 +29,9 @@
 #include "database_impl.h"
 #include "index/masstree_index.h"
 #include "index/secondary_index.h"
+#include "silo/commit.h"
+#include "silo/read.h"
+#include "silo/snapshot.h"
 #include "storage/config.h"
 #include "util/spdlog.h"
 #include "wal/flush_trace.h"
@@ -37,7 +40,8 @@ namespace helios::storage {
 Database::Database() : db_pimpl_(std::make_unique<Impl>()) {
   helios::storage::util::InitLog();
 }
-Database::Database(const Config &c) : db_pimpl_(std::make_unique<Impl>(c)) {
+Database::Database(const Config &config)
+    : db_pimpl_(std::make_unique<Impl>(config)) {
   helios::storage::util::InitLog();
 }
 
@@ -72,8 +76,8 @@ void Database::ReleasePaxView(const PaxReadView &view) {
   db_pimpl_->ReleasePaxView(view);
 }
 
-bool Database::PaxViewPoisoned(const PaxReadView &view) const {
-  return db_pimpl_->PaxViewPoisoned(view);
+bool Database::PaxViewValid(const PaxReadView &view) const {
+  return db_pimpl_->PaxViewValid(view);
 }
 
 bool Database::CreateSecondaryIndex(const std::string_view table_name,
@@ -83,7 +87,7 @@ bool Database::CreateSecondaryIndex(const std::string_view table_name,
 }
 
 bool Database::HasTable(const std::string_view table_name) {
-  return db_pimpl_->GetTable(table_name).has_value();
+  return db_pimpl_->GetTable(table_name) != nullptr;
 }
 
 ReadResult Database::Read(const std::string_view table_name,
@@ -163,14 +167,14 @@ EpochNumber Database::Impl::ResumeEpochAbove(EpochNumber frontier) {
   return frontier + 1;
 }
 
-Database::Impl::Impl(const Config &c)
-    : config_(c),
+Database::Impl::Impl(const Config &config)
+    : config_(config),
       logger_(config_),
       epoch_framework_(config_.epoch_duration_ms, EpochHook()),
       scan_checkpoint_(config_, table_dictionary_, epoch_framework_, logger_) {
-  if (Database::Impl::CurrentDBInstance == nullptr) {
-    Database::Impl::CurrentDBInstance = this;
-    SPDLOG_INFO("LineairDB instance has been constructed.");
+  if (Database::Impl::instance_ == nullptr) {
+    Database::Impl::instance_ = this;
+    SPDLOG_INFO("Storage instance has been constructed.");
   } else {
     SPDLOG_ERROR(
         "It is prohibited to allocate two helios::storage::Database instance "
@@ -182,9 +186,9 @@ Database::Impl::Impl(const Config &c)
   // removed before the first append lands behind it, and recovery only
   // controls whether the records the scan read are replayed.
   if (config_.enable_recovery) {
-    Recovery();
+    Recover();
   } else {
-    auto scanned = logger_.Recover();
+    const auto scanned = logger_.Recover();
     if (scanned.status != wal::Logger::RecoveryStatus::Ok) {
       SPDLOG_CRITICAL(
           "Startup failed: the write-ahead log could not be read; refusing to "
@@ -226,13 +230,9 @@ Database::Impl::~Impl() {
   // Written once every thread that records has joined, so the census reaches
   // the filesystem without any of its cost landing on a measured path.
   wal::FlushTrace::Instance().Dump();
-  SPDLOG_INFO("LineairDB instance has been destructed.");
-  assert(Database::Impl::CurrentDBInstance == this);
-  Database::Impl::CurrentDBInstance = nullptr;
-}
-
-EpochNumber Database::Impl::ThreadEpoch() {
-  return epoch_framework_.ThreadEpoch();
+  SPDLOG_INFO("Storage instance has been destructed.");
+  assert(Database::Impl::instance_ == this);
+  Database::Impl::instance_ = nullptr;
 }
 
 const Config &Database::Impl::GetConfig() const { return config_; }
@@ -243,6 +243,8 @@ std::function<void(EpochNumber)> Database::Impl::EpochHook() {
     // still be online in U-1, so U-2 is the newest epoch that is certainly
     // closed and safe to write. Handing the target to the logger's own
     // flusher keeps the durability fdatasync off this pool.
+    // updated_epoch - 2 is the newest epoch no thread can still be in: a
+    // joiner that read E keeps the global epoch below E + 2 (Framework::Join).
     if (updated_epoch >= 3) {
       logger_.ScheduleFlush(updated_epoch - 2);
     }
@@ -267,11 +269,9 @@ bool Database::Impl::CreateSecondaryIndex(const std::string_view table_name,
   // Exclusive: every reader of the definition holds this lock shared, so a
   // shared one here would let a request resolve half of a schema change.
   std::unique_lock<std::shared_mutex> lk(schema_mutex_);
-  auto it = GetTable(table_name);
-  if (!it.has_value()) {
-    return false;
-  }
-  return it.value()->CreateSecondaryIndex(
+  Table *table = GetTable(table_name);
+  if (table == nullptr) return false;
+  return table->CreateSecondaryIndex(
       index_name,
       index::IndexConstraint::FromRaw(
           static_cast<index::IndexConstraint::RawType>(constraints)));
@@ -328,16 +328,7 @@ bool Database::Impl::Commit(
                       reaper_, logger_, payload, durability, abort_reason);
 }
 
-EpochNumber Database::Impl::GetDurableEpoch() const {
-  return logger_.GetDurableEpoch();
-}
-
-EpochNumber Database::Impl::GetGlobalEpoch() const {
-  return epoch_framework_.GetGlobalEpoch();
-}
-
-std::optional<Table *> Database::Impl::GetTable(
-    const std::string_view table_name) {
+Table *Database::Impl::GetTable(const std::string_view table_name) const {
   return table_dictionary_.GetTable(table_name);
 }
 
@@ -348,7 +339,7 @@ bool Database::Impl::WriteCheckpointImage(uint64_t *out_version_retries) {
   return published;
 }
 
-void Database::Impl::Recovery() {
+void Database::Impl::Recover() {
   SPDLOG_INFO("Start recovery process");
   auto recovered = logger_.Recover();
   if (recovered.status != wal::Logger::RecoveryStatus::Ok) {
@@ -375,7 +366,7 @@ void Database::Impl::Recovery() {
     if (!live) continue;
     CreateTable(recovery_set.table_name);
     auto table = GetTable(recovery_set.table_name);
-    if (!table.has_value()) {
+    if (table == nullptr) {
       SPDLOG_CRITICAL(
           "Recovery failed: Table {0} could not be found or created.",
           recovery_set.table_name);
@@ -387,11 +378,11 @@ void Database::Impl::Recovery() {
 
     if (recovery_set.index_name.empty()) {
       // Primary Index recovery
-      table.value()->GetPrimaryIndex().Put(
-          recovery_set.key, std::move(recovery_set.data_item_copy));
+      table->GetPrimaryIndex().Put(recovery_set.key,
+                                   std::move(recovery_set.data_item_copy));
     } else {
       // Secondary Index recovery
-      index::SecondaryIndex *idx = table.value()->GetOrCreateIndex(
+      index::SecondaryIndex *idx = table->GetOrCreateSecondaryIndex(
           recovery_set.index_name, recovery_set.index_type);
       if (idx != nullptr) {
         SPDLOG_DEBUG(

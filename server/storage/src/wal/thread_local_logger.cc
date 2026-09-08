@@ -63,7 +63,7 @@ bool ThreadLocalLogger::Enqueue(const WriteSetType &ws_ref, EpochNumber epoch) {
       kvp.index_name = snapshot.index_name;
       kvp.index_type = snapshot.index_type.Raw();
       kvp.primary_keys = snapshot.data_item_copy.primary_keys_vector();
-      kvp.secondary_op = static_cast<uint8_t>(SecondaryIndexOp::None);
+      kvp.secondary_op = static_cast<uint8_t>(SecondaryIndexOp::kNone);
       record.key_value_pairs.emplace_back(std::move(kvp));
       continue;
     }

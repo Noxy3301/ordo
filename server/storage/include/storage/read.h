@@ -31,9 +31,7 @@ struct ReadResult {
 struct ScanRow {
   std::string key;
   std::string value;
-  uint64_t tid = 0;    // Packed version observed for this row.
-  bool found = false;  // Tombstones are normally filtered out before this
-                       // struct is produced.
+  uint64_t tid = 0;  // Packed version observed for this row.
 };
 
 /**
@@ -47,7 +45,6 @@ struct ScanIndexRow {
   std::string primary_key;
   std::string value;
   uint64_t tid = 0;  // Packed version of the base row.
-  bool found = false;
 };
 
 /**

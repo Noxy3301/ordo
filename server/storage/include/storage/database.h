@@ -175,11 +175,11 @@ class Database {
   /**
    * @brief Returns whether this read view's results must be discarded.
    *
-   * @details True when the capture generation was poisoned or the read view
-   * outlived its epoch-lifetime bound. Callers gate every result on this
-   * before accepting it.
+   * @details False for an invalid view, for one whose capture generation was
+   * poisoned, and for one that outlived its epoch-lifetime bound. Callers
+   * gate every result on this before accepting it.
    */
-  bool PaxViewPoisoned(const PaxReadView &view) const;
+  bool PaxViewValid(const PaxReadView &view) const;
 
   // ----------------------------------------------------------------------
   // Reads, scans and the commit.

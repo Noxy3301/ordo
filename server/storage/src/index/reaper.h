@@ -51,7 +51,7 @@ class Reaper {
                TransactionId delete_commit_tid);
 
   /**
-   * @brief Purges every candidate whose delete epoch lies more than one full
+   * @brief Purges every tombstone whose delete epoch lies more than one full
    * epoch behind `published_epoch`.
    *
    * Candidates whose slot is locked are requeued; candidates whose slot was
@@ -60,7 +60,7 @@ class Reaper {
   void Reap(EpochNumber published_epoch);
 
  private:
-  // Which index owns the candidate's slot.
+  // Which index owns the tombstone's slot.
   enum class DeferredPurgeIndexKind { Primary, Secondary };
 
   /**
@@ -72,7 +72,7 @@ class Reaper {
    * deleting commit published on the slot; it acts both as the grace-period
    * clock and as evidence that the slot still holds the deleted version.
    */
-  struct Candidate {
+  struct Tombstone {
     DeferredPurgeIndexKind kind;
     PrimaryIndex *primary_index = nullptr;
     SecondaryIndex *secondary_index = nullptr;
@@ -94,13 +94,13 @@ class Reaper {
   }
 
   /**
-   * @brief Re-resolves the candidate's key in its owning index.
+   * @brief Re-resolves the tombstone's key in its owning index.
    *
    * Returns the DataItem currently installed under the key, or nullptr.
-   * Reap compares the result with `candidate.item`: a mismatch means the
-   * slot was already purged and re-created, so the candidate is stale.
+   * Reap compares the result with `tombstone.item`: a mismatch means the
+   * slot was already purged and re-created, so the tombstone is stale.
    */
-  DataItem *Resolve(const Candidate &candidate);
+  DataItem *Get(const Tombstone &tombstone);
 
   /**
    * @brief Physically erases the slot through the owning index's Purge.
@@ -109,11 +109,11 @@ class Reaper {
    * slot so an in-place reuse continues the slot's TID sequence instead of
    * restarting below the delete TID.
    */
-  bool Erase(const Candidate &candidate, TransactionId retired_tid);
+  bool Purge(const Tombstone &tombstone, TransactionId retired_tid);
 
   // Guards the queue: Enqueue runs on committers, Reap on the epoch thread.
-  std::mutex deferred_purge_mtx_;
-  std::vector<Candidate> deferred_purge_candidates_;
+  std::mutex mtx_;
+  std::vector<Tombstone> tombstones_;
   // Cumulative totals for the debug log emitted by Reap.
   uint64_t deferred_purge_reaped_ = 0;
   uint64_t deferred_purge_requeued_ = 0;

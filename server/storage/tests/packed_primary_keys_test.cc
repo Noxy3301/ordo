@@ -143,7 +143,7 @@ TEST(PackedPrimaryKeysTest, DedupInsertAndEraseMissingReturnSameInstance) {
   EXPECT_TRUE(PackedPrimaryKeysView(duplicate).equals(
       PackedPrimaryKeysView(primary_keys)));
 
-  const auto missing = PackedPrimaryKeys::Erase(primary_keys, "missing");
+  const auto missing = PackedPrimaryKeys::Delete(primary_keys, "missing");
   EXPECT_EQ(missing.get(), primary_keys.get());
   EXPECT_TRUE(PackedPrimaryKeysView(missing).equals(
       PackedPrimaryKeysView(primary_keys)));
@@ -187,7 +187,7 @@ TEST(PackedPrimaryKeysTest, RandomizedOperationsLockstepWithVectorOracle) {
     } else {
       const bool changed = OracleErase(oracle, key);
       const auto previous = primary_keys;
-      primary_keys = PackedPrimaryKeys::Erase(primary_keys, key);
+      primary_keys = PackedPrimaryKeys::Delete(primary_keys, key);
       if (!changed) {
         EXPECT_EQ(primary_keys.get(), previous.get()) << "step " << step;
       }

@@ -33,7 +33,7 @@ bool StableLive(const DataItem &item) {
       continue;
     }
 
-    const bool live = item.IsPrimaryInitialized();
+    const bool live = item.HasRow();
     if (item.transaction_id.load() == tid) return live;
   }
 }

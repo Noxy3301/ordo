@@ -190,7 +190,7 @@ EpochScanCheckpoint::Capture EpochScanCheckpoint::CapturePrimaryRow(
       continue;
     }
     HELIOS_DEBUG_SYNC("checkpoint.before_row_copy");
-    if (!item.IsPrimaryInitialized()) {
+    if (!item.HasRow()) {
       // A blank slot or a tombstone, once the version confirms the emptiness
       // is not the middle of an install.
       if (item.transaction_id.load() == first) {

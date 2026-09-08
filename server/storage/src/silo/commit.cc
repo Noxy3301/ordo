@@ -335,7 +335,7 @@ bool ValidateReads(Ctx &c) {
     }
 
     if (!read.found) {
-      if (!item->IsPrimaryInitialized()) {
+      if (!item->HasRow()) {
         continue;
       }
       return c.AbortLocked(ReadReason("exact_read_appeared", read));
@@ -356,7 +356,7 @@ bool ValidateReads(Ctx &c) {
     if (item->transaction_id.load() != expected) {
       return c.AbortLocked(ReadReason("exact_read_tid_moved", read));
     }
-    if (read.found && !item->IsPrimaryInitialized()) {
+    if (read.found && !item->HasRow()) {
       return c.AbortLocked(ReadReason("exact_read_deleted", read));
     }
   }
@@ -378,7 +378,7 @@ bool ReplayRange(Ctx &c, const ExternalRangeReadEntry &range) {
       aborted = true;
       return true;
     }
-    if (item.IsPrimaryInitialized()) {
+    if (item.HasRow()) {
       if (result_pos >= range.result_keys.size() ||
           std::string_view(range.result_keys[result_pos]) != key) {
         matches = false;
@@ -419,7 +419,7 @@ bool ReplayIndexRange(Ctx &c, const ExternalRangeReadEntry &range) {
       aborted = true;
       return true;
     }
-    if (item->IsPrimaryInitialized()) {
+    if (item->HasRow()) {
       if (result_pos >= range.result_keys.size() ||
           result_pos >= range.result_primary_keys.size() ||
           std::string_view(range.result_keys[result_pos]) !=
@@ -495,7 +495,7 @@ bool ValidateRanges(Ctx &c) {
 bool ValidateInserts(Ctx &c) {
   for (const auto &write : c.writes) {
     if (!write.check_committed_row) continue;
-    if (write.item->IsPrimaryInitialized()) {
+    if (write.item->HasRow()) {
       return c.AbortLocked(kDuplicateKeyAbortReason);
     }
   }
@@ -524,7 +524,7 @@ bool ValidateUnique(Ctx &c) {
 
     if (op.is_delete) {
       if (key_exists) {
-        primary_keys = PackedPrimaryKeys::Erase(primary_keys, op.primary_key);
+        primary_keys = PackedPrimaryKeys::Delete(primary_keys, op.primary_key);
       }
       continue;
     }
@@ -568,9 +568,9 @@ void Install(Ctx &c) {
     const auto *primary_key =
         reinterpret_cast<const std::byte *>(op.primary_key.data());
     if (op.is_delete) {
-      op.item->RemoveIndexValue(primary_key, op.primary_key.size());
+      op.item->DeletePrimaryKey(primary_key, op.primary_key.size());
     } else {
-      op.item->AddIndexValue(primary_key, op.primary_key.size());
+      op.item->InsertPrimaryKey(primary_key, op.primary_key.size());
     }
   }
 

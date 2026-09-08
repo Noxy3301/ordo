@@ -45,15 +45,15 @@ namespace helios::storage {
  * @brief Owns or references the row payload stored in a DataItem.
  *
  * @details Heap mode is the original layout: `value` owns a new[] byte array
- * of `size` bytes, with `capacity` tracking the allocation. It is used for
- * transaction-local copies, non-PAX tables, and rows that fell back from PAX
- * storage.
+ * of `size` bytes, with `capacity_or_slot` tracking the allocation. It is used
+ * for transaction-local copies, non-PAX tables, and rows that fell back from
+ * PAX storage.
  *
  * PAX mode: the payload bytes live in a PaxGroup's column strips; this
  * buffer only references them. `value` carries a tagged pointer
  * (bit0 = PAX, bit1 = slot allocated): before the first install it points
  * to the table's PaxStore, afterwards to the owning PaxGroup with
- * `capacity` = slot index. `size` keeps its meaning (payload byte size,
+ * `capacity_or_slot` = slot index. `size` keeps its meaning (payload byte size,
  * 0 = tombstone/blank), so every liveness check (`size != 0`) works
  * unchanged in both modes.
  *
@@ -73,9 +73,10 @@ struct DataBuffer {
 
   std::byte *value;
   size_t size;
-  size_t capacity;
+  // Heap mode: the size of the allocation. PAX mode: the slot number.
+  size_t capacity_or_slot;
 
-  DataBuffer() : value(nullptr), size(0), capacity(0) {}
+  DataBuffer() : value(nullptr), size(0), capacity_or_slot(0) {}
   ~DataBuffer() {
     if (value != nullptr && !is_pax()) delete[] value;
   }
@@ -94,7 +95,7 @@ struct DataBuffer {
     return reinterpret_cast<pax::PaxStore *>(
         reinterpret_cast<uintptr_t>(value) & ~kPaxMask);
   }
-  uint32_t pax_slot() const { return static_cast<uint32_t>(capacity); }
+  uint32_t pax_slot() const { return static_cast<uint32_t>(capacity_or_slot); }
 
   /**
    * @brief Initializes a fresh blank item as a PAX-resident row reference.
@@ -107,14 +108,16 @@ struct DataBuffer {
     value = reinterpret_cast<std::byte *>(reinterpret_cast<uintptr_t>(store) |
                                           kPaxTag);
     size = 0;
-    capacity = 0;
+    capacity_or_slot = 0;
   }
 
   DataBuffer(DataBuffer &&other) noexcept
-      : value(other.value), size(other.size), capacity(other.capacity) {
+      : value(other.value),
+        size(other.size),
+        capacity_or_slot(other.capacity_or_slot) {
     other.value = nullptr;
     other.size = 0;
-    other.capacity = 0;
+    other.capacity_or_slot = 0;
   }
 
   DataBuffer &operator=(DataBuffer &&other) noexcept {
@@ -122,15 +125,16 @@ struct DataBuffer {
       if (value != nullptr && !is_pax()) delete[] value;
       value = other.value;
       size = other.size;
-      capacity = other.capacity;
+      capacity_or_slot = other.capacity_or_slot;
       other.value = nullptr;
       other.size = 0;
-      other.capacity = 0;
+      other.capacity_or_slot = 0;
     }
     return *this;
   }
 
-  DataBuffer(const DataBuffer &other) : value(nullptr), size(0), capacity(0) {
+  DataBuffer(const DataBuffer &other)
+      : value(nullptr), size(0), capacity_or_slot(0) {
     Reset(other);
   }
 
@@ -141,8 +145,8 @@ struct DataBuffer {
     return *this;
   }
 
-  // NOTE: capacity only grows; consider shrink-to-fit if large records cause
-  // bloat.
+  // NOTE: capacity_or_slot only grows; consider shrink-to-fit if large records
+  // cause bloat.
   void Reset(const std::byte *v, const size_t s) {
     if (is_pax()) {
       ResetPax(v, s);
@@ -152,10 +156,10 @@ struct DataBuffer {
       size = 0;
       return;
     }
-    if (capacity < s) {
+    if (capacity_or_slot < s) {
       delete[] value;
       value = new std::byte[s];
-      capacity = s;
+      capacity_or_slot = s;
     }
     size = s;
     std::memcpy(value, v, s);
@@ -182,10 +186,10 @@ struct DataBuffer {
       return;
     }
     // Gather straight into the heap array for a transaction-local snapshot.
-    if (capacity < rhs.size) {
+    if (capacity_or_slot < rhs.size) {
       delete[] value;
       value = new std::byte[rhs.size];
-      capacity = rhs.size;
+      capacity_or_slot = rhs.size;
     }
     size = rhs.GatherInto(value);
   }
@@ -276,14 +280,14 @@ struct DataBuffer {
         }
         store->RecordHeapFallback();
         value = nullptr;
-        capacity = 0;
+        capacity_or_slot = 0;
         Reset(v, s);
         return;
       }
       assert((reinterpret_cast<uintptr_t>(group) & kPaxMask) == 0);
       value = reinterpret_cast<std::byte *>(reinterpret_cast<uintptr_t>(group) |
                                             kPaxTag | kPaxAllocated);
-      capacity = slot;
+      capacity_or_slot = slot;
     }
     CaptureBeforeImage();
     if (pax_group()->ScatterRow(pax_slot(), v, s)) {
@@ -310,7 +314,7 @@ struct DataBuffer {
     store->RecordHeapFallback();
     pax_group()->RetireSlot(pax_slot());
     value = nullptr;
-    capacity = 0;
+    capacity_or_slot = 0;
     Reset(v, s);
   }
 };

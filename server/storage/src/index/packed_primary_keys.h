@@ -118,14 +118,14 @@ struct PackedPrimaryKeys {
   }
 
   /**
-   * @brief Erases a key while preserving sorted, deduplicated invariants.
+   * @brief Deletes a key while preserving sorted, deduplicated invariants.
    * @param keys Existing immutable primary-key list, or null for an empty
    * list.
-   * @param key Primary key to erase.
+   * @param key Primary key to delete.
    * @return The same `shared_ptr` when `keys` is null, empty, or does not
    * contain `key`; otherwise a new immutable primary-key list without `key`.
    */
-  static Ptr Erase(const Ptr &keys, std::string_view key) {
+  static Ptr Delete(const Ptr &keys, std::string_view key) {
     if (!keys || keys->count == 0) return keys;
 
     const char *const src_begin = keys->Records();

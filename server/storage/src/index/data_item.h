@@ -62,7 +62,7 @@ struct DataItem {
     const auto primary_keys = std::atomic_load(&primary_keys_);
     return primary_keys && primary_keys->count != 0;
   }
-  bool IsPrimaryInitialized() const { return buffer.size != 0; }
+  bool HasRow() const { return buffer.size != 0; }
 
   PackedPrimaryKeysView primary_keys_view() const {
     return PackedPrimaryKeysView(std::atomic_load(&primary_keys_));
@@ -135,7 +135,7 @@ struct DataItem {
     if (!tid.IsEmpty()) transaction_id.store(tid);
   }
 
-  void AddIndexValue(const std::byte *v, size_t s) {
+  void InsertPrimaryKey(const std::byte *v, size_t s) {
     std::string_view new_key(reinterpret_cast<const char *>(v), s);
     auto current = std::atomic_load(&primary_keys_);
     auto next = PackedPrimaryKeys::Insert(current, new_key);
@@ -144,10 +144,10 @@ struct DataItem {
     }
   }
 
-  void RemoveIndexValue(const std::byte *v, size_t s) {
+  void DeletePrimaryKey(const std::byte *v, size_t s) {
     std::string_view target(reinterpret_cast<const char *>(v), s);
     auto current = std::atomic_load(&primary_keys_);
-    auto next = PackedPrimaryKeys::Erase(current, target);
+    auto next = PackedPrimaryKeys::Delete(current, target);
     if (next != current) {
       std::atomic_store(&primary_keys_, std::move(next));
     }

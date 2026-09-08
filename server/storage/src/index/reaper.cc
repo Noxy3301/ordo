@@ -133,7 +133,7 @@ void Reaper::Reap(EpochNumber published_epoch) {
 
     const bool item_initialized =
         candidate.kind == DeferredPurgeIndexKind::Primary
-            ? item->IsPrimaryInitialized()
+            ? item->HasRow()
             : item->IsInitialized();
     if (item_initialized) {
       unlock_candidate();

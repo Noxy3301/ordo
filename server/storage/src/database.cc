@@ -371,7 +371,7 @@ void Database::Impl::Recovery() {
   for (auto &recovery_set : recovery_sets) {
     // Skip deleted entries.
     const bool live = recovery_set.index_name.empty()
-                          ? recovery_set.data_item_copy.IsPrimaryInitialized()
+                          ? recovery_set.data_item_copy.HasRow()
                           : recovery_set.data_item_copy.IsInitialized();
     if (!live) continue;
     CreateTable(recovery_set.table_name);

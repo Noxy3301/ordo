@@ -60,7 +60,7 @@ inline StableValue StableReadValue(const DataItem &item) {
       continue;
     }
 
-    const bool found = item.IsPrimaryInitialized();
+    const bool found = item.HasRow();
     std::string value;
     if (found) {
       if (item.buffer.is_pax()) {
@@ -102,7 +102,7 @@ inline StableValue StableReadValueMasked(const DataItem &item,
       continue;
     }
 
-    const bool found = item.IsPrimaryInitialized();
+    const bool found = item.HasRow();
     std::string value;
     if (found) {
       if (item.buffer.is_pax()) {

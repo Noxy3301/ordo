@@ -86,24 +86,24 @@ TEST_F(LoggerDurabilityTest, EnqueueReportsOnlyWhatItPersists) {
 
 TEST_F(LoggerDurabilityTest, AlreadyDurableReturnsImmediately) {
   Logger logger(config_);
-  ASSERT_EQ(logger.Recover().status, Logger::RecoveryStatus::Ok);
+  ASSERT_EQ(logger.Recover().status, Logger::RecoveryStatus::kOk);
   logger.StartFlusher();
 
   ASSERT_TRUE(logger.Enqueue(MakeWriteSet("alice"), 5));
   logger.ScheduleFlush(5);
 
   EXPECT_EQ(logger.WaitUntilDurable(5, Logger::Deadline::max()),
-            Logger::WaitResult::Durable);
+            Logger::WaitResult::kDurable);
   EXPECT_EQ(logger.GetDurableEpoch(), 5u);
   // A second wait on a frontier already reached must not block at all.
   EXPECT_EQ(logger.WaitUntilDurable(5, std::chrono::steady_clock::now()),
-            Logger::WaitResult::Durable);
+            Logger::WaitResult::kDurable);
   logger.StopFlusher();
 }
 
 TEST_F(LoggerDurabilityTest, WaitersWakeAtEpochGranularity) {
   Logger logger(config_);
-  ASSERT_EQ(logger.Recover().status, Logger::RecoveryStatus::Ok);
+  ASSERT_EQ(logger.Recover().status, Logger::RecoveryStatus::kOk);
   logger.StartFlusher();
 
   ASSERT_TRUE(logger.Enqueue(MakeWriteSet("alice"), 5));
@@ -121,15 +121,15 @@ TEST_F(LoggerDurabilityTest, WaitersWakeAtEpochGranularity) {
   logger.ScheduleFlush(5);
   ASSERT_EQ(first.wait_for(kTestTimeout), std::future_status::ready);
   ASSERT_EQ(second.wait_for(kTestTimeout), std::future_status::ready);
-  EXPECT_EQ(first.get(), Logger::WaitResult::Durable);
-  EXPECT_EQ(second.get(), Logger::WaitResult::Durable);
+  EXPECT_EQ(first.get(), Logger::WaitResult::kDurable);
+  EXPECT_EQ(second.get(), Logger::WaitResult::kDurable);
   // Epoch 7 is not covered by a flush through 5.
   EXPECT_EQ(later.wait_for(std::chrono::milliseconds(200)),
             std::future_status::timeout);
 
   logger.ScheduleFlush(7);
   ASSERT_EQ(later.wait_for(kTestTimeout), std::future_status::ready);
-  EXPECT_EQ(later.get(), Logger::WaitResult::Durable);
+  EXPECT_EQ(later.get(), Logger::WaitResult::kDurable);
   logger.StopFlusher();
 }
 
@@ -177,7 +177,7 @@ TEST_F(LoggerDurabilityTest, SyncAcknowledgementFollowsTheFdatasync) {
     }
   } release_on_exit{logger, mutex, held, released};
 
-  ASSERT_EQ(logger.Recover().status, Logger::RecoveryStatus::Ok);
+  ASSERT_EQ(logger.Recover().status, Logger::RecoveryStatus::kOk);
   logger.StartFlusher();
 
   ASSERT_TRUE(logger.Enqueue(MakeWriteSet("alice"), 3));
@@ -216,7 +216,7 @@ TEST_F(LoggerDurabilityTest, SyncAcknowledgementFollowsTheFdatasync) {
 TEST_F(LoggerDurabilityTest, AsyncAndUnloggedCommitsDoNotWait) {
   {
     Logger logger(config_);
-    ASSERT_EQ(logger.Recover().status, Logger::RecoveryStatus::Ok);
+    ASSERT_EQ(logger.Recover().status, Logger::RecoveryStatus::kOk);
     logger.StartFlusher();
 
     // Async: the commit path decided not to wait, and an epoch that will
@@ -229,7 +229,7 @@ TEST_F(LoggerDurabilityTest, AsyncAndUnloggedCommitsDoNotWait) {
   // The log is held exclusively for as long as a logger owns it, so the
   // second logger gets its own scope rather than overlapping with the first.
   Logger sync_logger(config_);
-  ASSERT_EQ(sync_logger.Recover().status, Logger::RecoveryStatus::Ok);
+  ASSERT_EQ(sync_logger.Recover().status, Logger::RecoveryStatus::kOk);
   sync_logger.StartFlusher();
 
   // Sync, but nothing was enqueued: there is no record to wait for.
@@ -242,7 +242,7 @@ TEST_F(LoggerDurabilityTest, AsyncAndUnloggedCommitsDoNotWait) {
 // Async nobody waits on the frontier, and a process that carried on would keep
 // acknowledging commits that exist only in memory. The rest of this file
 // constructs loggers without arming: there an I/O failure surfaces as
-// WaitResult::Failed instead of ending the process.
+// WaitResult::kFailed instead of ending the process.
 TEST_F(LoggerDurabilityTest, ArmedFailStopEndsTheProcessOnASyncFailure) {
   ::testing::FLAGS_gtest_death_test_style = "threadsafe";
 
@@ -260,7 +260,7 @@ TEST_F(LoggerDurabilityTest, ArmedFailStopEndsTheProcessOnASyncFailure) {
         Logger logger(config_, io);
         // Leaving early ends the child with an exit status the death test
         // reports, rather than passing on a failure of the setup.
-        if (logger.Recover().status != Logger::RecoveryStatus::Ok) return;
+        if (logger.Recover().status != Logger::RecoveryStatus::kOk) return;
         logger.SetFailStop();
         logger.StartFlusher();
         if (!logger.Enqueue(MakeWriteSet("alice"), 3)) return;
@@ -273,16 +273,16 @@ TEST_F(LoggerDurabilityTest, ArmedFailStopEndsTheProcessOnASyncFailure) {
 TEST_F(LoggerDurabilityTest, RecordsAboveTheTargetAreCarriedForward) {
   {
     Logger logger(config_);
-    ASSERT_EQ(logger.Recover().status, Logger::RecoveryStatus::Ok);
+    ASSERT_EQ(logger.Recover().status, Logger::RecoveryStatus::kOk);
     logger.StartFlusher();
     ASSERT_TRUE(logger.Enqueue(MakeWriteSet("alice"), 4));
     ASSERT_TRUE(logger.Enqueue(MakeWriteSet("bob"), 9));
     logger.ScheduleFlush(4);
     ASSERT_EQ(logger.WaitUntilDurable(4, Logger::Deadline::max()),
-              Logger::WaitResult::Durable);
+              Logger::WaitResult::kDurable);
     logger.ScheduleFlush(9);
     ASSERT_EQ(logger.WaitUntilDurable(9, Logger::Deadline::max()),
-              Logger::WaitResult::Durable);
+              Logger::WaitResult::kDurable);
     logger.StopFlusher();
   }
 
@@ -291,7 +291,7 @@ TEST_F(LoggerDurabilityTest, RecordsAboveTheTargetAreCarriedForward) {
                                 helios::storage::wal::WalIo::Posix(),
                                 config_.wal_initial_capacity_bytes);
   const auto scan = wal.ScanAndRepair();
-  ASSERT_EQ(scan.status, helios::storage::wal::WalScanResult::Status::Ok);
+  ASSERT_EQ(scan.status, helios::storage::wal::WalScanResult::Status::kOk);
   EXPECT_EQ(scan.frontier, 9u);
   ASSERT_EQ(scan.records.size(), 2u);
   EXPECT_EQ(scan.records[0].epoch, 4u);
@@ -300,7 +300,7 @@ TEST_F(LoggerDurabilityTest, RecordsAboveTheTargetAreCarriedForward) {
 
 TEST_F(LoggerDurabilityTest, StopWakesEveryWaiter) {
   Logger logger(config_);
-  ASSERT_EQ(logger.Recover().status, Logger::RecoveryStatus::Ok);
+  ASSERT_EQ(logger.Recover().status, Logger::RecoveryStatus::kOk);
   logger.StartFlusher();
 
   auto first = std::async(std::launch::async, [&logger] {
@@ -319,8 +319,8 @@ TEST_F(LoggerDurabilityTest, StopWakesEveryWaiter) {
   logger.StopFlusher();
   ASSERT_EQ(first.wait_for(kTestTimeout), std::future_status::ready);
   ASSERT_EQ(second.wait_for(kTestTimeout), std::future_status::ready);
-  EXPECT_EQ(first.get(), Logger::WaitResult::Stopped);
-  EXPECT_EQ(second.get(), Logger::WaitResult::Stopped);
+  EXPECT_EQ(first.get(), Logger::WaitResult::kStopped);
+  EXPECT_EQ(second.get(), Logger::WaitResult::kStopped);
 }
 
 TEST_F(LoggerDurabilityTest, FdatasyncFailureHoldsTheFrontierAndFailsWaiters) {
@@ -331,7 +331,7 @@ TEST_F(LoggerDurabilityTest, FdatasyncFailureHoldsTheFrontierAndFailsWaiters) {
   };
 
   Logger logger(config_, io);
-  ASSERT_EQ(logger.Recover().status, Logger::RecoveryStatus::Ok);
+  ASSERT_EQ(logger.Recover().status, Logger::RecoveryStatus::kOk);
   logger.StartFlusher();
 
   ASSERT_TRUE(logger.Enqueue(MakeWriteSet("alice"), 3));
@@ -343,14 +343,14 @@ TEST_F(LoggerDurabilityTest, FdatasyncFailureHoldsTheFrontierAndFailsWaiters) {
 
   logger.ScheduleFlush(3);
   ASSERT_EQ(waiting.wait_for(kTestTimeout), std::future_status::ready);
-  EXPECT_EQ(waiting.get(), Logger::WaitResult::Failed);
+  EXPECT_EQ(waiting.get(), Logger::WaitResult::kFailed);
   // The frontier must not move: durability was never confirmed, whatever
   // bytes may have landed.
   EXPECT_EQ(logger.GetDurableEpoch(), 0u);
 
   // A waiter arriving after the failure learns of it rather than blocking.
   EXPECT_EQ(logger.WaitUntilDurable(3, Logger::Deadline::max()),
-            Logger::WaitResult::Failed);
+            Logger::WaitResult::kFailed);
   logger.StopFlusher();
 }
 
@@ -362,33 +362,33 @@ TEST_F(LoggerDurabilityTest, WriteFailureFailsWaiters) {
   };
 
   Logger logger(config_, io);
-  ASSERT_EQ(logger.Recover().status, Logger::RecoveryStatus::Ok);
+  ASSERT_EQ(logger.Recover().status, Logger::RecoveryStatus::kOk);
   logger.StartFlusher();
 
   ASSERT_TRUE(logger.Enqueue(MakeWriteSet("alice"), 3));
   logger.ScheduleFlush(3);
   EXPECT_EQ(logger.WaitUntilDurable(3, Logger::Deadline::max()),
-            Logger::WaitResult::Failed);
+            Logger::WaitResult::kFailed);
   EXPECT_EQ(logger.GetDurableEpoch(), 0u);
   logger.StopFlusher();
 }
 
 TEST_F(LoggerDurabilityTest, TimeoutIsReportedWhenNothingIsScheduled) {
   Logger logger(config_);
-  ASSERT_EQ(logger.Recover().status, Logger::RecoveryStatus::Ok);
+  ASSERT_EQ(logger.Recover().status, Logger::RecoveryStatus::kOk);
   logger.StartFlusher();
 
   const auto deadline =
       std::chrono::steady_clock::now() + std::chrono::milliseconds(100);
   EXPECT_EQ(logger.WaitUntilDurable(42, deadline),
-            Logger::WaitResult::TimedOut);
+            Logger::WaitResult::kTimedOut);
   logger.StopFlusher();
 }
 
 TEST_F(LoggerDurabilityTest, StopDrainsWhatWasAlreadyClosed) {
   {
     Logger logger(config_);
-    ASSERT_EQ(logger.Recover().status, Logger::RecoveryStatus::Ok);
+    ASSERT_EQ(logger.Recover().status, Logger::RecoveryStatus::kOk);
     logger.StartFlusher();
     ASSERT_TRUE(logger.Enqueue(MakeWriteSet("alice"), 6));
     logger.ScheduleFlush(6);
@@ -401,25 +401,25 @@ TEST_F(LoggerDurabilityTest, StopDrainsWhatWasAlreadyClosed) {
                                 helios::storage::wal::WalIo::Posix(),
                                 config_.wal_initial_capacity_bytes);
   const auto scan = wal.ScanAndRepair();
-  ASSERT_EQ(scan.status, helios::storage::wal::WalScanResult::Status::Ok);
+  ASSERT_EQ(scan.status, helios::storage::wal::WalScanResult::Status::kOk);
   EXPECT_EQ(scan.frontier, 6u);
 }
 
 TEST_F(LoggerDurabilityTest, RecoverReportsTheFrontierOfAnExistingLog) {
   {
     Logger logger(config_);
-    ASSERT_EQ(logger.Recover().status, Logger::RecoveryStatus::Ok);
+    ASSERT_EQ(logger.Recover().status, Logger::RecoveryStatus::kOk);
     logger.StartFlusher();
     ASSERT_TRUE(logger.Enqueue(MakeWriteSet("alice"), 8));
     logger.ScheduleFlush(8);
     ASSERT_EQ(logger.WaitUntilDurable(8, Logger::Deadline::max()),
-              Logger::WaitResult::Durable);
+              Logger::WaitResult::kDurable);
     logger.StopFlusher();
   }
 
   Logger reopened(config_);
   const auto recovered = reopened.Recover();
-  ASSERT_EQ(recovered.status, Logger::RecoveryStatus::Ok);
+  ASSERT_EQ(recovered.status, Logger::RecoveryStatus::kOk);
   EXPECT_EQ(recovered.frontier, 8u);
   EXPECT_EQ(reopened.GetDurableEpoch(), 8u);
   ASSERT_EQ(recovered.recovery_set.size(), 1u);

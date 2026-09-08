@@ -80,8 +80,8 @@ SecondaryLogStats GetSecondaryIndexLogStatsForLatestEpoch(
   // frame format here.
   helios::storage::wal::Wal wal(conf.work_dir);
   const auto scan = wal.ScanAndRepair();
-  EXPECT_EQ(scan.status, helios::storage::wal::WalScanResult::Status::Ok);
-  if (scan.status != helios::storage::wal::WalScanResult::Status::Ok) {
+  EXPECT_EQ(scan.status, helios::storage::wal::WalScanResult::Status::kOk);
+  if (scan.status != helios::storage::wal::WalScanResult::Status::kOk) {
     return stats;
   }
 
@@ -92,11 +92,11 @@ SecondaryLogStats GetSecondaryIndexLogStatsForLatestEpoch(
 
   for (const auto &record : scan.records) {
     if (record.epoch != max_epoch) continue;
-    for (const auto &kvp : record.key_value_pairs) {
-      if (kvp.index_name.empty()) continue;
+    for (const auto &write : record.writes) {
+      if (write.index_name.empty()) continue;
       stats.record_count++;
-      stats.primary_keys_count += kvp.primary_keys.size();
-      for (const auto &pk : kvp.primary_keys) {
+      stats.primary_keys_count += write.primary_keys.size();
+      for (const auto &pk : write.primary_keys) {
         stats.primary_keys_bytes += pk.size();
       }
     }

@@ -130,13 +130,13 @@ bool ReadAll(int fd, void *data, size_t size, off_t offset) {
  * @brief Closes a descriptor on every path out of a function, including the
  *        one an allocation throws through.
  */
-struct OpenFile {
-  explicit OpenFile(int descriptor) : fd(descriptor) {}
-  ~OpenFile() {
+struct ScopedFd {
+  explicit ScopedFd(int descriptor) : fd(descriptor) {}
+  ~ScopedFd() {
     if (fd >= 0) ::close(fd);
   }
-  OpenFile(const OpenFile &) = delete;
-  OpenFile &operator=(const OpenFile &) = delete;
+  ScopedFd(const ScopedFd &) = delete;
+  ScopedFd &operator=(const ScopedFd &) = delete;
   int fd;
 };
 
@@ -176,15 +176,12 @@ const char *EpochScanCheckpoint::WorkingFileName() {
  * unstable rather than skipped, since its holder may abort and leave no record
  * of the value.
  */
-EpochScanCheckpoint::Capture EpochScanCheckpoint::CapturePrimaryRow(
+EpochScanCheckpoint::CaptureResult EpochScanCheckpoint::CapturePrimaryRow(
     const std::string &table_name, std::string_view key, const DataItem &item,
-    LogRecord::KeyValuePair *out, uint64_t *retries) {
-  // FIXME: the copy reads the row's storage without pinning it, as the read
-  // path does, so an install that reallocates it during the copy is caught by
-  // the version recheck rather than prevented
+    LogRecord::Write *out, uint64_t *retries) {
   for (unsigned attempt = 0; attempt < kSpinAttempts; ++attempt) {
-    const TransactionId first = item.transaction_id.load();
-    if (first.tid & 1u) {
+    const TransactionId observed = item.transaction_id.load();
+    if (observed.tid & 1u) {
       ++*retries;
       _mm_pause();
       continue;
@@ -193,25 +190,25 @@ EpochScanCheckpoint::Capture EpochScanCheckpoint::CapturePrimaryRow(
     if (!item.HasRow()) {
       // A blank slot or a tombstone, once the version confirms the emptiness
       // is not the middle of an install.
-      if (item.transaction_id.load() == first) {
-        return EpochScanCheckpoint::Capture::Skipped;
+      if (item.transaction_id.load() == observed) {
+        return EpochScanCheckpoint::CaptureResult::kSkipped;
       }
       ++*retries;
       continue;
     }
     std::string bytes = item.buffer.toString();
-    if (item.transaction_id.load() != first) {
+    if (item.transaction_id.load() != observed) {
       ++*retries;
       continue;
     }
     out->key.assign(key.data(), key.size());
     out->buffer = std::move(bytes);
-    out->tid = first;
+    out->transaction_id = observed;
     out->table_name = table_name;
-    out->secondary_op = static_cast<uint8_t>(SecondaryIndexOp::kNone);
-    return EpochScanCheckpoint::Capture::Taken;
+    out->secondary_op = SecondaryIndexOp::kNone;
+    return EpochScanCheckpoint::CaptureResult::kTaken;
   }
-  return EpochScanCheckpoint::Capture::Unstable;
+  return EpochScanCheckpoint::CaptureResult::kUnstable;
 }
 
 /**
@@ -221,26 +218,26 @@ EpochScanCheckpoint::Capture EpochScanCheckpoint::CapturePrimaryRow(
  * @details The list is a complete posting list rather than a delta, so a later
  * delta in the log composes with it the way one delta composes with another.
  */
-EpochScanCheckpoint::Capture EpochScanCheckpoint::CaptureSecondaryEntry(
+EpochScanCheckpoint::CaptureResult EpochScanCheckpoint::CaptureSecondaryEntry(
     const std::string &table_name, const std::string &index_name,
     uint32_t index_type, std::string_view key, const DataItem &item,
-    LogRecord::KeyValuePair *out, uint64_t *retries) {
+    LogRecord::Write *out, uint64_t *retries) {
   for (unsigned attempt = 0; attempt < kSpinAttempts; ++attempt) {
-    const TransactionId first = item.transaction_id.load();
-    if (first.tid & 1u) {
+    const TransactionId observed = item.transaction_id.load();
+    if (observed.tid & 1u) {
       ++*retries;
       _mm_pause();
       continue;
     }
     auto primary_keys = std::atomic_load(&item.primary_keys_);
-    if (item.transaction_id.load() != first) {
+    if (item.transaction_id.load() != observed) {
       ++*retries;
       continue;
     }
     const PackedPrimaryKeysView keys(primary_keys);
-    if (keys.empty()) return EpochScanCheckpoint::Capture::Skipped;
+    if (keys.empty()) return EpochScanCheckpoint::CaptureResult::kSkipped;
     out->key.assign(key.data(), key.size());
-    out->tid = first;
+    out->transaction_id = observed;
     out->table_name = table_name;
     out->index_name = index_name;
     out->index_type = index_type;
@@ -248,10 +245,10 @@ EpochScanCheckpoint::Capture EpochScanCheckpoint::CaptureSecondaryEntry(
     for (std::string_view primary_key : keys) {
       out->primary_keys.emplace_back(primary_key.data(), primary_key.size());
     }
-    out->secondary_op = static_cast<uint8_t>(SecondaryIndexOp::kFull);
-    return EpochScanCheckpoint::Capture::Taken;
+    out->secondary_op = SecondaryIndexOp::kFull;
+    return EpochScanCheckpoint::CaptureResult::kTaken;
   }
-  return EpochScanCheckpoint::Capture::Unstable;
+  return EpochScanCheckpoint::CaptureResult::kUnstable;
 }
 
 EpochScanCheckpoint::EpochScanCheckpoint(const Config &config,
@@ -279,34 +276,34 @@ void EpochScanCheckpoint::Start() {
 
 void EpochScanCheckpoint::Stop() {
   {
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::lock_guard<std::mutex> lock(stop_mutex_);
     stop_ = true;
   }
-  cv_.notify_all();
+  stop_cv_.notify_all();
   if (thread_.joinable()) thread_.join();
 }
 
-bool EpochScanCheckpoint::WaitFor(uint64_t milliseconds) {
-  std::unique_lock<std::mutex> lock(mutex_);
-  cv_.wait_for(lock, std::chrono::milliseconds(milliseconds),
-               [this] { return stop_; });
+bool EpochScanCheckpoint::ContinueAfter(uint64_t milliseconds) {
+  std::unique_lock<std::mutex> lock(stop_mutex_);
+  stop_cv_.wait_for(lock, std::chrono::milliseconds(milliseconds),
+                    [this] { return stop_; });
   return !stop_;
 }
 
 void EpochScanCheckpoint::Loop() {
   if (config_.checkpoint_once_after_ms != 0) {
-    if (!WaitFor(config_.checkpoint_once_after_ms)) return;
+    if (!ContinueAfter(config_.checkpoint_once_after_ms)) return;
     RunOnce();
     if (config_.checkpoint_interval_ms == 0) return;
   }
-  while (WaitFor(config_.checkpoint_interval_ms)) {
+  while (ContinueAfter(config_.checkpoint_interval_ms)) {
     RunOnce();
   }
 }
 
 bool EpochScanCheckpoint::RunOnce(Stats *out_stats) {
-  std::unique_lock<std::mutex> capture(capture_mutex_, std::try_to_lock);
-  if (!capture.owns_lock()) {
+  std::unique_lock<std::mutex> guard(capture_mutex_, std::try_to_lock);
+  if (!guard.owns_lock()) {
     SPDLOG_WARN("A checkpoint image is already being written");
     return false;
   }
@@ -337,7 +334,7 @@ bool EpochScanCheckpoint::RunOnce(Stats *out_stats) {
       abandoned = true;
       return;
     }
-    if (!record.key_value_pairs.empty()) {
+    if (!record.writes.empty()) {
       records.emplace_back(std::move(record));
     }
   });
@@ -355,7 +352,7 @@ bool EpochScanCheckpoint::RunOnce(Stats *out_stats) {
   if (abandoned) {
     ::unlink(working_path_.c_str());
     const bool stopping = [&] {
-      std::lock_guard<std::mutex> lock(mutex_);
+      std::lock_guard<std::mutex> lock(stop_mutex_);
       return stop_;
     }();
     if (stopping) {
@@ -380,7 +377,8 @@ bool EpochScanCheckpoint::RunOnce(Stats *out_stats) {
       "ms writing, {9} ms waiting for the log, {10} version retries",
       stats.generation, stats.primary_rows, stats.secondary_entries,
       stats.image_bytes, stats.cut_epoch, stats.end_epoch, stats.barrier_ms,
-      stats.scan_ms, stats.write_ms, stats.gate_ms, stats.retries);
+      stats.scan_ms, stats.write_ms, stats.durability_ms,
+      stats.version_retries);
   return true;
 }
 
@@ -394,42 +392,43 @@ bool EpochScanCheckpoint::CaptureTable(Table &table, LogRecord *record,
   // backend's reading of it and the opposite of the hash backend's; startup
   // refuses any other index structure rather than write a one-row image.
   table.GetPrimaryIndex().ForEach([&](std::string_view key, DataItem &item) {
-    LogRecord::KeyValuePair kvp;
-    switch (CapturePrimaryRow(table_name, key, item, &kvp, &stats->retries)) {
-      case Capture::Taken:
+    LogRecord::Write write;
+    switch (CapturePrimaryRow(table_name, key, item, &write,
+                              &stats->version_retries)) {
+      case CaptureResult::kTaken:
         ++stats->primary_rows;
-        record->key_value_pairs.emplace_back(std::move(kvp));
+        record->writes.emplace_back(std::move(write));
         break;
-      case Capture::Skipped:
+      case CaptureResult::kSkipped:
         break;
-      case Capture::Unstable:
+      case CaptureResult::kUnstable:
         unstable_rows.emplace_back(key.data(), key.size());
         break;
     }
     return false;
   });
 
-  table.ForEachSecondaryIndex(
-      [&](const std::string &index_name, index::SecondaryIndex &index) {
-        const uint32_t index_type = index.GetIndexType().Raw();
-        index.ForEach([&](std::string_view key, DataItem &item) {
-          LogRecord::KeyValuePair kvp;
-          switch (CaptureSecondaryEntry(table_name, index_name, index_type, key,
-                                        item, &kvp, &stats->retries)) {
-            case Capture::Taken:
-              ++stats->secondary_entries;
-              record->key_value_pairs.emplace_back(std::move(kvp));
-              break;
-            case Capture::Skipped:
-              break;
-            case Capture::Unstable:
-              unstable_entries.emplace_back(
-                  index_name, std::string(key.data(), key.size()));
-              break;
-          }
-          return false;
-        });
-      });
+  table.ForEachSecondaryIndex([&](const std::string &index_name,
+                                  index::SecondaryIndex &index) {
+    const uint32_t index_type = index.GetIndexType().Raw();
+    index.ForEach([&](std::string_view key, DataItem &item) {
+      LogRecord::Write write;
+      switch (CaptureSecondaryEntry(table_name, index_name, index_type, key,
+                                    item, &write, &stats->version_retries)) {
+        case CaptureResult::kTaken:
+          ++stats->secondary_entries;
+          record->writes.emplace_back(std::move(write));
+          break;
+        case CaptureResult::kSkipped:
+          break;
+        case CaptureResult::kUnstable:
+          unstable_entries.emplace_back(index_name,
+                                        std::string(key.data(), key.size()));
+          break;
+      }
+      return false;
+    });
+  });
 
   // Rows held by a writer for the whole spin are resolved again by key: the
   // slot they were in may have been purged and replaced meanwhile, and a
@@ -438,7 +437,7 @@ bool EpochScanCheckpoint::CaptureTable(Table &table, LogRecord *record,
   for (unsigned round = 0; round < kRetryRounds; ++round) {
     if (unstable_rows.empty() && unstable_entries.empty()) break;
     {
-      std::lock_guard<std::mutex> lock(mutex_);
+      std::lock_guard<std::mutex> lock(stop_mutex_);
       stopped = stop_;
     }
     if (stopped) break;
@@ -448,16 +447,16 @@ bool EpochScanCheckpoint::CaptureTable(Table &table, LogRecord *record,
     for (const auto &key : unstable_rows) {
       DataItem *item = table.GetPrimaryIndex().Get(key);
       if (item == nullptr) continue;
-      LogRecord::KeyValuePair kvp;
-      switch (
-          CapturePrimaryRow(table_name, key, *item, &kvp, &stats->retries)) {
-        case Capture::Taken:
+      LogRecord::Write write;
+      switch (CapturePrimaryRow(table_name, key, *item, &write,
+                                &stats->version_retries)) {
+        case CaptureResult::kTaken:
           ++stats->primary_rows;
-          record->key_value_pairs.emplace_back(std::move(kvp));
+          record->writes.emplace_back(std::move(write));
           break;
-        case Capture::Skipped:
+        case CaptureResult::kSkipped:
           break;
-        case Capture::Unstable:
+        case CaptureResult::kUnstable:
           rows_left.emplace_back(key);
           break;
       }
@@ -470,17 +469,17 @@ bool EpochScanCheckpoint::CaptureTable(Table &table, LogRecord *record,
       if (index == nullptr) continue;
       DataItem *item = index->Get(key);
       if (item == nullptr) continue;
-      LogRecord::KeyValuePair kvp;
+      LogRecord::Write write;
       switch (CaptureSecondaryEntry(table_name, index_name,
                                     index->GetIndexType().Raw(), key, *item,
-                                    &kvp, &stats->retries)) {
-        case Capture::Taken:
+                                    &write, &stats->version_retries)) {
+        case CaptureResult::kTaken:
           ++stats->secondary_entries;
-          record->key_value_pairs.emplace_back(std::move(kvp));
+          record->writes.emplace_back(std::move(write));
           break;
-        case Capture::Skipped:
+        case CaptureResult::kSkipped:
           break;
-        case Capture::Unstable:
+        case CaptureResult::kUnstable:
           entries_left.emplace_back(index_name, key);
           break;
       }
@@ -501,7 +500,7 @@ bool EpochScanCheckpoint::Publish(const LogRecords &records, Stats *stats) {
   const auto gate_begin = Clock::now();
   const auto result = logger_.WaitUntilDurable(stats->end_epoch,
                                                Clock::now() + kDurabilityWait);
-  if (result != Logger::WaitResult::Durable) {
+  if (result != Logger::WaitResult::kDurable) {
     // Nothing was written this round; drop any working file an earlier
     // failed attempt left behind.
     ::unlink(working_path_.c_str());
@@ -512,7 +511,7 @@ bool EpochScanCheckpoint::Publish(const LogRecords &records, Stats *stats) {
     return false;
   }
   stats->wal_frontier_at_publish = logger_.GetWalFrontier();
-  stats->gate_ms = ElapsedMs(gate_begin);
+  stats->durability_ms = ElapsedMs(gate_begin);
 
   const auto write_begin = Clock::now();
   uint8_t header[kHeaderSize];
@@ -575,17 +574,17 @@ EpochScanCheckpoint::Image EpochScanCheckpoint::Load(
   Image image;
   const std::string path =
       (std::filesystem::path(work_dir) / ImageFileName()).string();
-  const OpenFile file(::open(path.c_str(), O_RDONLY | O_CLOEXEC));
+  const ScopedFd file(::open(path.c_str(), O_RDONLY | O_CLOEXEC));
   if (file.fd < 0) {
     image.status =
-        errno == ENOENT ? Image::Status::Absent : Image::Status::Unusable;
+        errno == ENOENT ? Image::Status::kAbsent : Image::Status::kUnusable;
     image.detail = "open " + path + " (errno " + std::to_string(errno) + ")";
     return image;
   }
   const int fd = file.fd;
 
   auto unusable = [&](const std::string &detail) {
-    image.status = Image::Status::Unusable;
+    image.status = Image::Status::kUnusable;
     image.detail = detail;
     image.records.clear();
     return image;
@@ -652,7 +651,7 @@ EpochScanCheckpoint::Image EpochScanCheckpoint::Load(
     return unusable("the image payload does not unpack");
   }
 
-  image.status = Image::Status::Ok;
+  image.status = Image::Status::kOk;
   image.cut_epoch = cut_epoch;
   image.end_epoch = end_epoch;
   image.wal_frontier_at_publish = wal_frontier_at_publish;

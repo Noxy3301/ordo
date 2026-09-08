@@ -117,7 +117,7 @@ class ThreadLocalLogger final {
   ThreadKeyStorage<ThreadLocalStorageNode> nodes_;
 
   // Owned by the flusher thread alone, between StartFlusher and the join.
-  std::map<EpochNumber, LogRecords> carry_;
+  std::map<EpochNumber, LogRecords> buckets_;
   Wal wal_;
 
   PublishDurable publish_durable_;
@@ -126,7 +126,7 @@ class ThreadLocalLogger final {
 
   std::mutex state_mutex_;
   std::condition_variable work_cv_;
-  EpochNumber pending_closed_{0};
+  EpochNumber closed_{0};
   bool stop_requested_{false};
   bool failed_{false};
   std::thread flusher_;

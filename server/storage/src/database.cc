@@ -190,7 +190,7 @@ Database::Impl::Impl(const Config &config)
     Recover();
   } else {
     const auto scanned = logger_.Recover();
-    if (scanned.status != wal::Logger::RecoveryStatus::Ok) {
+    if (scanned.status != wal::Logger::RecoveryStatus::kOk) {
       SPDLOG_CRITICAL(
           "Startup failed: the write-ahead log could not be read; refusing to "
           "start with an unknown durable state");
@@ -336,14 +336,15 @@ Table *Database::Impl::GetTable(const std::string_view table_name) const {
 bool Database::Impl::WriteCheckpointImage(uint64_t *out_version_retries) {
   wal::EpochScanCheckpoint::Stats stats;
   const bool published = scan_checkpoint_.RunOnce(&stats);
-  if (out_version_retries != nullptr) *out_version_retries = stats.retries;
+  if (out_version_retries != nullptr)
+    *out_version_retries = stats.version_retries;
   return published;
 }
 
 void Database::Impl::Recover() {
   SPDLOG_INFO("Start recovery process");
   auto recovered = logger_.Recover();
-  if (recovered.status != wal::Logger::RecoveryStatus::Ok) {
+  if (recovered.status != wal::Logger::RecoveryStatus::kOk) {
     SPDLOG_CRITICAL(
         "Recovery failed: the write-ahead log could not be read; refusing to "
         "start with an unknown durable state");

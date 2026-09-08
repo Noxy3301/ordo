@@ -29,7 +29,7 @@ namespace wal {
  * consistent, and `frontier` is the epoch of the last one; a log with no
  * frames yields frontier 0. An incomplete or checksum-broken frame at the
  * end of the log is repaired rather than reported: the bytes it left behind
- * are overwritten with zeroes, `tail_truncated` is set, and the scan still
+ * are overwritten with zeroes, `tail_zeroed` is set, and the scan still
  * succeeds. Repair requires that no intact frame survives beyond the
  * damage: one that does is taken as evidence that the damage sits in a
  * region older appends already synced.
@@ -55,12 +55,12 @@ namespace wal {
  * classify within its I/O budget also fail-stops.
  */
 struct WalScanResult {
-  enum class Status { Ok, Corrupt, IoError };
+  enum class Status { kOk, kCorrupt, kIoError };
 
-  Status status{Status::Ok};
+  Status status{Status::kOk};
   EpochNumber frontier{0};
   LogRecords records;
-  bool tail_truncated{false};
+  bool tail_zeroed{false};
   int error_number{0};
   std::string detail;
   /**
@@ -228,7 +228,7 @@ class Wal {
   static constexpr uint64_t kNoPreallocation = 0;
 
  private:
-  enum class State { Unscanned, Ready, Failed };
+  enum class State { kUnscanned, kReady, kFailed };
   /**
    * @brief Outcome of looking for a frame at one offset.
    * @details A read that fails is its own answer and never a "no": what
@@ -237,7 +237,7 @@ class Wal {
    * probe's I/O budget is the same kind of non-answer: the search stops
    * rather than guessing that nothing was there.
    */
-  enum class Probe { NoFrame, Frame, IoError, Undecidable };
+  enum class Probe { kNoFrame, kFrame, kIoError, kUndecidable };
 
   WalScanResult Corrupt(const std::string &detail);
   WalScanResult IoFailure(const std::string &operation, int error);
@@ -245,9 +245,8 @@ class Wal {
   bool HopCoveredFrames(EpochNumber min_epoch, off_t file_size, off_t *offset,
                         EpochNumber *frontier, bool *have_frame,
                         size_t *frames_skipped, uint64_t *bytes_skipped,
-                        bool *guard_pending, off_t *guard_offset,
-                        uint32_t *guard_payload_size, uint8_t *guard_header,
-                        int *error) const;
+                        off_t *boundary_offset, uint32_t *boundary_payload_size,
+                        uint8_t *boundary_header, int *error) const;
   Probe ProbeFrameAt(off_t offset, off_t file_size, uint64_t *io_budget,
                      int *error) const;
   Probe FindFrameAfter(off_t offset, off_t search_end, off_t file_size,
@@ -269,7 +268,7 @@ class Wal {
   WalIo io_;
   int fd_{-1};
   uint64_t initial_capacity_bytes_;
-  State state_{State::Unscanned};
+  State state_{State::kUnscanned};
   off_t write_offset_{0};
   std::atomic<EpochNumber> frontier_{
       0};  // read cross-thread through frontier()

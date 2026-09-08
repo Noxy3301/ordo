@@ -36,6 +36,10 @@ namespace wal {
 
 namespace {
 
+// The header bytes the checksum covers: all of them but the checksum word,
+// which sits last.
+constexpr size_t kCrcCoverage = Wal::kHeaderSize - sizeof(uint32_t);
+
 void PutLe16(uint8_t *out, uint16_t value) {
   out[0] = static_cast<uint8_t>(value & 0xffu);
   out[1] = static_cast<uint8_t>((value >> 8) & 0xffu);
@@ -235,17 +239,17 @@ Wal::~Wal() {
 }
 
 WalScanResult Wal::Corrupt(const std::string &detail) {
-  state_ = State::Failed;
+  state_ = State::kFailed;
   WalScanResult result;
-  result.status = WalScanResult::Status::Corrupt;
+  result.status = WalScanResult::Status::kCorrupt;
   result.detail = detail;
   return result;
 }
 
 WalScanResult Wal::IoFailure(const std::string &operation, int error) {
-  state_ = State::Failed;
+  state_ = State::kFailed;
   WalScanResult result;
-  result.status = WalScanResult::Status::IoError;
+  result.status = WalScanResult::Status::kIoError;
   result.error_number = error;
   result.detail = operation;
   return result;
@@ -335,42 +339,43 @@ bool Wal::WriteZeroesAndSync(off_t from, off_t to, int *error) {
 Wal::Probe Wal::ProbeFrameAt(off_t offset, off_t file_size, uint64_t *io_budget,
                              int *error) const {
   if (file_size - offset < static_cast<off_t>(kHeaderSize)) {
-    return Probe::NoFrame;
+    return Probe::kNoFrame;
   }
 
   uint8_t header[kHeaderSize];
-  if (*io_budget + kHeaderSize > kProbeBudget) return Probe::Undecidable;
-  if (!PreadAll(header, kHeaderSize, offset, error)) return Probe::IoError;
+  if (*io_budget + kHeaderSize > kProbeBudget) return Probe::kUndecidable;
+  if (!PreadAll(header, kHeaderSize, offset, error)) return Probe::kIoError;
   *io_budget += kHeaderSize;
-  if (GetLe32(header) != kMagic) return Probe::NoFrame;
-  if (GetLe16(header + 4) != kVersion) return Probe::NoFrame;
-  if (GetLe16(header + 6) != kFlags) return Probe::NoFrame;
-  if (GetLe32(header + 12) == 0) return Probe::NoFrame;
+  if (GetLe32(header) != kMagic) return Probe::kNoFrame;
+  if (GetLe16(header + 4) != kVersion) return Probe::kNoFrame;
+  if (GetLe16(header + 6) != kFlags) return Probe::kNoFrame;
+  if (GetLe32(header + 12) == 0) return Probe::kNoFrame;
 
   const uint32_t payload_size = GetLe32(header + 8);
   if (payload_size == 0 || payload_size > kMaxPayloadSize) {
-    return Probe::NoFrame;
+    return Probe::kNoFrame;
   }
   const uint64_t frame_end =
       static_cast<uint64_t>(offset) + kHeaderSize + payload_size;
-  if (frame_end > static_cast<uint64_t>(file_size)) return Probe::NoFrame;
+  if (frame_end > static_cast<uint64_t>(file_size)) return Probe::kNoFrame;
 
   Crc32c crc;
-  crc.Update(header, 16);
+  crc.Update(header, kCrcCoverage);
   constexpr size_t kChunkSize = 1ull << 20;
   std::vector<uint8_t> chunk(std::min<size_t>(kChunkSize, payload_size));
   off_t at = offset + static_cast<off_t>(kHeaderSize);
   size_t remaining = payload_size;
   while (remaining != 0) {
     const size_t size = std::min(chunk.size(), remaining);
-    if (*io_budget + size > kProbeBudget) return Probe::Undecidable;
-    if (!PreadAll(chunk.data(), size, at, error)) return Probe::IoError;
+    if (*io_budget + size > kProbeBudget) return Probe::kUndecidable;
+    if (!PreadAll(chunk.data(), size, at, error)) return Probe::kIoError;
     *io_budget += size;
     crc.Update(chunk.data(), size);
     at += static_cast<off_t>(size);
     remaining -= size;
   }
-  return crc.Finish() == GetLe32(header + 16) ? Probe::Frame : Probe::NoFrame;
+  return crc.Finish() == GetLe32(header + kCrcCoverage) ? Probe::kFrame
+                                                        : Probe::kNoFrame;
 }
 
 // Looks for a frame beginning anywhere in (offset, search_end). Finding
@@ -390,20 +395,20 @@ Wal::Probe Wal::FindFrameAfter(off_t offset, off_t search_end, off_t file_size,
   for (off_t at = offset + 1; at < search_end;) {
     const size_t size =
         static_cast<size_t>(std::min<off_t>(kChunkSize, search_end - at));
-    if (io_budget + size > kProbeBudget) return Probe::Undecidable;
-    if (!PreadAll(chunk.data(), size, at, error)) return Probe::IoError;
+    if (io_budget + size > kProbeBudget) return Probe::kUndecidable;
+    if (!PreadAll(chunk.data(), size, at, error)) return Probe::kIoError;
     io_budget += size;
     for (size_t i = 0; i + sizeof(uint32_t) <= size; ++i) {
       if (GetLe32(chunk.data() + i) != kMagic) continue;
       const Probe probe = ProbeFrameAt(at + static_cast<off_t>(i), file_size,
                                        &io_budget, error);
-      if (probe != Probe::NoFrame) return probe;
+      if (probe != Probe::kNoFrame) return probe;
     }
     if (size <= kOverlap) break;
     // A magic that straddles two chunks has to be whole in one of them.
     at += static_cast<off_t>(size - kOverlap);
   }
-  return Probe::NoFrame;
+  return Probe::kNoFrame;
 }
 
 // Reports the offset of the last byte in [from, to) that is not zero, or
@@ -480,7 +485,7 @@ WalScanResult Wal::FinishScan(WalScanResult &&result, off_t end_of_log) {
   // offset behind to be mistaken for the end of the log.
   write_offset_ = end_of_log;
   frontier_ = result.frontier;
-  state_ = State::Ready;
+  state_ = State::kReady;
   return std::move(result);
 }
 
@@ -494,18 +499,17 @@ WalScanResult Wal::FinishScan(WalScanResult &&result, off_t end_of_log) {
 bool Wal::HopCoveredFrames(EpochNumber min_epoch, off_t file_size,
                            off_t *offset, EpochNumber *frontier,
                            bool *have_frame, size_t *frames_skipped,
-                           uint64_t *bytes_skipped, bool *guard_pending,
-                           off_t *guard_offset, uint32_t *guard_payload_size,
-                           uint8_t *guard_header, int *error) const {
+                           uint64_t *bytes_skipped, off_t *boundary_offset,
+                           uint32_t *boundary_payload_size,
+                           uint8_t *boundary_header, int *error) const {
   off_t at = 0;
   EpochNumber local_frontier = 0;
   bool local_have_frame = false;
   size_t local_frames_skipped = 0;
   uint64_t local_bytes_skipped = 0;
-  bool local_guard_pending = false;
-  off_t local_guard_offset = 0;
-  uint32_t local_guard_payload_size = 0;
-  uint8_t local_guard_header[kHeaderSize];
+  off_t local_boundary_offset = 0;
+  uint32_t local_boundary_payload_size = 0;
+  uint8_t local_boundary_header[kHeaderSize];
 
   // Every out-param is written here in one place, on the single successful
   // return below, so a `false` return never leaves a caller trusting a
@@ -534,10 +538,9 @@ bool Wal::HopCoveredFrames(EpochNumber min_epoch, off_t file_size,
     if (epoch == 0) return false;
     if (epoch > min_epoch) break;
 
-    local_guard_pending = true;
-    local_guard_offset = at;
-    local_guard_payload_size = payload_size;
-    std::memcpy(local_guard_header, header, kHeaderSize);
+    local_boundary_offset = at;
+    local_boundary_payload_size = payload_size;
+    std::memcpy(local_boundary_header, header, kHeaderSize);
 
     local_frontier = epoch;
     local_have_frame = true;
@@ -551,17 +554,16 @@ bool Wal::HopCoveredFrames(EpochNumber min_epoch, off_t file_size,
   *have_frame = local_have_frame;
   *frames_skipped = local_frames_skipped;
   *bytes_skipped = local_bytes_skipped;
-  *guard_pending = local_guard_pending;
-  *guard_offset = local_guard_offset;
-  *guard_payload_size = local_guard_payload_size;
-  if (local_guard_pending) {
-    std::memcpy(guard_header, local_guard_header, kHeaderSize);
+  *boundary_offset = local_boundary_offset;
+  *boundary_payload_size = local_boundary_payload_size;
+  if (local_have_frame) {
+    std::memcpy(boundary_header, local_boundary_header, kHeaderSize);
   }
   return true;
 }
 
 WalScanResult Wal::ScanAndRepair(EpochNumber min_epoch) {
-  if (state_ == State::Failed) {
+  if (state_ == State::kFailed) {
     return IoFailure("scan " + path_ + " after a failure", EIO);
   }
 
@@ -579,56 +581,57 @@ WalScanResult Wal::ScanAndRepair(EpochNumber min_epoch) {
   uint64_t bytes_skipped = 0;
   off_t offset = 0;
 
+  // Everything the hop below established, given up.
+  auto restart_from_zero = [&]() {
+    offset = 0;
+    frontier = 0;
+    have_frame = false;
+    frames_skipped = 0;
+    bytes_skipped = 0;
+  };
+
   // Hop the covered region by header alone when min_epoch != 0. An
-  // unparsable header or a failed guard checksum falls back to offset 0, as
-  // if no hop had been attempted; an I/O error fails the scan instead.
+  // unparsable header or a failed boundary checksum falls back to offset 0,
+  // as if no hop had been attempted; an I/O error fails the scan instead.
   if (min_epoch != 0) {
-    bool guard_pending = false;
-    off_t guard_offset = 0;
-    uint32_t guard_payload_size = 0;
-    uint8_t guard_header[kHeaderSize];
+    off_t boundary_offset = 0;
+    uint32_t boundary_payload_size = 0;
+    uint8_t boundary_header[kHeaderSize];
     int error = 0;
-    const bool hopped = HopCoveredFrames(
-        min_epoch, file_size, &offset, &frontier, &have_frame, &frames_skipped,
-        &bytes_skipped, &guard_pending, &guard_offset, &guard_payload_size,
-        guard_header, &error);
+    const bool hopped =
+        HopCoveredFrames(min_epoch, file_size, &offset, &frontier, &have_frame,
+                         &frames_skipped, &bytes_skipped, &boundary_offset,
+                         &boundary_payload_size, boundary_header, &error);
     if (!hopped && error != 0) {
       return IoFailure("pread header of " + path_, error);
     }
-    if (hopped && guard_pending) {
-      std::vector<uint8_t> payload(guard_payload_size);
-      if (!PreadAll(payload.data(), guard_payload_size,
-                    guard_offset + static_cast<off_t>(kHeaderSize), &error)) {
+    if (hopped && have_frame) {
+      std::vector<uint8_t> payload(boundary_payload_size);
+      if (!PreadAll(payload.data(), boundary_payload_size,
+                    boundary_offset + static_cast<off_t>(kHeaderSize),
+                    &error)) {
         return IoFailure("pread payload of " + path_, error);
       }
       Crc32c crc;
-      crc.Update(guard_header, 16);
+      crc.Update(boundary_header, kCrcCoverage);
       crc.Update(payload.data(), payload.size());
-      if (crc.Finish() != GetLe32(guard_header + 16)) {
-        // The guard could be exactly where an earlier lie coincidentally
+      if (crc.Finish() != GetLe32(boundary_header + kCrcCoverage)) {
+        // The boundary could be exactly where an earlier lie coincidentally
         // landed, so a checksum failure here is treated like an unparsable
         // header: rediscovered and diagnosed by the full scan below.
         SPDLOG_WARN(
             "The header hop through {0} left a frame at offset {1} whose "
             "checksum does not hold; falling back to a full scan from "
             "offset 0",
-            path_, static_cast<long long>(guard_offset));
-        offset = 0;
-        frontier = 0;
-        have_frame = false;
-        frames_skipped = 0;
-        bytes_skipped = 0;
+            path_, static_cast<long long>(boundary_offset));
+        restart_from_zero();
       }
     } else if (!hopped) {
       SPDLOG_WARN(
           "The header hop through {0} landed on bytes that do not parse as a "
           "frame; falling back to a full scan from offset 0",
           path_);
-      offset = 0;
-      frontier = 0;
-      have_frame = false;
-      frames_skipped = 0;
-      bytes_skipped = 0;
+      restart_from_zero();
     }
   }
 
@@ -656,7 +659,7 @@ WalScanResult Wal::ScanAndRepair(EpochNumber min_epoch) {
     const uint16_t flags = GetLe16(header + 6);
     const uint32_t payload_size = GetLe32(header + 8);
     const EpochNumber epoch = GetLe32(header + 12);
-    const uint32_t stored_crc = GetLe32(header + 16);
+    const uint32_t stored_crc = GetLe32(header + kCrcCoverage);
 
     const char *header_anomaly = nullptr;
     if (magic != kMagic) {
@@ -688,7 +691,7 @@ WalScanResult Wal::ScanAndRepair(EpochNumber min_epoch) {
     }
 
     Crc32c crc;
-    crc.Update(header, 16);
+    crc.Update(header, kCrcCoverage);
     crc.Update(payload.data(), payload.size());
     if (crc.Finish() != stored_crc) {
       anomaly = "frame checksum mismatch";
@@ -743,7 +746,7 @@ WalScanResult Wal::ScanAndRepair(EpochNumber min_epoch) {
   }
 
   WalScanResult result;
-  result.status = WalScanResult::Status::Ok;
+  result.status = WalScanResult::Status::kOk;
   result.frontier = frontier;
   result.frames_skipped = frames_skipped;
   result.bytes_skipped = bytes_skipped;
@@ -770,19 +773,19 @@ WalScanResult Wal::ScanAndRepair(EpochNumber min_epoch) {
                        ", with data beyond the frame");
       }
       switch (FindFrameAfter(offset, last_non_zero + 1, file_size, &error)) {
-        case Probe::Frame:
+        case Probe::kFrame:
           return Corrupt(anomaly + " at offset " + std::to_string(offset) +
                          ", with a frame surviving beyond it");
-        case Probe::Undecidable:
+        case Probe::kUndecidable:
           return Corrupt(anomaly + " at offset " + std::to_string(offset) +
                          ", and the tail cannot be classified within its "
                          "I/O budget");
-        case Probe::IoError:
+        case Probe::kIoError:
           // Repairing is destructive, so an unreadable candidate is a
           // reason to stop rather than a reason to believe there is
           // nothing there.
           return IoFailure("pread past the tail of " + path_, error);
-        case Probe::NoFrame:
+        case Probe::kNoFrame:
           break;
       }
       if (!WriteZeroesAndSync(offset, last_non_zero + 1, &error)) {
@@ -792,7 +795,7 @@ WalScanResult Wal::ScanAndRepair(EpochNumber min_epoch) {
           "Discarded an incomplete tail of {0} at offset {1} ({2}); the "
           "frontier is {3}",
           path_, static_cast<long long>(offset), anomaly, frontier);
-      result.tail_truncated = true;
+      result.tail_zeroed = true;
     }
   }
 
@@ -805,7 +808,7 @@ WalAppendResult Wal::AppendGroup(
   // Where the log ends is what a successful scan establishes, and an
   // instance that never reached Ready, or that an earlier failure poisoned,
   // has nothing trustworthy to append at.
-  if (state_ != State::Ready) {
+  if (state_ != State::kReady) {
     SPDLOG_CRITICAL(
         "Durability Error: a group was written to {0} while the end of the "
         "log was not established",
@@ -849,7 +852,7 @@ WalAppendResult Wal::AppendGroup(
     std::memcpy(frame + kHeaderSize, payload.data(), payload.size());
 
     Crc32c crc;
-    crc.Update(frame, 16);
+    crc.Update(frame, kCrcCoverage);
     crc.Update(payload.data(), payload.size());
     PutLe32(frame + 16, crc.Finish());
   }
@@ -863,7 +866,7 @@ WalAppendResult Wal::AppendGroup(
   int error = 0;
   const off_t initialised_before = initialised_size_;
   if (!EnsureCapacityFor(write_offset_, group.size(), &error)) {
-    state_ = State::Failed;
+    state_ = State::kFailed;
     return {false, error};
   }
   if (initialised_size_ != initialised_before) {
@@ -874,7 +877,7 @@ WalAppendResult Wal::AppendGroup(
 
   const int64_t write_begin = traced ? FlushTrace::Now() : 0;
   if (!WriteAllAt(group.data(), group.size(), write_offset_, &error)) {
-    state_ = State::Failed;
+    state_ = State::kFailed;
     return {false, error};
   }
   if (traced) trace.GroupWrite(write_begin, FlushTrace::Now());
@@ -890,7 +893,7 @@ WalAppendResult Wal::AppendGroup(
   } while (rc < 0 && errno == EINTR);
   if (rc < 0) {
     const int failure = errno;
-    state_ = State::Failed;
+    state_ = State::kFailed;
     return {false, failure};
   }
   if (traced) trace.GroupSync(sync_begin, FlushTrace::Now());

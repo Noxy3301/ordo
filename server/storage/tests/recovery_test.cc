@@ -96,29 +96,29 @@ TEST_F(RecoveryTest, ALoggedWriteCarriesTheUnlockedTid) {
 
   Wal wal(work_dir_, helios::storage::wal::WalIo::Posix(), 1ull << 20);
   auto scan = wal.ScanAndRepair();
-  ASSERT_EQ(scan.status, WalScanResult::Status::Ok);
+  ASSERT_EQ(scan.status, WalScanResult::Status::kOk);
 
   bool seen_row = false;
   bool seen_index_entry = false;
   for (const auto &record : scan.records) {
-    for (const auto &kvp : record.key_value_pairs) {
-      if (kvp.index_name.empty()) {
-        if (kvp.key != "k") continue;
+    for (const auto &write : record.writes) {
+      if (write.index_name.empty()) {
+        if (write.key != "k") continue;
         seen_row = true;
-        EXPECT_EQ(kvp.buffer, "v1");
+        EXPECT_EQ(write.buffer, "v1");
       } else {
-        if (kvp.key != "s") continue;
+        if (write.key != "s") continue;
         seen_index_entry = true;
-        EXPECT_EQ(kvp.secondary_primary_key, "k");
+        EXPECT_EQ(write.secondary_primary_key, "k");
       }
       // An odd tid is a write lock held by a transaction that no longer
       // exists; recovery installs it verbatim and every later reader and
       // writer of the key waits on it forever.
-      EXPECT_EQ(kvp.tid.tid % 2, 0u);
-      EXPECT_NE(kvp.tid.tid, 0u);
+      EXPECT_EQ(write.transaction_id.tid % 2, 0u);
+      EXPECT_NE(write.transaction_id.tid, 0u);
       // The snapshot is taken before the unlock, so an epoch that advanced
       // under the lock would be recorded one epoch behind the frame.
-      EXPECT_EQ(kvp.tid.epoch, record.epoch);
+      EXPECT_EQ(write.transaction_id.epoch, record.epoch);
     }
   }
   EXPECT_TRUE(seen_row);
@@ -138,13 +138,13 @@ TEST_F(RecoveryTest, ARecoveredKeyAcceptsAFurtherWrite) {
   {
     Wal wal(work_dir_, helios::storage::wal::WalIo::Posix(), 1ull << 20);
     auto scan = wal.ScanAndRepair();
-    ASSERT_EQ(scan.status, WalScanResult::Status::Ok);
+    ASSERT_EQ(scan.status, WalScanResult::Status::kOk);
     bool seen = false;
     for (const auto &record : scan.records) {
-      for (const auto &kvp : record.key_value_pairs) {
-        if (kvp.key != "k") continue;
+      for (const auto &write : record.writes) {
+        if (write.key != "k") continue;
         seen = true;
-        ASSERT_EQ(kvp.tid.tid % 2, 0u);
+        ASSERT_EQ(write.transaction_id.tid % 2, 0u);
       }
     }
     ASSERT_TRUE(seen) << "the log holds no record of the key";

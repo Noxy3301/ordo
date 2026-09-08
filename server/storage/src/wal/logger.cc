@@ -53,7 +53,7 @@ size_t HashCombine(size_t seed, size_t value) {
   return seed ^ (value + kGoldenRatioMix + (seed << 6) + (seed >> 2));
 }
 
-using KeyValuePair = LogRecord::KeyValuePair;
+using Write = LogRecord::Write;
 
 // One secondary-index delta: which primary key the entry gained or lost.
 struct SecondaryOpKey {
@@ -120,33 +120,33 @@ struct PrimaryKeyHash {
 using SecondaryOps =
     std::unordered_map<SecondaryOpKey, SecondaryOpState, SecondaryOpKeyHash>;
 // (table_name, key) -> position in the recovery set. Only the primary path
-// uses it; a primary kvp always carries an empty index_name.
+// uses it; a primary write always carries an empty index_name.
 using PrimaryPos = std::unordered_map<std::pair<std::string, std::string>,
                                       size_t, PrimaryKeyHash>;
 
 // The index name alone decides: a primary write carries an empty one, and
 // the other fields are written on both paths.
-bool IsSecondary(const KeyValuePair &kvp) { return !kvp.index_name.empty(); }
+bool IsSecondary(const Write &write) { return !write.index_name.empty(); }
 
 // Keep the newest delta per (secondary key, primary key). A full entry
 // arrives as one add per primary key it holds.
-void FoldSecondary(const KeyValuePair &kvp, SecondaryOps &ops) {
-  const auto op = static_cast<SecondaryIndexOp>(kvp.secondary_op);
+void FoldSecondary(const Write &write, SecondaryOps &ops) {
+  const auto op = write.secondary_op;
   if (op == SecondaryIndexOp::kFull) {
-    for (const auto &pk : kvp.primary_keys) {
-      SecondaryOpKey op_key{kvp.table_name, kvp.index_name, kvp.index_type,
-                            kvp.key, pk};
+    for (const auto &pk : write.primary_keys) {
+      SecondaryOpKey op_key{write.table_name, write.index_name,
+                            write.index_type, write.key, pk};
       auto it = ops.find(op_key);
-      if (it == ops.end() || it->second.tid < kvp.tid) {
-        ops[op_key] = {kvp.tid, SecondaryIndexOp::kAdd};
+      if (it == ops.end() || it->second.tid < write.transaction_id) {
+        ops[op_key] = {write.transaction_id, SecondaryIndexOp::kAdd};
       }
     }
-  } else if (!kvp.secondary_primary_key.empty()) {
-    SecondaryOpKey op_key{kvp.table_name, kvp.index_name, kvp.index_type,
-                          kvp.key, kvp.secondary_primary_key};
+  } else if (!write.secondary_primary_key.empty()) {
+    SecondaryOpKey op_key{write.table_name, write.index_name, write.index_type,
+                          write.key, write.secondary_primary_key};
     auto it = ops.find(op_key);
-    if (it == ops.end() || it->second.tid < kvp.tid) {
-      ops[op_key] = {kvp.tid, op};
+    if (it == ops.end() || it->second.tid < write.transaction_id) {
+      ops[op_key] = {write.transaction_id, op};
     }
   }
 }
@@ -154,31 +154,36 @@ void FoldSecondary(const KeyValuePair &kvp, SecondaryOps &ops) {
 // Keep the newest version per row. Folded through an index rather than a
 // rescan of the set: the fold runs once per logged write, and a linear
 // rescan makes recovery quadratic in the log size.
-void FoldPrimary(const KeyValuePair &kvp, WriteSetType &recovery_set,
+void FoldPrimary(const Write &write, WriteSetType &recovery_set,
                  PrimaryPos &positions) {
   const std::byte *value_ptr =
-      kvp.buffer.empty()
+      write.buffer.empty()
           ? nullptr
-          : reinterpret_cast<const std::byte *>(kvp.buffer.data());
-  const auto it = positions.find({kvp.table_name, kvp.key});
+          : reinterpret_cast<const std::byte *>(write.buffer.data());
+  const auto it = positions.find({write.table_name, write.key});
   if (it != positions.end()) {
     auto &item = recovery_set[it->second];
-    if (item.data_item_copy.transaction_id.load() < kvp.tid) {
-      item.data_item_copy.Reset(value_ptr, kvp.buffer.size(), kvp.tid);
-      item.table_name = kvp.table_name;
-      item.index_name = kvp.index_name;
-      item.index_type = index::IndexConstraint::FromRaw(kvp.index_type);
+    if (item.data_item_copy.transaction_id.load() < write.transaction_id) {
+      item.data_item_copy.Reset(value_ptr, write.buffer.size(),
+                                write.transaction_id);
+      item.table_name = write.table_name;
+      item.index_name = write.index_name;
+      item.index_type = index::IndexConstraint::FromRaw(write.index_type);
     }
     return;
   }
 
-  positions.emplace(std::make_pair(kvp.table_name, kvp.key),
+  positions.emplace(std::make_pair(write.table_name, write.key),
                     recovery_set.size());
   Snapshot snapshot = {
-      kvp.key,           reinterpret_cast<const std::byte *>(kvp.buffer.data()),
-      kvp.buffer.size(), nullptr,
-      kvp.table_name,    kvp.index_name,
-      kvp.tid,           index::IndexConstraint::FromRaw(kvp.index_type),
+      write.key,
+      reinterpret_cast<const std::byte *>(write.buffer.data()),
+      write.buffer.size(),
+      nullptr,
+      write.table_name,
+      write.index_name,
+      write.transaction_id,
+      index::IndexConstraint::FromRaw(write.index_type),
   };
   recovery_set.emplace_back(std::move(snapshot));
 }
@@ -237,11 +242,11 @@ WriteSetType BuildRecoverySet(const LogRecords &image, const LogRecords &tail) {
   const LogRecords *sources[] = {&image, &tail};
   for (const auto *source : sources) {
     for (const auto &log_record : *source) {
-      for (const auto &kvp : log_record.key_value_pairs) {
-        if (IsSecondary(kvp)) {
-          FoldSecondary(kvp, secondary_latest);
+      for (const auto &write : log_record.writes) {
+        if (IsSecondary(write)) {
+          FoldSecondary(write, secondary_latest);
         } else {
-          FoldPrimary(kvp, recovery_set, primary_position);
+          FoldPrimary(write, recovery_set, primary_position);
         }
       }
     }
@@ -254,9 +259,9 @@ WriteSetType BuildRecoverySet(const LogRecords &image, const LogRecords &tail) {
 }  // namespace
 
 Logger::Logger(const Config &config, WalIo io)
-    : work_dir_(config.work_dir), replays_(config.enable_recovery) {
+    : work_dir_(config.work_dir), loads_checkpoint_(config.enable_recovery) {
   helios::storage::util::InitDebugLog();
-  logger_ = std::make_unique<ThreadLocalLogger>(
+  thread_local_logger_ = std::make_unique<ThreadLocalLogger>(
       config, [this](EpochNumber frontier) { PublishDurable(frontier); },
       [this](int error_number) { PublishFailure(error_number); },
       [this]() { return GetDurableEpoch(); }, std::move(io));
@@ -264,11 +269,11 @@ Logger::Logger(const Config &config, WalIo io)
 
 Logger::~Logger() {
   StopFlusher();
-  logger_.reset();
+  thread_local_logger_.reset();
 }
 
-bool Logger::Enqueue(const WriteSetType &ws_ref, EpochNumber epoch) {
-  return logger_->Enqueue(ws_ref, epoch);
+bool Logger::Enqueue(const WriteSetType &ws, EpochNumber epoch) {
+  return thread_local_logger_->Enqueue(ws, epoch);
 }
 
 Logger::RecoveryResult Logger::Recover() {
@@ -278,9 +283,9 @@ Logger::RecoveryResult Logger::Recover() {
   // FIXME: an image is bound to a log by sharing a directory with it, and
   // neither file names the database it came from
   EpochScanCheckpoint::Image image;
-  if (replays_) {
+  if (loads_checkpoint_) {
     image = EpochScanCheckpoint::Load(work_dir_);
-    if (image.status == EpochScanCheckpoint::Image::Status::Unusable) {
+    if (image.status == EpochScanCheckpoint::Image::Status::kUnusable) {
       // An image that cannot be trusted is not a reason to refuse to start:
       // the log alone still holds everything the image would have supplied.
       SPDLOG_WARN("Ignoring the checkpoint image: {0}", image.detail);
@@ -289,19 +294,20 @@ Logger::RecoveryResult Logger::Recover() {
     }
   }
 
-  auto scan = logger_->ScanAndRepair(image.cut_epoch);
+  auto scan = thread_local_logger_->ScanAndRepair(image.cut_epoch);
   RecoveryResult result;
-  if (scan.status != WalScanResult::Status::Ok) {
-    SPDLOG_CRITICAL(
-        "Durability Error: {0} ({1}), errno {2}", scan.detail,
-        scan.status == WalScanResult::Status::Corrupt ? "corrupt" : "I/O error",
-        scan.error_number);
+  if (scan.status != WalScanResult::Status::kOk) {
+    SPDLOG_CRITICAL("Durability Error: {0} ({1}), errno {2}", scan.detail,
+                    scan.status == WalScanResult::Status::kCorrupt
+                        ? "corrupt"
+                        : "I/O error",
+                    scan.error_number);
     PublishFailure(scan.error_number != 0 ? scan.error_number : EIO);
-    result.status = RecoveryStatus::Failed;
+    result.status = RecoveryStatus::kFailed;
     return result;
   }
 
-  if (image.status == EpochScanCheckpoint::Image::Status::Ok) {
+  if (image.status == EpochScanCheckpoint::Image::Status::kOk) {
     // An image is honoured only when the log is at least as durable now as it
     // was when this image was published, since durability only advances and a
     // shorter log cannot be the one the image came from (see the FIXME above).
@@ -312,15 +318,15 @@ Logger::RecoveryResult Logger::Recover() {
           "holds",
           image.wal_frontier_at_publish, scan.frontier);
       image.records.clear();
-      scan = logger_->ScanAndRepair(0);
-      if (scan.status != WalScanResult::Status::Ok) {
+      scan = thread_local_logger_->ScanAndRepair(0);
+      if (scan.status != WalScanResult::Status::kOk) {
         SPDLOG_CRITICAL("Durability Error: {0} ({1}), errno {2}", scan.detail,
-                        scan.status == WalScanResult::Status::Corrupt
+                        scan.status == WalScanResult::Status::kCorrupt
                             ? "corrupt"
                             : "I/O error",
                         scan.error_number);
         PublishFailure(scan.error_number != 0 ? scan.error_number : EIO);
-        result.status = RecoveryStatus::Failed;
+        result.status = RecoveryStatus::kFailed;
         return result;
       }
     } else {
@@ -337,18 +343,20 @@ Logger::RecoveryResult Logger::Recover() {
   return result;
 }
 
-void Logger::StartFlusher() { logger_->StartFlusher(); }
+void Logger::StartFlusher() { thread_local_logger_->StartFlusher(); }
 
 void Logger::ScheduleFlush(EpochNumber closed) {
-  logger_->ScheduleFlush(closed);
+  thread_local_logger_->ScheduleFlush(closed);
 }
 
-EpochNumber Logger::GetWalFrontier() const { return logger_->WalFrontier(); }
+EpochNumber Logger::GetWalFrontier() const {
+  return thread_local_logger_->WalFrontier();
+}
 
-bool Logger::IsQuiescent() { return logger_->IsQuiescent(); }
+bool Logger::IsQuiescent() { return thread_local_logger_->IsQuiescent(); }
 
 void Logger::StopFlusher() {
-  if (logger_) logger_->StopFlusher();
+  if (thread_local_logger_) thread_local_logger_->StopFlusher();
   PublishStopped();
 }
 
@@ -364,7 +372,7 @@ void Logger::PublishDurable(EpochNumber frontier) {
           previous, frontier);
       std::abort();
     }
-    if (state_ != State::Running) return;
+    if (state_ != State::kRunning) return;
     durable_epoch_.store(frontier, std::memory_order_seq_cst);
   }
   durability_cv_.notify_all();
@@ -378,9 +386,8 @@ void Logger::PublishFailure(int error_number) {
     // A repeated failure has nothing new to publish, but arming still turns
     // it into an abort: a failure that predates the arming must not exempt
     // the process afterwards.
-    if (state_ != State::Failed) {
-      state_ = State::Failed;
-      failure_errno_ = error_number;
+    if (state_ != State::kFailed) {
+      state_ = State::kFailed;
       SPDLOG_CRITICAL(
           "Durability Error: the log cannot be written (errno {0}); no "
           "further commit is acknowledged as durable",
@@ -401,7 +408,7 @@ void Logger::SetFailStop() {
 void Logger::PublishStopped() {
   {
     std::lock_guard<std::mutex> lock(durability_mutex_);
-    if (state_ == State::Running) state_ = State::Stopped;
+    if (state_ == State::kRunning) state_ = State::kStopped;
   }
   durability_cv_.notify_all();
 }
@@ -409,26 +416,26 @@ void Logger::PublishStopped() {
 Logger::WaitResult Logger::WaitUntilDurable(EpochNumber commit_epoch,
                                             Deadline deadline) {
   if (durable_epoch_.load(std::memory_order_seq_cst) >= commit_epoch) {
-    return WaitResult::Durable;
+    return WaitResult::kDurable;
   }
 
   std::unique_lock<std::mutex> lock(durability_mutex_);
   const auto reached = [&] {
     return durable_epoch_.load(std::memory_order_seq_cst) >= commit_epoch ||
-           state_ != State::Running;
+           state_ != State::kRunning;
   };
   if (deadline == Deadline::max()) {
     durability_cv_.wait(lock, reached);
   } else if (!durability_cv_.wait_until(lock, deadline, reached)) {
-    return WaitResult::TimedOut;
+    return WaitResult::kTimedOut;
   }
 
   // A frontier that already covers this epoch outranks a terminal state: the
   // records are on the device regardless of what happened afterwards.
   if (durable_epoch_.load(std::memory_order_seq_cst) >= commit_epoch) {
-    return WaitResult::Durable;
+    return WaitResult::kDurable;
   }
-  return state_ == State::Stopped ? WaitResult::Stopped : WaitResult::Failed;
+  return state_ == State::kStopped ? WaitResult::kStopped : WaitResult::kFailed;
 }
 
 void Logger::AwaitCommitDurability(EpochNumber commit_epoch,
@@ -452,7 +459,7 @@ void Logger::AwaitCommitDurability(EpochNumber commit_epoch,
     trace.RecordCommit(commit_epoch, wait_enter, FlushTrace::Now(),
                        not_durable_at_enter);
   }
-  if (result == WaitResult::Durable) return;
+  if (result == WaitResult::kDurable) return;
 
   SPDLOG_CRITICAL(
       "Durability Error: the log for epoch {0} did not become durable, and the "

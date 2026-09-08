@@ -6,17 +6,12 @@
 #ifndef HELIOS_STORAGE_SRC_WAL_FLUSH_TRACE_H
 #define HELIOS_STORAGE_SRC_WAL_FLUSH_TRACE_H
 
-#include <fcntl.h>
-#include <sys/file.h>
-#include <unistd.h>
-
 #include <atomic>
 #include <chrono>
 #include <cstdint>
-#include <cstdio>
-#include <cstdlib>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <thread>
 #include <vector>
@@ -140,47 +135,47 @@ class FlushTrace {
 
   void GroupCollectBegin(EpochNumber durable_before) {
     if (!enabled_) return;
-    current_ = GroupRow{};
-    current_.seq = next_seq_++;
-    current_.durable_before = durable_before;
-    current_.collect_begin = Now();
+    current_group_ = GroupRow{};
+    current_group_.seq = next_seq_++;
+    current_group_.durable_before = durable_before;
+    current_group_.collect_begin = Now();
   }
 
   void GroupCollectEnd() {
     if (!enabled_) return;
-    current_.collect_end = Now();
+    current_group_.collect_end = Now();
   }
 
   void GroupPack(int64_t begin, int64_t end, uint64_t bytes, uint32_t epochs) {
     if (!enabled_) return;
-    current_.pack_begin = begin;
-    current_.pack_end = end;
-    current_.packed_bytes = bytes;
-    current_.epoch_count = epochs;
+    current_group_.pack_begin = begin;
+    current_group_.pack_end = end;
+    current_group_.packed_bytes = bytes;
+    current_group_.epoch_count = epochs;
   }
 
   void GroupWrite(int64_t begin, int64_t end) {
     if (!enabled_) return;
-    current_.write_begin = begin;
-    current_.write_end = end;
+    current_group_.write_begin = begin;
+    current_group_.write_end = end;
   }
 
   void GroupSync(int64_t begin, int64_t end) {
     if (!enabled_) return;
-    current_.sync_begin = begin;
-    current_.sync_end = end;
+    current_group_.sync_begin = begin;
+    current_group_.sync_end = end;
   }
 
   void GroupPublish(EpochNumber target, int64_t enter, int64_t exit) {
     if (!enabled_) return;
-    current_.target = target;
-    current_.publish_enter = enter;
-    current_.publish_exit = exit;
+    current_group_.target = target;
+    current_group_.publish_enter = enter;
+    current_group_.publish_exit = exit;
     // Storage is sized once and never grows, so a reader can take the count and
     // walk the rows below it while this thread writes above it.
     const uint64_t index = group_count_.load(std::memory_order_relaxed);
     if (index < kGroupCapacity) {
-      groups_[index] = current_;
+      groups_[index] = current_group_;
       group_count_.store(index + 1, std::memory_order_release);
     } else {
       group_drops_.fetch_add(1, std::memory_order_relaxed);
@@ -212,11 +207,11 @@ class FlushTrace {
    */
   bool SampleThisCommit() {
     if (!enabled_) return false;
-    uint64_t &state = ThreadState();
-    state ^= state << 13;
-    state ^= state >> 7;
-    state ^= state << 17;
-    return (state & (kSampleEvery - 1)) == 0;
+    uint64_t &rng = SampleRng();
+    rng ^= rng << 13;
+    rng ^= rng >> 7;
+    rng ^= rng << 17;
+    return (rng & (kSampleEvery - 1)) == 0;
   }
 
   void RecordCommit(EpochNumber required_epoch, int64_t enter, int64_t exit,
@@ -289,55 +284,8 @@ class FlushTrace {
     uint64_t next_seq{0};
   };
 
-  FlushTrace() {
-    const char *prefix = std::getenv("HELIOS_FLUSH_TRACE");
-    enabled_ = prefix != nullptr && prefix[0] != '\0';
-    if (!enabled_) return;
-    prefix_ = prefix;
-
-    // The lock makes FirstFreeGeneration's scan-then-claim atomic against
-    // another process; a prefix that cannot be locked leaves tracing
-    // disabled, the only outcome that keeps the no-replace promise.
-    lock_fd_ =
-        ::open((prefix_ + ".lock").c_str(), O_RDWR | O_CREAT | O_CLOEXEC, 0644);
-    if (lock_fd_ < 0 || ::flock(lock_fd_, LOCK_EX | LOCK_NB) != 0) {
-      if (lock_fd_ >= 0) ::close(lock_fd_);
-      lock_fd_ = -1;
-      enabled_ = false;
-      return;
-    }
-
-    bool usable = false;
-    dump_generation_ = FirstFreeGeneration(prefix_, &usable);
-    if (!usable) {
-      // The lock must not outlive a producer that will never publish.
-      ::close(lock_fd_);
-      lock_fd_ = -1;
-      enabled_ = false;
-      return;
-    }
-    groups_.resize(kGroupCapacity);
-    closes_.resize(kCloseCapacity);
-    slots_.reset(new Slot[kMaxSlots]);
-    for (size_t i = 0; i < kMaxSlots; ++i)
-      slots_[i].rows.resize(kCommitCapacity);
-    InstallDumpSignal();
-    // The request arrives as a flag from a signal handler; a thread outside
-    // every measured path is what turns it into files.
-    dumper_ = std::thread([this] {
-      while (!dumper_stop_.load(std::memory_order_relaxed)) {
-        if (dump_requested_.exchange(false, std::memory_order_relaxed)) Dump();
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
-      }
-    });
-  }
-
-  ~FlushTrace() {
-    if (!enabled_) return;
-    dumper_stop_.store(true, std::memory_order_relaxed);
-    if (dumper_.joinable()) dumper_.join();
-    if (lock_fd_ >= 0) ::close(lock_fd_);
-  }
+  FlushTrace();
+  ~FlushTrace();
 
   static void InstallDumpSignal();
 
@@ -349,25 +297,27 @@ class FlushTrace {
    * process published under the same prefix. The existing files are what decide
    * where to start, so the property survives a restart.
    *
-   * Sets @p usable to false when no generation can be claimed with certainty,
-   * which disables tracing: producing no census is the only outcome that keeps
-   * the promise never to replace one.
+   * Empty when no generation can be claimed with certainty, which disables
+   * tracing: producing no census is the only outcome that keeps the promise
+   * never to replace one.
    */
-  static uint64_t FirstFreeGeneration(const std::string &prefix, bool *usable);
+  static std::optional<uint64_t> FirstFreeGeneration(const std::string &prefix);
 
-  uint64_t &ThreadState() {
+  uint64_t &SampleRng() {
+    // 2^64 / golden ratio, odd, so multiplying by it is a bijection.
+    constexpr uint64_t kGoldenRatioMix = 0x9e3779b97f4a7c15ull;
     // Zero marks "not yet seeded" and is a value xorshift cannot produce.
     // The seed comes from a process-wide counter, distinct for every thread
     // lifetime (a TLS address alone is reused after a thread exits), and the
     // odd multiplier is a bijection on 2^64, so no two seeds collide and a
     // nonzero count cannot map to zero.
-    static thread_local uint64_t state = 0;
-    if (state == 0) {
+    static thread_local uint64_t rng = 0;
+    if (rng == 0) {
       static std::atomic<uint64_t> uniquifier{0};
-      state = (uniquifier.fetch_add(1, std::memory_order_relaxed) + 1) *
-              0x9e3779b97f4a7c15ull;
+      rng = (uniquifier.fetch_add(1, std::memory_order_relaxed) + 1) *
+            kGoldenRatioMix;
     }
-    return state;
+    return rng;
   }
 
   /**
@@ -388,7 +338,7 @@ class FlushTrace {
   bool enabled_{false};
   std::string prefix_;
 
-  GroupRow current_{};
+  GroupRow current_group_{};
   uint64_t next_seq_{0};
   std::vector<GroupRow> groups_;
   std::atomic<uint64_t> group_count_{0};

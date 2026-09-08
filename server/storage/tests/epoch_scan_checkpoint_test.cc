@@ -185,9 +185,9 @@ class EpochScanCheckpointTest : public ::testing::Test {
   static std::optional<std::string> RowInImage(
       const EpochScanCheckpoint::Image &image, const std::string &key) {
     for (const auto &record : image.records) {
-      for (const auto &kvp : record.key_value_pairs) {
-        if (!kvp.index_name.empty() || kvp.key != key) continue;
-        return kvp.buffer;
+      for (const auto &write : record.writes) {
+        if (!write.index_name.empty() || write.key != key) continue;
+        return write.buffer;
       }
     }
     return std::nullopt;
@@ -197,9 +197,9 @@ class EpochScanCheckpointTest : public ::testing::Test {
   static std::vector<std::string> IndexEntryInImage(
       const EpochScanCheckpoint::Image &image, const std::string &key) {
     for (const auto &record : image.records) {
-      for (const auto &kvp : record.key_value_pairs) {
-        if (kvp.index_name != kIndex || kvp.key != key) continue;
-        return kvp.primary_keys;
+      for (const auto &write : record.writes) {
+        if (write.index_name != kIndex || write.key != key) continue;
+        return write.primary_keys;
       }
     }
     return {};
@@ -237,7 +237,7 @@ TEST_F(EpochScanCheckpointTest, AnImageHoldsWhatTheScanFound) {
   }
 
   auto image = EpochScanCheckpoint::Load(work_dir_);
-  ASSERT_EQ(image.status, EpochScanCheckpoint::Image::Status::Ok);
+  ASSERT_EQ(image.status, EpochScanCheckpoint::Image::Status::kOk);
   EXPECT_EQ(RowInImage(image, "alice"), "one");
   EXPECT_EQ(RowInImage(image, "bob"), "two");
   auto primary_keys = IndexEntryInImage(image, "s");
@@ -261,14 +261,14 @@ TEST_F(EpochScanCheckpointTest, ADeletedRowLeavesNoEntry) {
   }
 
   auto image = EpochScanCheckpoint::Load(work_dir_);
-  ASSERT_EQ(image.status, EpochScanCheckpoint::Image::Status::Ok);
+  ASSERT_EQ(image.status, EpochScanCheckpoint::Image::Status::kOk);
   EXPECT_EQ(RowInImage(image, "alice"), std::nullopt);
   EXPECT_EQ(RowInImage(image, "bob"), "two");
 }
 
 TEST_F(EpochScanCheckpointTest, AnAbsentImageIsNotAFailure) {
   auto image = EpochScanCheckpoint::Load(work_dir_ + "/nowhere");
-  EXPECT_EQ(image.status, EpochScanCheckpoint::Image::Status::Absent);
+  EXPECT_EQ(image.status, EpochScanCheckpoint::Image::Status::kAbsent);
 }
 
 TEST_F(EpochScanCheckpointTest, ADamagedImageIsRefused) {
@@ -291,7 +291,7 @@ TEST_F(EpochScanCheckpointTest, ADamagedImageIsRefused) {
   }
 
   auto image = EpochScanCheckpoint::Load(work_dir_);
-  EXPECT_EQ(image.status, EpochScanCheckpoint::Image::Status::Unusable);
+  EXPECT_EQ(image.status, EpochScanCheckpoint::Image::Status::kUnusable);
   EXPECT_TRUE(image.records.empty());
 }
 
@@ -336,20 +336,20 @@ TEST_F(EpochScanCheckpointTest, RecoveryWithTheImageMatchesRecoveryWithout) {
   }
 
   const auto image = EpochScanCheckpoint::Load(work_dir_);
-  ASSERT_EQ(image.status, EpochScanCheckpoint::Image::Status::Ok);
+  ASSERT_EQ(image.status, EpochScanCheckpoint::Image::Status::kOk);
 
   // What the replay leaves out, and that it leaves out something at all.
   {
     Wal wal(work_dir_, helios::storage::wal::WalIo::Posix(), 1ull << 20);
     auto full = wal.ScanAndRepair(0);
-    ASSERT_EQ(full.status, WalScanResult::Status::Ok);
+    ASSERT_EQ(full.status, WalScanResult::Status::kOk);
     EXPECT_EQ(full.frames_skipped, 0u);
     frontier_ = full.frontier;
   }
   {
     Wal wal(work_dir_, helios::storage::wal::WalIo::Posix(), 1ull << 20);
     auto filtered = wal.ScanAndRepair(image.cut_epoch);
-    ASSERT_EQ(filtered.status, WalScanResult::Status::Ok);
+    ASSERT_EQ(filtered.status, WalScanResult::Status::kOk);
     EXPECT_GT(filtered.frames_skipped, 0u);
     EXPECT_GT(filtered.bytes_skipped, 0u);
     // The end of the log and how far it is durable come from every frame.
@@ -404,11 +404,11 @@ TEST_F(EpochScanCheckpointTest, AQuietTailAfterTheImageIsAccepted) {
   }
 
   const auto image = EpochScanCheckpoint::Load(work_dir_);
-  ASSERT_EQ(image.status, EpochScanCheckpoint::Image::Status::Ok);
+  ASSERT_EQ(image.status, EpochScanCheckpoint::Image::Status::kOk);
   {
     Wal wal(work_dir_, helios::storage::wal::WalIo::Posix(), 1ull << 20);
     auto scan = wal.ScanAndRepair(0);
-    ASSERT_EQ(scan.status, WalScanResult::Status::Ok);
+    ASSERT_EQ(scan.status, WalScanResult::Status::kOk);
     // The quiet tail this test is named for: the log's frontier never
     // reaches the epoch the scan ended at, which is what made the v1 gate
     // refuse a legitimate image.
@@ -442,7 +442,7 @@ TEST_F(EpochScanCheckpointTest, ALogShorterThanThePublishFrontierIsRejected) {
   }
 
   const auto image = EpochScanCheckpoint::Load(work_dir_);
-  ASSERT_EQ(image.status, EpochScanCheckpoint::Image::Status::Ok);
+  ASSERT_EQ(image.status, EpochScanCheckpoint::Image::Status::kOk);
 
   // Stand in for a log genuinely truncated, or substituted, after the image
   // was published: put the earlier, shorter log back in its place.
@@ -451,7 +451,7 @@ TEST_F(EpochScanCheckpointTest, ALogShorterThanThePublishFrontierIsRejected) {
   {
     Wal wal(work_dir_, helios::storage::wal::WalIo::Posix(), 1ull << 20);
     const auto scan = wal.ScanAndRepair(0);
-    ASSERT_EQ(scan.status, WalScanResult::Status::Ok);
+    ASSERT_EQ(scan.status, WalScanResult::Status::kOk);
     ASSERT_LT(scan.frontier, image.wal_frontier_at_publish);
   }
 
@@ -487,7 +487,7 @@ TEST_F(EpochScanCheckpointTest, AV1FormatImageIsRefused) {
   }
 
   auto image = EpochScanCheckpoint::Load(work_dir_);
-  EXPECT_EQ(image.status, EpochScanCheckpoint::Image::Status::Unusable);
+  EXPECT_EQ(image.status, EpochScanCheckpoint::Image::Status::kUnusable);
   EXPECT_TRUE(image.records.empty());
 }
 
@@ -574,7 +574,7 @@ TEST_F(EpochScanCheckpointTest, ARowLockedDuringTheScanIsRetried) {
   releaser.get();
 
   auto image = EpochScanCheckpoint::Load(work_dir_);
-  ASSERT_EQ(image.status, EpochScanCheckpoint::Image::Status::Ok);
+  ASSERT_EQ(image.status, EpochScanCheckpoint::Image::Status::kOk);
   // Either version is a correct answer for a scan that runs alongside a
   // writer. A mixture of the two is not.
   for (const char *key : {"alice", "bob"}) {
@@ -603,7 +603,7 @@ TEST_F(EpochScanCheckpointTest, ALeftoverWorkingFileIsNotRead) {
   }
 
   auto image = EpochScanCheckpoint::Load(work_dir_);
-  ASSERT_EQ(image.status, EpochScanCheckpoint::Image::Status::Ok);
+  ASSERT_EQ(image.status, EpochScanCheckpoint::Image::Status::kOk);
   EXPECT_EQ(RowInImage(image, "alice"), "one");
 }
 

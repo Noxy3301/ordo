@@ -53,21 +53,19 @@ class ThreadLocalLogger;
  */
 class Logger {
  public:
-  constexpr static EpochNumber NumberIsNotUpdated = 0;
-
   using Deadline = std::chrono::steady_clock::time_point;
 
   enum class WaitResult {
-    Durable,   // the frontier reached the requested epoch
-    TimedOut,  // the deadline passed first
-    Stopped,   // the logger shut down before reaching it
-    Failed,    // the log could not be written
+    kDurable,   // the frontier reached the requested epoch
+    kTimedOut,  // the deadline passed first
+    kStopped,   // the logger shut down before reaching it
+    kFailed,    // the log could not be written
   };
 
-  enum class RecoveryStatus { Ok, Failed };
+  enum class RecoveryStatus { kOk, kFailed };
 
   struct RecoveryResult {
-    RecoveryStatus status{RecoveryStatus::Ok};
+    RecoveryStatus status{RecoveryStatus::kOk};
     EpochNumber frontier{0};
     WriteSetType recovery_set;
   };
@@ -78,10 +76,10 @@ class Logger {
   /**
    * @brief Buffers one committed transaction's write set.
    * @return Whether anything was buffered: a transaction whose write set
-   * produces no key-value pair has nothing to make durable, and the commit
+   * produces no write has nothing to make durable, and the commit
    * path must not wait for it.
    */
-  bool Enqueue(const WriteSetType &ws_ref, EpochNumber epoch);
+  bool Enqueue(const WriteSetType &ws, EpochNumber epoch);
 
   /**
    * @brief Reads the log, repairs an interrupted tail, initializes the
@@ -175,21 +173,20 @@ class Logger {
   void PublishStopped();
 
   const std::string work_dir_;
-  // Whether this instance replays what it reads, which is what decides
-  // whether a checkpoint image is read at all.
-  const bool replays_;
+  // Whether a published checkpoint is loaded at all. The log itself is always
+  // scanned and its interrupted tail truncated.
+  const bool loads_checkpoint_;
   std::atomic<EpochNumber> durable_epoch_{0};
 
-  enum class State { Running, Stopped, Failed };
-  mutable std::mutex durability_mutex_;
+  enum class State { kRunning, kStopped, kFailed };
+  std::mutex durability_mutex_;
   std::condition_variable durability_cv_;
-  State state_{State::Running};
-  int failure_errno_{0};
+  State state_{State::kRunning};
   bool process_fail_stop_{false};
 
   // Declared last: the backend's flusher publishes through the members above,
   // so it must be destroyed before them.
-  std::unique_ptr<ThreadLocalLogger> logger_;
+  std::unique_ptr<ThreadLocalLogger> thread_local_logger_;
 };
 
 }  // namespace wal

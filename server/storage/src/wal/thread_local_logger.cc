@@ -55,38 +55,38 @@ bool ThreadLocalLogger::Enqueue(const WriteSetType &ws_ref, EpochNumber epoch) {
 
   for (auto &snapshot : ws_ref) {
     if (snapshot.index_name.empty()) {
-      LogRecord::KeyValuePair kvp;
-      kvp.key = snapshot.key;
-      kvp.buffer = snapshot.data_item_copy.buffer.toString();
-      kvp.tid = snapshot.data_item_copy.transaction_id.load();
-      kvp.table_name = snapshot.table_name;
-      kvp.index_name = snapshot.index_name;
-      kvp.index_type = snapshot.index_type.Raw();
-      kvp.primary_keys = snapshot.data_item_copy.primary_keys_vector();
-      kvp.secondary_op = static_cast<uint8_t>(SecondaryIndexOp::kNone);
-      record.key_value_pairs.emplace_back(std::move(kvp));
+      LogRecord::Write write;
+      write.key = snapshot.key;
+      write.buffer = snapshot.data_item_copy.buffer.toString();
+      write.transaction_id = snapshot.data_item_copy.transaction_id.load();
+      write.table_name = snapshot.table_name;
+      write.index_name = snapshot.index_name;
+      write.index_type = snapshot.index_type.Raw();
+      write.primary_keys = snapshot.data_item_copy.primary_keys_vector();
+      write.secondary_op = SecondaryIndexOp::kNone;
+      record.writes.emplace_back(std::move(write));
       continue;
     }
 
     if (snapshot.secondary_index_deltas.empty()) continue;
     for (const auto &delta : snapshot.secondary_index_deltas) {
-      LogRecord::KeyValuePair kvp;
-      kvp.key = snapshot.key;
-      kvp.buffer = snapshot.data_item_copy.buffer.toString();
-      kvp.tid = snapshot.data_item_copy.transaction_id.load();
-      kvp.table_name = snapshot.table_name;
-      kvp.index_name = snapshot.index_name;
-      kvp.index_type = snapshot.index_type.Raw();
-      kvp.secondary_op = static_cast<uint8_t>(delta.op);
-      kvp.secondary_primary_key = delta.primary_key;
-      record.key_value_pairs.emplace_back(std::move(kvp));
+      LogRecord::Write write;
+      write.key = snapshot.key;
+      write.buffer = snapshot.data_item_copy.buffer.toString();
+      write.transaction_id = snapshot.data_item_copy.transaction_id.load();
+      write.table_name = snapshot.table_name;
+      write.index_name = snapshot.index_name;
+      write.index_type = snapshot.index_type.Raw();
+      write.secondary_op = delta.op;
+      write.secondary_primary_key = delta.primary_key;
+      record.writes.emplace_back(std::move(write));
     }
   }
 
   // Decided after building the record, not from the input write set: a write
   // set of secondary snapshots that carry no delta produces nothing to persist,
   // and the commit path must not wait for a record that was never buffered.
-  if (record.key_value_pairs.empty()) return false;
+  if (record.writes.empty()) return false;
 
   auto *node = nodes_.Get();
   std::lock_guard<std::mutex> lock(node->log_records_mutex);
@@ -112,7 +112,7 @@ void ThreadLocalLogger::ScheduleFlush(EpochNumber closed) {
   {
     std::lock_guard<std::mutex> lock(state_mutex_);
     if (stop_requested_ || failed_) return;
-    if (closed > pending_closed_) pending_closed_ = closed;
+    if (closed > closed_) closed_ = closed;
   }
   // The hand-over is timed before the flusher is woken and recorded after, so
   // the census never sits between the state change and the notification.
@@ -123,7 +123,7 @@ void ThreadLocalLogger::ScheduleFlush(EpochNumber closed) {
 
 bool ThreadLocalLogger::IsQuiescent() {
   std::lock_guard<std::mutex> lock(state_mutex_);
-  return failed_ || pending_closed_ <= read_durable_();
+  return failed_ || closed_ <= read_durable_();
 }
 
 void ThreadLocalLogger::StopFlusher() {
@@ -141,10 +141,10 @@ void ThreadLocalLogger::FlusherLoop() {
     {
       std::unique_lock<std::mutex> lock(state_mutex_);
       work_cv_.wait(lock, [this] {
-        return stop_requested_ || failed_ || pending_closed_ > read_durable_();
+        return stop_requested_ || failed_ || closed_ > read_durable_();
       });
       if (failed_) return;
-      target = pending_closed_;
+      target = closed_;
       const bool nothing_to_do = target <= read_durable_();
       // Stop only once everything already closed is on the device, so a clean
       // shutdown does not drop records the tick had handed over.
@@ -210,17 +210,17 @@ WalAppendResult ThreadLocalLogger::FlushThrough(EpochNumber target) {
             record.epoch, durable_before);
         std::abort();
       }
-      carry_[record.epoch].emplace_back(std::move(record));
+      buckets_[record.epoch].emplace_back(std::move(record));
     }
   });
 
   if (traced) trace.GroupCollectEnd();
 
-  const auto result = wal_.AppendGroup(carry_, target);
+  const auto result = wal_.AppendGroup(buckets_, target);
   if (!result.ok) return result;
   // Buckets above the target stay for the next group; the ones just written are
   // the only ones dropped.
-  carry_.erase(carry_.begin(), carry_.upper_bound(target));
+  buckets_.erase(buckets_.begin(), buckets_.upper_bound(target));
   return result;
 }
 

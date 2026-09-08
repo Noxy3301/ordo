@@ -6,11 +6,15 @@
 #include "wal/flush_trace.h"
 
 #include <errno.h>
+#include <fcntl.h>
 #include <signal.h>
 #include <stdio.h>
+#include <sys/file.h>
 #include <sys/stat.h>
+#include <unistd.h>
 
 #include <cinttypes>
+#include <cstdlib>
 #include <functional>
 
 namespace helios::storage {
@@ -56,6 +60,62 @@ bool WriteFile(const std::string &path,
 
 }  // namespace
 
+namespace {
+
+// How long the dumper sleeps between checks of the dump flag.
+constexpr auto kDumpPoll = std::chrono::milliseconds(100);
+
+}  // namespace
+
+FlushTrace::FlushTrace() {
+  const char *prefix = std::getenv("HELIOS_FLUSH_TRACE");
+  enabled_ = prefix != nullptr && prefix[0] != '\0';
+  if (!enabled_) return;
+  prefix_ = prefix;
+
+  // The lock makes FirstFreeGeneration's scan-then-claim atomic against
+  // another process; a prefix that cannot be locked leaves tracing
+  // disabled, the only outcome that keeps the no-replace promise.
+  lock_fd_ =
+      ::open((prefix_ + ".lock").c_str(), O_RDWR | O_CREAT | O_CLOEXEC, 0644);
+  if (lock_fd_ < 0 || ::flock(lock_fd_, LOCK_EX | LOCK_NB) != 0) {
+    if (lock_fd_ >= 0) ::close(lock_fd_);
+    lock_fd_ = -1;
+    enabled_ = false;
+    return;
+  }
+
+  const auto generation = FirstFreeGeneration(prefix_);
+  if (!generation.has_value()) {
+    // The lock must not outlive a producer that will never publish.
+    ::close(lock_fd_);
+    lock_fd_ = -1;
+    enabled_ = false;
+    return;
+  }
+  dump_generation_ = *generation;
+  groups_.resize(kGroupCapacity);
+  closes_.resize(kCloseCapacity);
+  slots_.reset(new Slot[kMaxSlots]);
+  for (size_t i = 0; i < kMaxSlots; ++i) slots_[i].rows.resize(kCommitCapacity);
+  InstallDumpSignal();
+  // The request arrives as a flag from a signal handler; a thread outside
+  // every measured path is what turns it into files.
+  dumper_ = std::thread([this] {
+    while (!dumper_stop_.load(std::memory_order_relaxed)) {
+      if (dump_requested_.exchange(false, std::memory_order_relaxed)) Dump();
+      std::this_thread::sleep_for(kDumpPoll);
+    }
+  });
+}
+
+FlushTrace::~FlushTrace() {
+  if (!enabled_) return;
+  dumper_stop_.store(true, std::memory_order_relaxed);
+  if (dumper_.joinable()) dumper_.join();
+  if (lock_fd_ >= 0) ::close(lock_fd_);
+}
+
 void FlushTrace::InstallDumpSignal() {
   struct sigaction action = {};
   action.sa_handler = OnDumpSignal;
@@ -70,35 +130,30 @@ void FlushTrace::InstallDumpSignal() {
   }
 }
 
-uint64_t FlushTrace::FirstFreeGeneration(const std::string &prefix,
-                                         bool *usable) {
-  // The groups file is written for every generation, so its absence marks the
-  // first free one. Only a name that is absent counts as free: a name that
+std::optional<uint64_t> FlushTrace::FirstFreeGeneration(
+    const std::string &prefix) {
+  // The groups file is written for every generation, so its absence marks
+  // the first free one. Only a name that is absent counts as free: a name that
   // cannot be examined might already hold a published census, and replacing it
   // is what this exists to prevent.
-  constexpr uint64_t kCeiling = 4096;
-  for (uint64_t generation = 0; generation < kCeiling; ++generation) {
+  constexpr uint64_t kMaxGenerations = 4096;
+  for (uint64_t generation = 0; generation < kMaxGenerations; ++generation) {
     const std::string path =
         prefix + "_g" + std::to_string(generation) + "_groups.csv";
     struct stat info {};
     if (::stat(path.c_str(), &info) == 0) continue;
-    if (errno == ENOENT) {
-      *usable = true;
-      return generation;
-    }
+    if (errno == ENOENT) return generation;
     std::fprintf(stderr,
                  "flush trace: %s cannot be examined (errno %d); tracing is "
                  "disabled rather than risk replacing a census\n",
                  path.c_str(), errno);
-    *usable = false;
-    return 0;
+    return std::nullopt;
   }
   std::fprintf(stderr,
                "flush trace: %s already holds %" PRIu64
                " censuses; tracing is disabled rather than replace one\n",
-               prefix.c_str(), kCeiling);
-  *usable = false;
-  return 0;
+               prefix.c_str(), kMaxGenerations);
+  return std::nullopt;
 }
 
 void FlushTrace::Dump() {
@@ -116,8 +171,8 @@ void FlushTrace::Dump() {
   // instant, because the counts are read one after another.  Storage never
   // grows, so rows below a count are settled even while the threads that own
   // them keep writing above it.
-  const uint64_t groups = group_count_.load(std::memory_order_acquire);
-  const uint64_t closes = close_count_.load(std::memory_order_acquire);
+  const uint64_t group_count = group_count_.load(std::memory_order_acquire);
+  const uint64_t close_count = close_count_.load(std::memory_order_acquire);
   std::vector<uint64_t> commit_counts(kMaxSlots);
   uint64_t commit_rows = 0;
   for (size_t i = 0; i < kMaxSlots; ++i) {
@@ -146,7 +201,7 @@ void FlushTrace::Dump() {
                      "publish_enter,publish_exit\n") < 0) {
       return false;
     }
-    for (uint64_t i = 0; i < groups; ++i) {
+    for (uint64_t i = 0; i < group_count; ++i) {
       const GroupRow &row = groups_[i];
       if (std::fprintf(file,
                        "%" PRIu64 ",%u,%u,%" PRIu64 ",%u,%" PRId64 ",%" PRId64
@@ -165,7 +220,7 @@ void FlushTrace::Dump() {
 
   complete &= WriteFile(stem + "_closes.csv", [&](FILE *file) {
     if (std::fprintf(file, "closed,close_enter,close_exit\n") < 0) return false;
-    for (uint64_t i = 0; i < closes; ++i) {
+    for (uint64_t i = 0; i < close_count; ++i) {
       const CloseRow &row = closes_[i];
       if (std::fprintf(file, "%u,%" PRId64 ",%" PRId64 "\n", row.closed,
                        row.close_enter, row.close_exit) < 0) {
@@ -219,9 +274,9 @@ void FlushTrace::Dump() {
                         "%" PRIu64 ",%" PRIu64 ",%" PRIu64 ",%" PRIu64
                         ",%" PRIu64 ",%" PRIu64 ",%" PRIu64 ",%" PRIu64
                         ",%u,%" PRIu64 "\n",
-                        generation, groups, group_drops, closes, close_drops,
-                        commit_rows, commit_drops, unslotted, slots_used,
-                        kSampleEvery) >= 0;
+                        generation, group_count, group_drops, close_count,
+                        close_drops, commit_rows, commit_drops, unslotted,
+                        slots_used, kSampleEvery) >= 0;
   });
   if (!published) return;
   ++dump_generation_;

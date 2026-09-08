@@ -58,11 +58,11 @@ class EpochScanCheckpoint {
     uint64_t primary_rows{0};
     uint64_t secondary_entries{0};
     uint64_t image_bytes{0};
-    uint64_t retries{0};
+    uint64_t version_retries{0};
     int64_t barrier_ms{0};
     int64_t scan_ms{0};
     int64_t write_ms{0};
-    int64_t gate_ms{0};
+    int64_t durability_ms{0};
   };
 
   /**
@@ -73,9 +73,9 @@ class EpochScanCheckpoint {
    * passed over in silence.
    */
   struct Image {
-    enum class Status { Ok, Absent, Unusable };
+    enum class Status { kOk, kAbsent, kUnusable };
 
-    Status status{Status::Absent};
+    Status status{Status::kAbsent};
     EpochNumber cut_epoch{0};
     EpochNumber end_epoch{0};
     EpochNumber wal_frontier_at_publish{0};
@@ -141,20 +141,22 @@ class EpochScanCheckpoint {
   /**
    * @brief What one attempt at one row produced.
    */
-  enum class Capture { Taken, Skipped, Unstable };
+  enum class CaptureResult { kTaken, kSkipped, kUnstable };
 
-  static Capture CapturePrimaryRow(const std::string &table_name,
-                                   std::string_view key, const DataItem &item,
-                                   LogRecord::KeyValuePair *out,
-                                   uint64_t *retries);
-  static Capture CaptureSecondaryEntry(
+  static CaptureResult CapturePrimaryRow(const std::string &table_name,
+                                         std::string_view key,
+                                         const DataItem &item,
+                                         LogRecord::Write *out,
+                                         uint64_t *retries);
+  static CaptureResult CaptureSecondaryEntry(
       const std::string &table_name, const std::string &index_name,
       uint32_t index_type, std::string_view key, const DataItem &item,
-      LogRecord::KeyValuePair *out, uint64_t *retries);
+      LogRecord::Write *out, uint64_t *retries);
   bool CaptureTable(Table &table, LogRecord *record, Stats *stats);
   bool Publish(const LogRecords &records, Stats *stats);
   void Loop();
-  bool WaitFor(uint64_t milliseconds);
+  /** @return Whether the loop may continue, i.e. no stop was requested. */
+  bool ContinueAfter(uint64_t milliseconds);
 
   const Config &config_;
   TableDictionary &tables_;
@@ -167,8 +169,8 @@ class EpochScanCheckpoint {
   // One capture at a time: two would share the working file, and the older
   // one's durability gate would publish the newer one's bytes.
   std::mutex capture_mutex_;
-  std::mutex mutex_;
-  std::condition_variable cv_;
+  std::mutex stop_mutex_;
+  std::condition_variable stop_cv_;
   bool stop_{false};
   std::thread thread_;
 };

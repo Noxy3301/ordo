@@ -59,15 +59,22 @@ extern char **environ;
 namespace helios::storage {
 namespace util {
 
-inline bool DebugSyncEnabled() {
-  static const bool enabled = [] {
-    constexpr char kPrefix[] = "HELIOS_DEBUG_SYNC_";
+// Every point's environment variable starts with this.
+inline constexpr char kEnvPrefix[] = "HELIOS_DEBUG_SYNC_";
+
+// Longest sleep a point may ask for: a test that wants longer is a hang.
+inline constexpr long kSleepCapMs = 10000;
+
+inline bool DebugSyncArmed() {
+  static const bool armed = [] {
     for (char **e = environ; *e != nullptr; ++e) {
-      if (std::strncmp(*e, kPrefix, sizeof(kPrefix) - 1) == 0) return true;
+      if (std::strncmp(*e, kEnvPrefix, sizeof(kEnvPrefix) - 1) == 0) {
+        return true;
+      }
     }
     return false;
   }();
-  return enabled;
+  return armed;
 }
 
 [[noreturn]] inline void DebugSyncFatal(const char *point_name,
@@ -144,7 +151,7 @@ inline void DebugSyncArriveAndWait(const char *point_name, int arrived_fd,
 
 // Slow path: runs only when at least one point is activated.
 inline void DebugSyncPoint(const char *point_name) {
-  std::string var = "HELIOS_DEBUG_SYNC_";
+  std::string var(kEnvPrefix);
   for (const char *p = point_name; *p != '\0'; ++p) {
     var.push_back(*p == '.' ? '_'
                             : static_cast<char>(std::toupper(
@@ -158,7 +165,7 @@ inline void DebugSyncPoint(const char *point_name) {
     const long ms = DebugSyncParseNonnegative(point_name, &cursor, '\0',
                                               "expected sleep:<ms>");
     std::this_thread::sleep_for(
-        std::chrono::milliseconds(std::min(ms, 10000L)));
+        std::chrono::milliseconds(std::min(ms, kSleepCapMs)));
     return;
   }
 
@@ -179,7 +186,7 @@ inline void DebugSyncPoint(const char *point_name) {
 
 #define HELIOS_DEBUG_SYNC(point_name)                      \
   do {                                                     \
-    if (::helios::storage::util::DebugSyncEnabled()) {     \
+    if (::helios::storage::util::DebugSyncArmed()) {       \
       ::helios::storage::util::DebugSyncPoint(point_name); \
     }                                                      \
   } while (0)

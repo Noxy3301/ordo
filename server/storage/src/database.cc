@@ -38,11 +38,11 @@
 namespace helios::storage {
 
 Database::Database() : db_pimpl_(std::make_unique<Impl>()) {
-  helios::storage::util::InitLog();
+  helios::storage::util::InitDebugLog();
 }
 Database::Database(const Config &config)
     : db_pimpl_(std::make_unique<Impl>(config)) {
-  helios::storage::util::InitLog();
+  helios::storage::util::InitDebugLog();
 }
 
 Database::~Database() noexcept = default;

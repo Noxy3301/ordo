@@ -23,20 +23,16 @@
 #ifndef HELIOS_STORAGE_SRC_UTIL_THREAD_KEY_STORAGE_H
 #define HELIOS_STORAGE_SRC_UTIL_THREAD_KEY_STORAGE_H
 
-#define LIKELY(x) __builtin_expect(!!(x), 1)
-#define UNLIKELY(x) __builtin_expect(!!(x), 0)
-#include <assert.h>
 #include <pthread.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <unistd.h>
 
 #include <atomic>
+#include <cerrno>
 #include <cstdlib>
 #include <functional>
 #include <iostream>
-#include <mutex>
+#include <utility>
+
+namespace helios::storage {
 
 template <class T>
 class ThreadKeyStorage {
@@ -44,14 +40,13 @@ class ThreadKeyStorage {
     TlsNode *prev;
     T payload;
     TlsNode() : prev(nullptr), payload() {}
-    template <class... Ts>
-    TlsNode(Ts... args) : prev(nullptr), payload(&args...) {}
     template <class U>
-    TlsNode(std::function<U()> f) : prev(nullptr), payload(std::move(f())) {}
+    explicit TlsNode(std::function<U()> f)
+        : prev(nullptr), payload(std::move(f())) {}
   };
 
  public:
-  ThreadKeyStorage(int = 0) : head_node_(nullptr) {
+  ThreadKeyStorage() : head_node_(nullptr) {
     int err = ::pthread_key_create(&key_, nullptr);
     if (err != 0) {
       // Every access below reads an uninitialized key otherwise.
@@ -80,53 +75,13 @@ class ThreadKeyStorage {
   template <class U>
   T *Get(std::function<U()> &&func) {
     void *ptr = pthread_getspecific(key_);
-    if (ptr == nullptr) {
-      TlsNode *new_obj = new TlsNode(std::move(func));
-      int err = ::pthread_setspecific(key_, new_obj);
-      if (err == ENOMEM) {
-        std::cerr << "::pthread_setspecific failed: no enough memory"
-                  << std::endl;
-        exit(EXIT_FAILURE);
-      } else if (err == EINVAL) {
-        std::cerr << "::pthread_setspecific failed: invalid key" << std::endl;
-        exit(EXIT_FAILURE);
-      }
-      for (;;) {
-        TlsNode *old = head_node_.load();
-        new_obj->prev = old;
-        bool ret = head_node_.compare_exchange_weak(old, new_obj);
-        if (ret) {
-          break;
-        }
-      }
-      ptr = new_obj;
-    }
+    if (ptr == nullptr) ptr = Install(new TlsNode(std::move(func)));
     return &reinterpret_cast<TlsNode *>(ptr)->payload;
   }
 
   T *Get() {
     void *ptr = pthread_getspecific(key_);
-    if (ptr == nullptr) {
-      TlsNode *new_obj = new TlsNode();
-      int err = ::pthread_setspecific(key_, new_obj);
-      if (err == ENOMEM) {
-        std::cerr << "::pthread_setspecific failed: no enough memory"
-                  << std::endl;
-        exit(EXIT_FAILURE);
-      } else if (err == EINVAL) {
-        std::cerr << "::pthread_setspecific failed: invalid key" << std::endl;
-        exit(EXIT_FAILURE);
-      }
-      for (;;) {
-        TlsNode *old = head_node_.load();
-        new_obj->prev = old;
-        bool ret = head_node_.compare_exchange_weak(old, new_obj);
-        if (ret) {
-          break;
-        }
-      }
-      ptr = new_obj;
-    }
+    if (ptr == nullptr) ptr = Install(new TlsNode());
     return &reinterpret_cast<TlsNode *>(ptr)->payload;
   }
 
@@ -138,18 +93,27 @@ class ThreadKeyStorage {
     }
   }
 
-  void Every(std::function<bool(T *)> &&f) {
-    TlsNode *ptr = head_node_.load();
-    while (ptr != nullptr) {
-      auto result = f(&ptr->payload);
-      if (!result) break;
-      ptr = ptr->prev;
+ private:
+  /**
+   * @brief Binds `node` to this thread and publishes it to the walk.
+   */
+  TlsNode *Install(TlsNode *node) {
+    const int err = ::pthread_setspecific(key_, node);
+    if (err != 0) {
+      std::cerr << "::pthread_setspecific failed: " << err << std::endl;
+      std::abort();
+    }
+    for (;;) {
+      TlsNode *old = head_node_.load();
+      node->prev = old;
+      if (head_node_.compare_exchange_weak(old, node)) return node;
     }
   }
 
- private:
   pthread_key_t key_;
   std::atomic<TlsNode *> head_node_;
 };
+
+}  // namespace helios::storage
 
 #endif  // HELIOS_STORAGE_SRC_UTIL_THREAD_KEY_STORAGE_H

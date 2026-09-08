@@ -255,7 +255,7 @@ WriteSetType BuildRecoverySet(const LogRecords &image, const LogRecords &tail) {
 
 Logger::Logger(const Config &config, WalIo io)
     : work_dir_(config.work_dir), replays_(config.enable_recovery) {
-  helios::storage::util::InitLog();
+  helios::storage::util::InitDebugLog();
   logger_ = std::make_unique<ThreadLocalLogger>(
       config, [this](EpochNumber frontier) { PublishDurable(frontier); },
       [this](int error_number) { PublishFailure(error_number); },

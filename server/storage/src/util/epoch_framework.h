@@ -43,7 +43,7 @@ namespace epoch {
  * @brief The monotonically increasing number every thread shares, and the
  *        registry of the threads that participate in it.
  *
- * @details An object stamped with an epoch at or above #current_epoch may
+ * @details An object stamped with an epoch at or above #GetGlobalEpoch may
  * still be reachable by another thread, so it cannot be freed. Reclamation
  * waits until the epoch has passed.
  * @see [Silo]: https://dl.acm.org/doi/10.1145/2517349.2522713
@@ -52,19 +52,18 @@ namespace epoch {
  */
 class Framework {
  public:
-  static constexpr EpochNumber THREAD_OFFLINE = UINT32_MAX;
+  static constexpr EpochNumber kThreadOffline = UINT32_MAX;
 
- public:
   Framework(size_t epoch_duration_ms = 40)
       : start_(false),
         stop_(false),
         global_epoch_(1),
         epoch_writer_([=]() { EpochWriterJob(epoch_duration_ms); }) {}
-  Framework(size_t epoch_duration_ms, std::function<void(EpochNumber)> &&pt)
+  Framework(size_t epoch_duration_ms, std::function<void(EpochNumber)> &&hook)
       : start_(false),
         stop_(false),
         global_epoch_(1),
-        publish_target_(pt),
+        epoch_hook_(std::move(hook)),
         epoch_writer_([=]() { EpochWriterJob(epoch_duration_ms); }) {}
 
   ~Framework() { Stop(); }
@@ -74,15 +73,14 @@ class Framework {
   EpochNumber GetGlobalEpoch() const { return global_epoch_.load(); }
 
   /**
-   * @brief Returns the epoch this thread participates in, or #THREAD_OFFLINE
+   * @brief Returns the epoch this thread participates in, or #kThreadOffline
    *        for none.
    *
    * @details The slot stays private so that every access to it shares one
    * sequentially consistent order with #GetSmallestEpoch's scan.
    */
   EpochNumber ThreadEpoch() {
-    std::atomic<EpochNumber> *my_epoch =
-        tls_.Get<EpochNumber>([]() { return THREAD_OFFLINE; });
+    std::atomic<EpochNumber> *my_epoch = ThreadSlot();
     return my_epoch->load(std::memory_order_seq_cst);
   }
 
@@ -94,10 +92,9 @@ class Framework {
    */
   void SetThreadEpoch(const EpochNumber epoch) {
     assert(!start_.load(std::memory_order_seq_cst));
-    assert(epoch != THREAD_OFFLINE);
-    std::atomic<EpochNumber> *my_epoch =
-        tls_.Get<EpochNumber>([]() { return THREAD_OFFLINE; });
-    assert(my_epoch->load(std::memory_order_seq_cst) != THREAD_OFFLINE);
+    assert(epoch != kThreadOffline);
+    std::atomic<EpochNumber> *my_epoch = ThreadSlot();
+    assert(my_epoch->load(std::memory_order_seq_cst) != kThreadOffline);
     my_epoch->store(epoch, std::memory_order_seq_cst);
   }
 
@@ -117,9 +114,8 @@ class Framework {
    * contract above exists.
    */
   EpochNumber Join() {
-    std::atomic<EpochNumber> *my_epoch =
-        tls_.Get<EpochNumber>([]() { return THREAD_OFFLINE; });
-    assert(my_epoch->load(std::memory_order_seq_cst) == THREAD_OFFLINE);
+    std::atomic<EpochNumber> *my_epoch = ThreadSlot();
+    assert(my_epoch->load(std::memory_order_seq_cst) == kThreadOffline);
 
     EpochNumber published = global_epoch_.load(std::memory_order_seq_cst);
     for (;;) {
@@ -136,14 +132,20 @@ class Framework {
   }
 
   void Leave() {
-    std::atomic<EpochNumber> *my_epoch =
-        tls_.Get<EpochNumber>([]() { return THREAD_OFFLINE; });
-    assert(my_epoch->load(std::memory_order_seq_cst) != THREAD_OFFLINE);
-    my_epoch->store(THREAD_OFFLINE, std::memory_order_seq_cst);
+    std::atomic<EpochNumber> *my_epoch = ThreadSlot();
+    assert(my_epoch->load(std::memory_order_seq_cst) != kThreadOffline);
+    my_epoch->store(kThreadOffline, std::memory_order_seq_cst);
   }
 
+  /**
+   * @brief Waits for the global epoch to advance twice, or for Stop().
+   *
+   * @details Two advances is what covers every thread: one for the threads
+   * that were in the epoch this call observed, and one for the threads that
+   * joined the next.
+   */
   EpochNumber Sync() {
-    assert(ThreadEpoch() == THREAD_OFFLINE);
+    assert(ThreadEpoch() == kThreadOffline);
     size_t reload_count = 0;
     for (;;) {
       auto current_epoch = global_epoch_.load();
@@ -157,11 +159,6 @@ class Framework {
       if (stop_.load()) return reload_epoch;
       reload_count++;
 
-      // Note that each thread always belongs to either one of the two epochs,
-      // the old one and the one that matches the global epoch.
-      // The first while loop waits for all threads that are in the old epoch
-      // when Sync() is called. The next while loop waits for all threads to
-      // progress to the next epoch.
       if (reload_count == 2) return reload_epoch;
     }
   }
@@ -200,7 +197,7 @@ class Framework {
   // one step of a longer bounded operation cannot restart the clock.
   bool WaitEpochUntil(EpochNumber target,
                       std::chrono::steady_clock::time_point deadline) {
-    assert(ThreadEpoch() == THREAD_OFFLINE);
+    assert(ThreadEpoch() == kThreadOffline);
     if (global_epoch_.load() >= target) return true;
     if (target > kEpochHighWater) return false;
     std::unique_lock<std::mutex> lk(epoch_mtx_);
@@ -232,10 +229,22 @@ class Framework {
     if (epoch_writer_.joinable()) epoch_writer_.join();
   }
 
- public:
-  uint32_t GetSmallestEpoch() {
-    uint32_t min_epoch = THREAD_OFFLINE;
-    tls_.ForEach([&](const std::atomic<EpochNumber> *local_epoch) {
+ private:
+  /**
+   * @brief This thread's epoch slot, created offline on first use.
+   */
+  std::atomic<EpochNumber> *ThreadSlot() {
+    return thread_epochs_.Get<EpochNumber>([]() { return kThreadOffline; });
+  }
+
+  /**
+
+   * @brief The lowest epoch any online thread holds, or kThreadOffline.
+
+   */
+  EpochNumber GetSmallestEpoch() {
+    EpochNumber min_epoch = kThreadOffline;
+    thread_epochs_.ForEach([&](const std::atomic<EpochNumber> *local_epoch) {
       const EpochNumber e = local_epoch->load(std::memory_order_seq_cst);
       if (0 < e && e < min_epoch) {
         min_epoch = e;
@@ -246,7 +255,9 @@ class Framework {
   }
 
   void EpochWriterJob(size_t epoch_duration_ms) {
-    const uint64_t epoch_duration = epoch_duration_ms * 1000 * 1000;
+    const auto epoch_duration =
+        std::chrono::duration_cast<std::chrono::nanoseconds>(
+            std::chrono::milliseconds(epoch_duration_ms));
     {
       std::unique_lock<std::mutex> lk(epoch_mtx_);
       epoch_cv_.wait(lk, [&] { return start_.load(); });
@@ -257,14 +268,14 @@ class Framework {
       if (stop_.load()) {
         // Post-stop the predicate below stays true; plain sleep keeps the
         // cadence while draining still-online threads
-        std::this_thread::sleep_for(std::chrono::nanoseconds(epoch_duration));
+        std::this_thread::sleep_for(epoch_duration);
       } else {
         // Forced requests wake the writer early; the advance condition
         // below still gates
         std::unique_lock<std::mutex> lk(epoch_mtx_);
-        forced_wake = worker_cv_.wait_for(
-            lk, std::chrono::nanoseconds(epoch_duration),
-            [&] { return advance_requested_.load() || stop_.load(); });
+        forced_wake = worker_cv_.wait_for(lk, epoch_duration, [&] {
+          return advance_requested_.load() || stop_.load();
+        });
         advance_requested_.store(false);
       }
       EpochNumber min_epoch = GetSmallestEpoch();
@@ -274,7 +285,7 @@ class Framework {
         // margin; timer cadence continues
         continue;
       }
-      if (min_epoch == THREAD_OFFLINE || min_epoch == old_epoch) {
+      if (min_epoch == kThreadOffline || min_epoch == old_epoch) {
         if (old_epoch >= kEpochHighWater) {
           // Stopping here is the conservative end, including during the
           // post-Stop() drain: an epoch that wraps stops ordering against
@@ -294,13 +305,12 @@ class Framework {
         }
         EpochNumber updated = global_epoch_.load();
         epoch_cv_.notify_all();
-        if (publish_target_) publish_target_(updated);
+        if (epoch_hook_) epoch_hook_(updated);
       }
-      if (stop_.load() && min_epoch == THREAD_OFFLINE) break;
+      if (stop_.load() && min_epoch == kThreadOffline) break;
     }
   }
 
- private:
   std::atomic<bool> start_;
   std::atomic<bool> stop_;
   std::atomic<bool> advance_requested_{false};
@@ -308,9 +318,9 @@ class Framework {
   std::mutex epoch_mtx_;
   std::condition_variable epoch_cv_;
   std::condition_variable worker_cv_;
-  const std::function<void(EpochNumber)> publish_target_;
+  const std::function<void(EpochNumber)> epoch_hook_;
   std::thread epoch_writer_;
-  ThreadKeyStorage<std::atomic<EpochNumber>> tls_;
+  ThreadKeyStorage<std::atomic<EpochNumber>> thread_epochs_;
 };
 
 }  // namespace epoch

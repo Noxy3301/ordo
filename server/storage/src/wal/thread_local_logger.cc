@@ -44,7 +44,7 @@ ThreadLocalLogger::ThreadLocalLogger(const Config &config,
       publish_durable_(std::move(publish_durable)),
       publish_failure_(std::move(publish_failure)),
       read_durable_(std::move(read_durable)) {
-  helios::storage::util::InitLog();
+  helios::storage::util::InitDebugLog();
 }
 
 ThreadLocalLogger::~ThreadLocalLogger() { StopFlusher(); }

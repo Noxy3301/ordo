@@ -28,14 +28,11 @@
 #define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_DEBUG
 #endif
 
-#include <spdlog/async.h>
-#include <spdlog/async_logger.h>
-#include <spdlog/sinks/stdout_color_sinks.h>
 #include <spdlog/spdlog.h>
 
 namespace helios::storage {
 namespace util {
-static inline void InitLog() {
+static inline void InitDebugLog() {
 #ifdef NDEBUG
   spdlog::set_level(spdlog::level::info);
 #else

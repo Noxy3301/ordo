@@ -120,8 +120,8 @@ struct RcuFreeCallback : public threadinfo::mrcu_callback {
 inline void RcuFree(DataItem *item) {
   if (item == nullptr) return;
   void *mem = tls_ti->allocate(sizeof(RcuFreeCallback), memtag_masstree_gc);
-  auto *cb = new (mem) RcuFreeCallback(item);
-  tls_ti->rcu_register(cb);
+  auto *operation = new (mem) RcuFreeCallback(item);
+  tls_ti->rcu_register(operation);
 }
 
 // Three-way comparison of a range bound with a scanned key, memcmp style.
@@ -144,7 +144,7 @@ struct ScanAdapter {
   const char *end_ptr;
   size_t end_len;
   bool has_end;
-  std::function<bool(std::string_view)> cb;
+  std::function<bool(std::string_view)> operation;
   size_t count = 0;
 
   template <typename SS, typename K>
@@ -155,7 +155,8 @@ struct ScanAdapter {
     if (has_end && KeyCmp(end_ptr, end_len, key) <= 0) return false;
     if (has_begin && KeyCmp(begin_ptr, begin_len, key) > 0) return false;
     ++count;
-    if (cb(std::string_view(key.s, key.len))) return false;  // caller cancel
+    if (operation(std::string_view(key.s, key.len)))
+      return false;  // caller cancel
     return true;
   }
 };
@@ -167,7 +168,7 @@ struct ScanValueAdapter {
   const char *end_ptr;
   size_t end_len;
   bool has_end;
-  std::function<bool(std::string_view, DataItem &)> cb;
+  std::function<bool(std::string_view, DataItem &)> operation;
   size_t count = 0;
 
   template <typename SS, typename K>
@@ -177,7 +178,7 @@ struct ScanValueAdapter {
     if (has_end && KeyCmp(end_ptr, end_len, key) <= 0) return false;
     if (has_begin && KeyCmp(begin_ptr, begin_len, key) > 0) return false;
     ++count;
-    if (cb(std::string_view(key.s, key.len), *val)) return false;
+    if (operation(std::string_view(key.s, key.len), *val)) return false;
     return true;
   }
 };
@@ -234,9 +235,9 @@ struct MasstreeIndex::Impl {
   }
 
   // Upsert with a freshly-allocated DataItem. Returns true on success.
-  bool Put(std::string_view key, DataItem &&rhs) {
+  bool Put(std::string_view key, DataItem &&value) {
     ensure_thread_active();
-    auto *fresh = new DataItem(std::move(rhs));
+    auto *fresh = new DataItem(std::move(value));
     cursor_type lp(table_, key.data(), key.size());
     bool found = lp.find_insert(*tls_ti);
     if (found) {
@@ -374,8 +375,8 @@ void MasstreeIndex::SetPaxStore(pax::PaxStore *store) {
 
 DataItem *MasstreeIndex::Get(std::string_view key) { return impl_->Get(key); }
 
-bool MasstreeIndex::Put(std::string_view key, DataItem &&rhs) {
-  return impl_->Put(key, std::move(rhs));
+bool MasstreeIndex::Put(std::string_view key, DataItem &&value) {
+  return impl_->Put(key, std::move(value));
 }
 
 void MasstreeIndex::PutBlank(std::string_view key) { impl_->PutBlank(key); }

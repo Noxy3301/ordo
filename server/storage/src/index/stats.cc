@@ -22,7 +22,7 @@ namespace {
 
 // Exclusive end of a whole-index scan: a stored key opens with the null
 // marker of its first part, never with 0xFF.
-const std::string kScanEnd(16, '\xff');
+const std::string kSupremum(16, '\xff');
 
 // Stable-read base-row liveness without copying the row payload.
 bool StableLive(const DataItem &item) {
@@ -91,7 +91,7 @@ bool Database::Impl::IndexNdv(const std::string_view table_name,
 
   if (index_name.empty()) {
     // Primary index entries are base rows, so count live rows directly.
-    primary_index.Scan(std::string_view(), std::string_view(kScanEnd),
+    primary_index.Scan(std::string_view(), std::string_view(kSupremum),
                        [&](std::string_view key, DataItem &item) -> bool {
                          if (!StableLive(item)) return false;
                          return count_key(key);
@@ -126,7 +126,7 @@ bool Database::Impl::IndexNdv(const std::string_view table_name,
       return false;
     };
 
-    index->Scan(std::string_view(), std::string_view(kScanEnd),
+    index->Scan(std::string_view(), std::string_view(kSupremum),
                 [&](std::string_view key) -> bool {
                   DataItem *item = index->Get(key);
                   if (item == nullptr || !stable_live_secondary(*item)) {
@@ -182,7 +182,7 @@ bool Database::Impl::IndexHistogram(const std::string_view table_name,
   auto walk = [&](auto &&fn) {
     if (index_name.empty()) {
       table.value()->GetPrimaryIndex().Scan(
-          std::string_view(), std::string_view(kScanEnd),
+          std::string_view(), std::string_view(kSupremum),
           [&](std::string_view key, DataItem &di) -> bool {
             if (StableLive(di)) return fn(key, static_cast<uint64_t>(1));
             return false;
@@ -194,7 +194,7 @@ bool Database::Impl::IndexHistogram(const std::string_view table_name,
         malformed = true;
         return;
       }
-      index->Scan(std::string_view(), std::string_view(kScanEnd),
+      index->Scan(std::string_view(), std::string_view(kSupremum),
                   [&](std::string_view key) -> bool {
                     DataItem *item = index->Get(key);
                     if (item == nullptr) return false;

@@ -239,7 +239,7 @@ bool Resolve(Ctx &c, std::shared_mutex &schema_mutex) {
     if (op.is_delete) {
       item = index->GetOrInsert(op.secondary_key);
     } else {
-      item = index->GetOrInsertForWrite(op.secondary_key);
+      item = index->GetOrInsertIfNoLiveKeys(op.secondary_key);
     }
     assert(item != nullptr);  // both paths materialize a blank slot
 

@@ -352,6 +352,10 @@ void Database::Impl::Recover() {
   }
 
   const EpochNumber durable_epoch = recovered.frontier;
+  // Refuse before stamping the frontier on this thread: the scanner accepts a
+  // frontier of UINT32_MAX, which is the registry's offline sentinel. The
+  // epochs the records carry are checked again at the end.
+  ResumeEpochAbove(durable_epoch);
   EpochNumber highest_epoch = std::max<EpochNumber>(1, durable_epoch);
   SPDLOG_DEBUG("  Durable epoch is resumed from {0}", durable_epoch);
 

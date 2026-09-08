@@ -20,9 +20,6 @@ void Reaper::Enqueue(PrimaryIndex *primary_index,
                      SecondaryIndex *secondary_index, std::string_view key,
                      DataItem *item, TransactionId delete_commit_tid) {
   Tombstone tombstone;
-  tombstone.kind = secondary_index == nullptr
-                       ? DeferredPurgeIndexKind::Primary
-                       : DeferredPurgeIndexKind::Secondary;
   tombstone.primary_index = primary_index;
   tombstone.secondary_index = secondary_index;
   tombstone.key = std::string(key);
@@ -34,24 +31,18 @@ void Reaper::Enqueue(PrimaryIndex *primary_index,
 }
 
 DataItem *Reaper::Get(const Tombstone &tombstone) {
-  if (tombstone.kind == DeferredPurgeIndexKind::Primary) {
-    return tombstone.primary_index == nullptr
-               ? nullptr
-               : tombstone.primary_index->Get(tombstone.key);
+  if (tombstone.primary_index != nullptr) {
+    return tombstone.primary_index->Get(tombstone.key);
   }
-  return tombstone.secondary_index == nullptr
-             ? nullptr
-             : tombstone.secondary_index->Get(tombstone.key);
+  return tombstone.secondary_index->Get(tombstone.key);
 }
 
 bool Reaper::Purge(const Tombstone &tombstone, TransactionId retired_tid) {
-  if (tombstone.kind == DeferredPurgeIndexKind::Primary) {
-    return tombstone.primary_index != nullptr &&
-           tombstone.primary_index->Purge(tombstone.key, tombstone.item,
+  if (tombstone.primary_index != nullptr) {
+    return tombstone.primary_index->Purge(tombstone.key, tombstone.item,
                                           retired_tid);
   }
-  return tombstone.secondary_index != nullptr &&
-         tombstone.secondary_index->Purge(tombstone.key, tombstone.item,
+  return tombstone.secondary_index->Purge(tombstone.key, tombstone.item,
                                           retired_tid);
 }
 
@@ -101,11 +92,10 @@ void Reaper::Reap(EpochNumber published_epoch) {
       item->transaction_id.store(tombstone.delete_commit_tid);
     };
 
-    const bool item_initialized =
-        tombstone.kind == DeferredPurgeIndexKind::Primary
-            ? item->HasRow()
-            : item->IsInitialized();
-    if (item_initialized) {
+    const bool live = tombstone.primary_index != nullptr
+                          ? item->HasRow()
+                          : item->IsInitialized();
+    if (live) {
       unlock();
       continue;
     }

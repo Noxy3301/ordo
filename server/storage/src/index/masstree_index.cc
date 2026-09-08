@@ -238,13 +238,9 @@ struct MasstreeIndex::Impl {
     auto *fresh = new DataItem(std::move(value));
     cursor_type lp(table_, key.data(), key.size());
     bool found = lp.find_insert(*tls_ti);
-    if (found) {
-      // Overwrite an existing slot. The previous DataItem is leaked because
-      // a concurrent reader may still hold the raw pointer Get() returned.
-      lp.value() = fresh;  // FIXME: retire the old item through RCU
-    } else {
-      lp.value() = fresh;
-    }
+    // On an overwrite the previous DataItem is leaked: a concurrent reader
+    // may still hold the raw pointer Get() returned.
+    lp.value() = fresh;  // FIXME: retire the old item through RCU
     fence();
     // 1 == structural insert (bumps the leaf's vinsert counter), 0 == in-place
     // overwrite. Claiming an insert on overwrite would falsely trigger phantom
@@ -361,8 +357,7 @@ struct MasstreeIndex::Impl {
   }
 };
 
-MasstreeIndex::MasstreeIndex(Config /*c*/, epoch::Framework & /*e*/)
-    : impl_(std::make_unique<Impl>()) {}
+MasstreeIndex::MasstreeIndex() : impl_(std::make_unique<Impl>()) {}
 
 MasstreeIndex::~MasstreeIndex() = default;
 

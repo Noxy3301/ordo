@@ -29,18 +29,13 @@
 
 #include "index/data_item.h"
 #include "index/masstree_index.h"
-#include "silo/snapshot.h"
-#include "storage/config.h"
-#include "util/epoch.h"
-#include "util/epoch_framework.h"
 
 namespace helios::storage {
 namespace index {
 
 class PrimaryIndex {
  public:
-  PrimaryIndex(epoch::Framework &epoch_framework, Config config = Config(),
-               WriteSetType recovery_set = WriteSetType());
+  PrimaryIndex() = default;
 
   /**
    * @brief Routes future primary-row placeholders through `store`.
@@ -50,7 +45,7 @@ class PrimaryIndex {
   DataItem *Get(const std::string_view key);
   DataItem *GetOrInsert(const std::string_view key);
   void Put(const std::string_view key, DataItem &&value);
-  void ForEach(std::function<bool(std::string_view, DataItem &)>);
+  void ForEach(std::function<bool(std::string_view, DataItem &)> operation);
   size_t Scan(const std::string_view begin,
               const std::optional<std::string_view> end,
               std::function<bool(std::string_view)> operation);
@@ -70,7 +65,6 @@ class PrimaryIndex {
 
  private:
   MasstreeIndex index_;
-  helios::storage::epoch::Framework &epoch_manager_ref_;
 };
 }  // namespace index
 }  // namespace helios::storage

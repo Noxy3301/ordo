@@ -42,12 +42,10 @@ class TableDictionary {
     }
   }
 
-  bool CreateTable(std::string_view table_name,
-                   epoch::Framework &epoch_framework, const Config &config) {
+  bool CreateTable(std::string_view table_name) {
     std::lock_guard<std::mutex> lk(create_mtx_);
     if (Find(table_name) != nullptr) return false;
-    auto *node = new Node(table_name, epoch_framework, config,
-                          head_.load(std::memory_order_relaxed));
+    auto *node = new Node(table_name, head_.load(std::memory_order_relaxed));
     head_.store(node, std::memory_order_release);
     return true;
   }
@@ -71,9 +69,7 @@ class TableDictionary {
     Table table;
     Node *next;
 
-    Node(std::string_view n, epoch::Framework &epoch_framework,
-         const Config &config, Node *next)
-        : name(n), table(epoch_framework, config, n), next(next) {}
+    Node(std::string_view n, Node *next) : name(n), table(n), next(next) {}
   };
 
   Node *Find(std::string_view table_name) const {

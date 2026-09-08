@@ -7,21 +7,20 @@
 #ifndef HELIOS_STORAGE_SRC_INDEX_SECONDARY_INDEX_H
 #define HELIOS_STORAGE_SRC_INDEX_SECONDARY_INDEX_H
 
+#include <string_view>
+#include <utility>
+
 #include "index/index_constraint.h"
 #include "index/masstree_index.h"
-#include "silo/snapshot.h"
 #include "silo/stable_read.h"
-#include "util/epoch_framework.h"
 
 namespace helios::storage {
 namespace index {
 
 class SecondaryIndex {
  public:
-  SecondaryIndex(epoch::Framework &epoch_framework, Config config = Config(),
-                 IndexConstraint index_type = IndexConstraint(),
-                 [[maybe_unused]] WriteSetType recovery_set = WriteSetType())
-      : index_type_(index_type), index_(config, epoch_framework) {}
+  explicit SecondaryIndex(IndexConstraint index_type = IndexConstraint())
+      : index_type_(index_type) {}
 
   DataItem *Get(std::string_view key) { return index_.Get(key); }
 
@@ -71,7 +70,7 @@ class SecondaryIndex {
     index_.Put(key, std::move(value));
   }
 
-  bool IsUnique() { return index_type_.IsUnique(); }
+  bool IsUnique() const { return index_type_.IsUnique(); }
 
   IndexConstraint GetIndexType() const { return index_type_; }
 

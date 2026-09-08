@@ -32,20 +32,27 @@ struct StablePrimaryKeys {
   PackedPrimaryKeys::Ptr primary_keys;
   TransactionId tid;
 
+  // Valid while this struct lives: the view points into the list it pins.
   PackedPrimaryKeysView primary_keys_view() const {
     return PackedPrimaryKeysView(primary_keys);
   }
-
-  std::vector<std::string> primary_keys_vector() const {
-    std::vector<std::string> result;
-    const auto view = primary_keys_view();
-    result.reserve(view.size());
-    for (std::string_view primary_key : view) {
-      result.emplace_back(primary_key.data(), primary_key.size());
-    }
-    return result;
-  }
 };
+
+/**
+ * @brief Stable read of a base row's liveness, without copying its payload.
+ */
+inline bool StableLive(const DataItem &item) {
+  for (;;) {
+    TransactionId tid = item.transaction_id.load();
+    if (tid.tid & 1u) {
+      _mm_pause();
+      continue;
+    }
+
+    const bool live = item.HasRow();
+    if (item.transaction_id.load() == tid) return live;
+  }
+}
 
 /**
  * @brief Stable read of a base-row DataItem.

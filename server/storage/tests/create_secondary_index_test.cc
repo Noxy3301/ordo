@@ -73,10 +73,7 @@ TEST_F(CreateSecondaryIndexTest, CreateSecondaryIndexOnNonExistentTable) {
 }
 
 TEST(SecondaryIndexConstraintTest, GetOrCreateRefusesADifferentConstraint) {
-  helios::storage::epoch::Framework epoch;
-  epoch.Start();
-  const helios::storage::Config config;
-  helios::storage::Table table(epoch, config, "users");
+  helios::storage::Table table("users");
   const helios::storage::index::IndexConstraint unique(
       helios::storage::index::IndexConstraint::kUnique);
   const helios::storage::index::IndexConstraint none;

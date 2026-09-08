@@ -30,7 +30,7 @@ namespace index {
  */
 class MasstreeIndex final {
  public:
-  MasstreeIndex(Config c, epoch::Framework &e);
+  MasstreeIndex();
   ~MasstreeIndex();
 
   /**

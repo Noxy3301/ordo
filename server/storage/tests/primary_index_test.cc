@@ -34,39 +34,29 @@
 #include "util/spdlog.h"
 
 TEST(PrimaryIndexTest, Instantiate) {
-  helios::storage::epoch::Framework epoch;
-  epoch.Start();
-  ASSERT_NO_THROW(helios::storage::index::PrimaryIndex table(epoch));
+  ASSERT_NO_THROW(helios::storage::index::PrimaryIndex table);
 }
 
 TEST(PrimaryIndexTest, Put) {
-  helios::storage::epoch::Framework epoch;
-  epoch.Start();
-  helios::storage::index::PrimaryIndex table(epoch);
+  helios::storage::index::PrimaryIndex table;
   table.Put("alice", helios::storage::DataItem{});
 }
 
 TEST(PrimaryIndexTest, Get) {
-  helios::storage::epoch::Framework epoch;
-  epoch.Start();
-  helios::storage::index::PrimaryIndex table(epoch);
+  helios::storage::index::PrimaryIndex table;
   ASSERT_EQ(nullptr, table.Get("alice"));
   table.Put("alice", {});
   ASSERT_NE(nullptr, table.Get("alice"));
 }
 
 TEST(PrimaryIndexTest, GetOrInsert) {
-  helios::storage::epoch::Framework epoch;
-  epoch.Start();
-  helios::storage::index::PrimaryIndex table(epoch);
+  helios::storage::index::PrimaryIndex table;
   ASSERT_NE(nullptr, table.GetOrInsert("alice"));
 }
 
 TEST(PrimaryIndexTest, ConcurrentInserting) {
   std::vector<std::thread> threads;
-  helios::storage::epoch::Framework epoch;
-  epoch.Start();
-  helios::storage::index::PrimaryIndex table(epoch);
+  helios::storage::index::PrimaryIndex table;
 
   for (size_t i = 0; i < 10; i++) {
     threads.emplace_back([&, i]() { table.Put(std::to_string(i), {}); });
@@ -82,9 +72,7 @@ TEST(PrimaryIndexTest, ConcurrentInserting) {
 TEST(PrimaryIndexTest, ConcurrentAndConflictedInserting) {
   std::vector<std::thread> threads;
   std::vector<helios::storage::DataItem> items(10);
-  helios::storage::epoch::Framework epoch;
-  epoch.Start();
-  helios::storage::index::PrimaryIndex table(epoch);
+  helios::storage::index::PrimaryIndex table;
 
   for (size_t i = 0; i < 10; i++) {
     threads.emplace_back([&]() { table.Put("alice", {}); });
@@ -102,10 +90,7 @@ TEST(PrimaryIndexTest, ConcurrentAndConflictedInserting) {
 }
 
 TEST(PrimaryIndexTest, Scan) {
-  helios::storage::util::InitLog();
-  helios::storage::epoch::Framework epoch;
-  epoch.Start();
-  helios::storage::index::PrimaryIndex table(epoch);
+  helios::storage::index::PrimaryIndex table;
   table.Put("alice", {});
   table.Put("bob", {});
   table.Put("carol", {});
@@ -113,19 +98,14 @@ TEST(PrimaryIndexTest, Scan) {
   // Scan is half-open: carol is the exclusive upper bound.
   ASSERT_EQ(size_t(2),
             table.Scan("alice", "carol", [](auto) { return false; }));
-  epoch.Sync();
-  epoch.Sync();
-  ASSERT_EQ(size_t(2),
-            table.Scan("alice", "carol", [](auto) { return false; }));
+  // A callback that cancels stops the walk at the first key.
   ASSERT_EQ(size_t(1), table.Scan("alice", "carol", [](auto) { return true; }));
 }
 
 TEST(PrimaryIndexTest, TremendousPut) {
   std::vector<std::thread> threads;
   std::vector<helios::storage::DataItem *> items;
-  helios::storage::epoch::Framework epoch;
-  epoch.Start();
-  helios::storage::index::PrimaryIndex table(epoch);
+  helios::storage::index::PrimaryIndex table;
 
   constexpr size_t working_set_size = 8192;
   for (size_t i = 0; i < 10; i++) {
@@ -144,9 +124,7 @@ TEST(PrimaryIndexTest, TremendousPut) {
 TEST(PrimaryIndexTest, TremendousGetAndPut) {
   std::vector<std::thread> threads;
   std::vector<helios::storage::DataItem *> items;
-  helios::storage::epoch::Framework epoch;
-  epoch.Start();
-  helios::storage::index::PrimaryIndex table(epoch);
+  helios::storage::index::PrimaryIndex table;
 
   constexpr size_t working_set_size = 8192;
   for (size_t i = 0; i < 10; i++) {
@@ -167,9 +145,7 @@ TEST(PrimaryIndexTest, ForEachIsSafeWithRehashing) {
   // Test scenario: #Rehash and #ForEach are concurrently executed.
   std::vector<std::thread> threads;
   std::vector<helios::storage::DataItem *> items;
-  helios::storage::epoch::Framework epoch(1);
-  epoch.Start();
-  helios::storage::index::PrimaryIndex table(epoch);
+  helios::storage::index::PrimaryIndex table;
 
   constexpr size_t working_set_size = 8192;
   for (size_t i = 0; i < 5; i++) {
@@ -196,9 +172,7 @@ TEST(PrimaryIndexTest, ForEachIsSafeWithRehashing) {
 }
 
 TEST(PrimaryIndexTest, ReverseScanCountsOnlyTheKeysItEmits) {
-  helios::storage::epoch::Framework epoch;
-  epoch.Start();
-  helios::storage::index::PrimaryIndex table(epoch);
+  helios::storage::index::PrimaryIndex table;
   for (const char *key : {"a", "b", "c", "d"}) table.Put(key, {});
 
   std::vector<std::string> seen;

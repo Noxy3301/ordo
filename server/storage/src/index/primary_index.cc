@@ -22,23 +22,13 @@
 #include "index/primary_index.h"
 
 #include <functional>
+#include <utility>
 
 #include "index/data_item.h"
 #include "index/masstree_index.h"
-#include "storage/config.h"
-#include "util/epoch.h"
 
 namespace helios::storage {
 namespace index {
-
-PrimaryIndex::PrimaryIndex(epoch::Framework &epoch_framework, Config config,
-                           WriteSetType recovery_set)
-    : index_(config, epoch_framework), epoch_manager_ref_(epoch_framework) {
-  if (recovery_set.empty()) return;
-  for (auto &entry : recovery_set) {
-    index_.Put(entry.key, DataItem(*entry.index_cache));
-  }
-}
 
 DataItem *PrimaryIndex::Get(const std::string_view key) {
   return index_.Get(key);
@@ -54,38 +44,37 @@ DataItem *PrimaryIndex::GetOrInsert(const std::string_view key) {
   return item;
 }
 
-// return false if a corresponding entry already exists
 void PrimaryIndex::Put(const std::string_view key, DataItem &&value) {
   index_.Put(key, std::move(value));
 }
 
 void PrimaryIndex::ForEach(
-    std::function<bool(std::string_view, DataItem &)> f) {
-  index_.ForEach(f);
+    std::function<bool(std::string_view, DataItem &)> operation) {
+  index_.ForEach(std::move(operation));
 }
 
 size_t PrimaryIndex::Scan(const std::string_view begin,
                           const std::optional<std::string_view> end,
                           std::function<bool(std::string_view)> operation) {
-  return index_.Scan(begin, end, operation);
+  return index_.Scan(begin, end, std::move(operation));
 }
 
 size_t PrimaryIndex::Scan(
     const std::string_view begin, const std::string_view end,
     std::function<bool(std::string_view, DataItem &)> operation) {
-  return index_.Scan(begin, end, operation);
+  return index_.Scan(begin, end, std::move(operation));
 }
 
 size_t PrimaryIndex::ScanReverse(
     const std::string_view begin, const std::optional<std::string_view> end,
     std::function<bool(std::string_view)> operation) {
-  return index_.ScanReverse(begin, end, operation);
+  return index_.ScanReverse(begin, end, std::move(operation));
 }
 
 size_t PrimaryIndex::ScanReverse(
     const std::string_view begin, const std::string_view end,
     std::function<bool(std::string_view, DataItem &)> operation) {
-  return index_.ScanReverse(begin, end, operation);
+  return index_.ScanReverse(begin, end, std::move(operation));
 }
 
 }  // namespace index

@@ -145,24 +145,24 @@ struct DataBuffer {
     return *this;
   }
 
-  // NOTE: capacity_or_slot only grows; consider shrink-to-fit if large records
+  // NOTE: the allocation only grows; consider shrink-to-fit if large records
   // cause bloat.
-  void Reset(const std::byte *v, const size_t s) {
+  void Reset(const std::byte *row, const size_t len) {
     if (is_pax()) {
-      ResetPax(v, s);
+      ResetPax(row, len);
       return;
     }
-    if (v == nullptr || s == 0) {
+    if (row == nullptr || len == 0) {
       size = 0;
       return;
     }
-    if (capacity_or_slot < s) {
+    if (capacity_or_slot < len) {
       delete[] value;
-      value = new std::byte[s];
-      capacity_or_slot = s;
+      value = new std::byte[len];
+      capacity_or_slot = len;
     }
-    size = s;
-    std::memcpy(value, v, s);
+    size = len;
+    std::memcpy(value, row, len);
   }
 
   /**
@@ -253,8 +253,8 @@ struct DataBuffer {
    * @details The caller holds the row's TID lock. If the row does not fit its
    * declared cell widths, this buffer permanently switches to heap storage.
    */
-  void ResetPax(const std::byte *v, const size_t s) {
-    if (v == nullptr || s == 0) {
+  void ResetPax(const std::byte *row, const size_t len) {
+    if (row == nullptr || len == 0) {
       if (pax_allocated() && size != 0) {
         CaptureBeforeImage();
         pax_group()->RetireSlot(pax_slot());
@@ -265,23 +265,8 @@ struct DataBuffer {
     if (!pax_allocated()) {
       auto *store = pax_store();
       auto [group, slot] = store->AllocateSlot();
-      if (group == nullptr) {  // Table full: permanent heap fallback.
-        const uint64_t prior = store->overflow_count();
-        if (prior == 0) {
-          SPDLOG_WARN(
-              "PAX heap fallback engaged for table '{}': no free slot "
-              "(row size {})",
-              store->schema().table_name, s);
-        } else {
-          SPDLOG_DEBUG(
-              "PAX heap fallback (no free slot): table '{}' row size {} "
-              "fallback #{}",
-              store->schema().table_name, s, prior + 1);
-        }
-        store->RecordHeapFallback();
-        value = nullptr;
-        capacity_or_slot = 0;
-        Reset(v, s);
+      if (group == nullptr) {
+        FallbackToHeap(store, "no free slot", row, len);
         return;
       }
       assert((reinterpret_cast<uintptr_t>(group) & kPaxMask) == 0);
@@ -290,32 +275,36 @@ struct DataBuffer {
       capacity_or_slot = slot;
     }
     CaptureBeforeImage();
-    if (pax_group()->ScatterRow(pax_slot(), v, s)) {
-      size = s;
+    if (pax_group()->ScatterRow(pax_slot(), row, len)) {
+      size = len;
       return;
     }
 
-    // Row does not fit (width overflow / shape mismatch): permanent heap
-    // fallback for this row. Hide the abandoned slot and disable strip-direct
-    // scans for this table because heap fallback rows are not in strips.
-    auto *store = pax_group()->store();
-    const uint64_t prior = store->overflow_count();
-    if (prior == 0) {
-      SPDLOG_WARN(
-          "PAX heap fallback engaged for table '{}': row does not fit its "
-          "declared cell widths (row size {})",
-          store->schema().table_name, s);
+    // Hide the abandoned slot: strip-direct scans must not read a row this
+    // buffer now keeps on the heap.
+    pax_group()->RetireSlot(pax_slot());
+    FallbackToHeap(pax_group()->store(), "row wider than its cell", row, len);
+  }
+
+  /**
+   * @brief Moves this row to heap storage for good, and records it.
+   *
+   * @details A table with one such row is no longer a complete set of rows in
+   * its strips, which is what the store's counter tells strip-direct readers.
+   */
+  void FallbackToHeap(pax::PaxStore *store, const char *why,
+                      const std::byte *row, const size_t len) {
+    if (store->overflow_count() == 0) {
+      SPDLOG_WARN("PAX heap fallback engaged for table '{}': {} (row size {})",
+                  store->schema().table_name, why, len);
     } else {
-      SPDLOG_DEBUG(
-          "PAX heap fallback (width overflow): table '{}' row size {} "
-          "fallback #{}",
-          store->schema().table_name, s, prior + 1);
+      SPDLOG_DEBUG("PAX heap fallback for table '{}': {} (row size {})",
+                   store->schema().table_name, why, len);
     }
     store->RecordHeapFallback();
-    pax_group()->RetireSlot(pax_slot());
     value = nullptr;
     capacity_or_slot = 0;
-    Reset(v, s);
+    Reset(row, len);
   }
 };
 }  // namespace helios::storage

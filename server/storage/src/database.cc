@@ -257,7 +257,7 @@ std::function<void(EpochNumber)> Database::Impl::EpochHook() {
 }
 
 bool Database::Impl::CreateTable(const std::string_view table_name) {
-  return table_dictionary_.CreateTable(table_name, epoch_framework_, config_);
+  return table_dictionary_.CreateTable(table_name);
 }
 
 bool Database::Impl::CreateSecondaryIndex(const std::string_view table_name,

@@ -15,17 +15,13 @@
 #include "index/primary_index.h"
 #include "index/secondary_index.h"
 #include "pax/store.h"
-#include "storage/config.h"
 #include "storage/pax.h"
-#include "util/epoch.h"
-#include "util/epoch_framework.h"
 
 namespace helios::storage {
 
 class Table {
  public:
-  Table(epoch::Framework &epoch_framework, const Config &config,
-        std::string_view table_name);
+  explicit Table(std::string_view table_name);
 
   bool CreateSecondaryIndex(
       const std::string_view index_name,
@@ -34,9 +30,8 @@ class Table {
     if (secondary_indices_.count(std::string(index_name))) {
       return false;
     }
-    auto new_index = std::make_unique<index::SecondaryIndex>(
-        epoch_framework_, config_, index_type);
-    secondary_indices_[std::string(index_name)] = std::move(new_index);
+    secondary_indices_[std::string(index_name)] =
+        std::make_unique<index::SecondaryIndex>(index_type);
     return true;
   }
 
@@ -100,16 +95,13 @@ class Table {
       const bool same = it->second->GetIndexType().Raw() == index_type.Raw();
       return same ? it->second.get() : nullptr;
     }
-    auto new_index = std::make_unique<index::SecondaryIndex>(
-        epoch_framework_, config_, index_type);
+    auto new_index = std::make_unique<index::SecondaryIndex>(index_type);
     auto *created = new_index.get();
     secondary_indices_[std::string(index_name)] = std::move(new_index);
     return created;
   }
 
  private:
-  epoch::Framework &epoch_framework_;
-  Config config_;
   index::PrimaryIndex primary_index_;
   std::unique_ptr<pax::PaxStore> pax_store_;
   mutable std::shared_mutex table_lock_;

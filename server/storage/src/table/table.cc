@@ -6,22 +6,13 @@
 #include "table/table.h"
 
 #include <shared_mutex>
+#include <string>
 #include <string_view>
-#include <tuple>
-#include <utility>
 
 #include "index/primary_index.h"
-#include "storage/config.h"
-#include "util/epoch_framework.h"
-// #include "index/secondary_index.h"  // now included from table.h
 
 namespace helios::storage {
-Table::Table(epoch::Framework &epoch_framework, const Config &config,
-             std::string_view table_name)
-    : epoch_framework_(epoch_framework),
-      config_(config),
-      primary_index_(epoch_framework, config),
-      table_name_(table_name) {}
+Table::Table(std::string_view table_name) : table_name_(table_name) {}
 
 index::SecondaryIndex *Table::GetSecondaryIndex(
     const std::string_view index_name) {

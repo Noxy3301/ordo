@@ -32,6 +32,8 @@ namespace helios::storage {
 
 struct TransactionId {
   EpochNumber epoch;
+  // Silo's sequence within the epoch. Bit 0 is the row's lock bit, so a live
+  // committed version is always even.
   uint32_t tid;
 
   TransactionId() noexcept : epoch(0), tid(0) {}

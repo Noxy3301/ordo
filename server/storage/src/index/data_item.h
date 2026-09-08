@@ -68,11 +68,11 @@ struct DataItem {
   }
 
   std::vector<std::string> primary_keys_vector() const {
-    std::vector<std::string> keys;
     // Holds the list for the walk: the view is a pointer, and a writer may
     // publish a replacement over the member at any point.
     const auto primary_keys = std::atomic_load(&primary_keys_);
     const PackedPrimaryKeysView view(primary_keys);
+    std::vector<std::string> keys;
     keys.reserve(view.size());
     for (std::string_view key : view) {
       keys.emplace_back(key.data(), key.size());
@@ -96,9 +96,7 @@ struct DataItem {
   DataItem &operator=(const DataItem &rhs) {
     transaction_id.store(rhs.transaction_id.load());
     buffer.Reset(rhs.buffer);
-
-    auto primary_keys = std::atomic_load(&rhs.primary_keys_);
-    std::atomic_store(&primary_keys_, std::move(primary_keys));
+    std::atomic_store(&primary_keys_, std::atomic_load(&rhs.primary_keys_));
     return *this;
   }
 
@@ -120,7 +118,7 @@ struct DataItem {
   }
 
   void InsertPrimaryKey(const std::byte *v, size_t s) {
-    std::string_view new_key(reinterpret_cast<const char *>(v), s);
+    const std::string_view new_key(reinterpret_cast<const char *>(v), s);
     auto current = std::atomic_load(&primary_keys_);
     auto next = PackedPrimaryKeys::Insert(current, new_key);
     if (next != current) {

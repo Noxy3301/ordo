@@ -15,28 +15,19 @@
 #include "database_impl.h"
 #include "index/data_item.h"
 #include "index/secondary_index.h"
+#include "silo/stable_read.h"
 
 namespace helios::storage {
 
 namespace {
 
 // Exclusive end of a whole-index scan: a stored key opens with the null
-// marker of its first part, never with 0xFF.
-const std::string kSupremum(16, '\xff');
+// marker of its first part, never with 0xFF. Longer than any key prefix a
+// caller can pack into one part.
+constexpr size_t kSupremumSize = 16;
+const std::string kSupremum(kSupremumSize, '\xff');
 
-// Stable-read base-row liveness without copying the row payload.
-bool StableLive(const DataItem &item) {
-  for (;;) {
-    TransactionId tid = item.transaction_id.load();
-    if (tid.tid & 1u) {
-      _mm_pause();
-      continue;
-    }
-
-    const bool live = item.HasRow();
-    if (item.transaction_id.load() == tid) return live;
-  }
-}
+using silo::StableLive;
 
 }  // namespace
 
@@ -100,26 +91,11 @@ bool Database::Impl::IndexNdv(const std::string_view table_name,
     index::SecondaryIndex *index = table.value()->GetSecondaryIndex(index_name);
     if (index == nullptr) return false;
 
-    // Pin the secondary primary-key list under one stable TID.
+    // Secondary entries count only if one referenced base row is live.
     auto stable_live_secondary = [&](const DataItem &item) {
-      PackedPrimaryKeys::Ptr primary_keys;
-      for (;;) {
-        TransactionId tid = item.transaction_id.load();
-        if (tid.tid & 1u) {
-          _mm_pause();
-          continue;
-        }
-
-        auto snapshot = std::atomic_load(&item.primary_keys_);
-        const bool live = snapshot && snapshot->count != 0;
-        if (item.transaction_id.load() == tid) {
-          if (live) primary_keys = std::move(snapshot);
-          break;
-        }
-      }
-
-      // Secondary entries count only if one referenced base row is live.
-      for (std::string_view primary_key : PackedPrimaryKeysView(primary_keys)) {
+      const auto keys = silo::StableReadKeys(item);
+      if (!keys.found) return false;
+      for (std::string_view primary_key : keys.primary_keys_view()) {
         DataItem *base_item = primary_index.Get(primary_key);
         if (base_item != nullptr && StableLive(*base_item)) return true;
       }
@@ -165,33 +141,30 @@ bool Database::Impl::IndexHistogram(const std::string_view table_name,
 
   // Secondary scans visit one entry per key, but the histogram is over rows.
   // Use the PK-list length as that key's row weight.
-  const auto stable_pk_count = [](DataItem &di) -> uint64_t {
-    for (;;) {
-      TransactionId tid = di.transaction_id.load();
-      if (tid.tid & 1u) {
-        _mm_pause();
-        continue;
-      }
-      const auto primary_keys = std::atomic_load(&di.primary_keys_);
-      const uint64_t n = primary_keys ? primary_keys->count : 0;
-      if (di.transaction_id.load() == tid) return n;
-    }
+  const auto stable_pk_count = [](const DataItem &item) -> uint64_t {
+    const auto keys = silo::StableReadKeys(item);
+    return keys.found ? keys.primary_keys->count : 0;
   };
   // Walk one index in key order and expose each live key with its row weight.
-  bool malformed = false;
+  // A key the caller refuses ends the pass, so `fn` never sees one.
+  bool failed = false;
   auto walk = [&](auto &&fn) {
     if (index_name.empty()) {
       table.value()->GetPrimaryIndex().Scan(
           std::string_view(), std::string_view(kSupremum),
-          [&](std::string_view key, DataItem &di) -> bool {
-            if (StableLive(di)) return fn(key, static_cast<uint64_t>(1));
-            return false;
+          [&](std::string_view key, DataItem &item) -> bool {
+            if (!StableLive(item)) return false;
+            if (leading_end(key) == 0) {
+              failed = true;
+              return true;
+            }
+            return fn(key, static_cast<uint64_t>(1));
           });
     } else {
       index::SecondaryIndex *index =
           table.value()->GetSecondaryIndex(index_name);
       if (index == nullptr) {
-        malformed = true;
+        failed = true;
         return;
       }
       index->Scan(std::string_view(), std::string_view(kSupremum),
@@ -200,6 +173,10 @@ bool Database::Impl::IndexHistogram(const std::string_view table_name,
                     if (item == nullptr) return false;
                     const uint64_t w = stable_pk_count(*item);
                     if (w == 0) return false;  // dead/empty secondary entry
+                    if (leading_end(key) == 0) {
+                      failed = true;
+                      return true;
+                    }
                     return fn(key, w);
                   });
     }
@@ -207,29 +184,22 @@ bool Database::Impl::IndexHistogram(const std::string_view table_name,
 
   // Pass 1: count total rows represented by the index.
   uint64_t total = 0;
-  walk([&](std::string_view key, uint64_t w) -> bool {
-    if (leading_end(key) == 0) {
-      malformed = true;
-      return true;
-    }
+  walk([&](std::string_view, uint64_t w) -> bool {
     total += w;
     return false;
   });
-  if (malformed || total == 0) return false;
+  if (failed || total == 0) return false;
 
   // Pass 2: record a boundary at each stride-th row.
   const uint64_t stride = std::max<uint64_t>(1, total / buckets);
   uint64_t seen = 0;
   uint64_t next = stride;
-  std::string last_key;
+  // Only the leading part of the last key walked, which is what a bound is.
+  std::string last_bound;
   walk([&](std::string_view key, uint64_t w) -> bool {
     const size_t end = leading_end(key);
-    if (end == 0) {
-      malformed = true;
-      return true;
-    }
     seen += w;
-    last_key.assign(key.data(), end);
+    last_bound.assign(key.data(), end);
     if (seen >= next) {
       out_bounds.emplace_back(key.substr(0, end));
       out_cum.push_back(seen);
@@ -237,14 +207,14 @@ bool Database::Impl::IndexHistogram(const std::string_view table_name,
     }
     return false;
   });
-  if (malformed) {
+  if (failed) {
     out_bounds.clear();
     out_cum.clear();
     return false;
   }
   if (out_bounds.empty() || out_cum.back() != total) {
     // Close the histogram at the max key so the high end is exact.
-    out_bounds.push_back(last_key);
+    out_bounds.push_back(last_bound);
     out_cum.push_back(total);
   }
   return !out_bounds.empty();

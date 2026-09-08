@@ -14,7 +14,6 @@
 #include <vector>
 
 #include "index/data_item.h"
-#include "silo/snapshot.h"
 #include "silo/transaction_id.h"
 #include "util/epoch.h"
 
@@ -58,20 +57,17 @@ class Reaper {
   void Reap(EpochNumber published_epoch);
 
  private:
-  // Which index owns the tombstone's slot.
-  enum class DeferredPurgeIndexKind { Primary, Secondary };
-
   /**
    * @brief One logically deleted slot awaiting its physical purge.
    *
-   * Exactly one of primary_index / secondary_index is set, selected by
-   * `kind`. `item` is the slot pointer observed at enqueue time and serves
-   * as an identity check at reap time. `delete_commit_tid` is the TID the
-   * deleting commit published on the slot; it acts both as the grace-period
-   * clock and as evidence that the slot still holds the deleted version.
+   * Exactly one of primary_index / secondary_index is set, and which one
+   * says where the slot lives. `item` is the slot pointer observed at
+   * enqueue time and serves as an identity check at reap time.
+   * `delete_commit_tid` is the TID the deleting commit published on the
+   * slot; it acts both as the grace-period clock and as evidence that the
+   * slot still holds the deleted version.
    */
   struct Tombstone {
-    DeferredPurgeIndexKind kind;
     PrimaryIndex *primary_index = nullptr;
     SecondaryIndex *secondary_index = nullptr;
     std::string key;
